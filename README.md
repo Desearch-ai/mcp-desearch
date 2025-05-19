@@ -26,6 +26,20 @@ The Desearch MCP server includes the following tools:
 npm install -g desearch-mcp-server
 ```
 
+### Using Smithery
+
+To install the Desearch MCP server for Claude Desktop automatically via [Smithery](https://smithery.ai/server/@Desearch-ai/desearch):
+
+```bash
+npx -y @smithery/cli install @Desearch-ai/desearch --client claude
+```
+
+Or for Cursor IDE:
+
+```bash
+npx -y @smithery/cli install @Desearch-ai/desearch --client cursor
+```
+
 ## Configuration ⚙️
 
 ### 1. Configure Cursor IDE to run the Desearch MCP server
