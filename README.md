@@ -38,8 +38,7 @@ Open Cursor IDE, access command palette `Cmd+Shift+P` or `Ctrl+Shift+P`, and sea
 {
     "mcpServers": {
         "desearch": {
-            "command": "npx",
-            "args": ["/path/to/desearch-mcp-server/build/index.js"],
+            "command": "desearch-mcp-server",
             "env": {
                 "DESEARCH_API_KEY": "your-api-key"
             }
@@ -87,8 +86,7 @@ code %APPDATA%\Claude\claude_desktop_config.json
 {
     "mcpServers": {
         "desearch": {
-            "command": "npx",
-            "args": ["/path/to/desearch-mcp-server/build/index.js"],
+            "command": "desearch-mcp-server",
             "env": {
                 "DESEARCH_API_KEY": "your-api-key"
             }
@@ -106,15 +104,6 @@ For the changes to take effect:
 1. Completely quit Claude Desktop
 2. Start Claude Desktop again
 3. You can verify the server by checking status in Settings > Developer > desearch
-
-## Using via NPX
-
-If you prefer to run the server directly, you can use npx:
-
-```bash
-# Run with all tools enabled by default
-npx desearch-mcp-server
-```
 
 ## Troubleshooting 🔧
 
