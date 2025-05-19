@@ -1,0 +1,44 @@
+{
+    "name": "desearch-mcp-server",
+    "version": "0.0.1",
+    "description": "A Model Context Protocol server with Desearch for real-time AI search, X search and web search.",
+    "type": "module",
+    "author": "Desearch AI",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/Desearch-ai/mcp-desearch.git"
+    },
+    "bin": {
+        "desearch-mcp-server": "./build/index.js"
+    },
+    "files": [
+        "build"
+    ],
+    "keywords": [
+        "desearch",
+        "mcp",
+        "model context protocol",
+        "ai",
+        "twitter",
+        "websearch",
+        "claude"
+    ],
+    "scripts": {
+        "build": "tsc && node -e \"require('fs').chmodSync('build/index.js', '755')\"",
+        "inspector": "npx @modelcontextprotocol/inspector build/index.js",
+        "prepare": "npm run build",
+        "prepublishOnly": "npm run build"
+    },
+    "dependencies": {
+        "@modelcontextprotocol/sdk": "^1.11.3",
+        "desearch-js": "^1.0.1",
+        "zod": "^3.24.4"
+    },
+    "devDependencies": {
+        "@types/node": "^20.14.8",
+        "typescript": "^5.8.3"
+    },
+    "engines": {
+        "node": ">=18.0.0"
+    }
+}

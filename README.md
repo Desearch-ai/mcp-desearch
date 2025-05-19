@@ -1,1 +1,1 @@
-# mcp-desearch
+# Desearch MCP Server
