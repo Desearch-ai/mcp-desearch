@@ -143,6 +143,7 @@ server.tool(
         // Start receiving messages on stdin and sending messages on stdout
         const transport = new StdioServerTransport();
         await server.connect(transport);
+        console.log("Desearch server is running...");
     } catch (error) {
         console.log(`Server error: ${error instanceof Error ? error.message : String(error)}`);
         process.exit(1);
