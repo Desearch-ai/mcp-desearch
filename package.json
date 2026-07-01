@@ -1,6 +1,6 @@
 {
     "name": "desearch-mcp-server",
-    "version": "0.0.1",
+    "version": "0.1.0",
     "description": "A Model Context Protocol server with Desearch for real-time AI search, X search and web search.",
     "type": "module",
     "author": "Desearch AI",
