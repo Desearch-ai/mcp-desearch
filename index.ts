@@ -49,7 +49,27 @@ server.tool(
                 "PAST_2_YEARS",
             ])
             .optional()
-            .describe("Time range for the search, example: 'PAST_WEEK'"),
+            .describe("Deprecated relative window; prefer start_date/end_date. Example: 'PAST_WEEK'"),
+        start_date: z
+            .string()
+            .optional()
+            .describe("Start of the date range in UTC (YYYY-MM-DDTHH:MM:SSZ). Use with end_date."),
+        end_date: z
+            .string()
+            .optional()
+            .describe("End of the date range in UTC (YYYY-MM-DDTHH:MM:SSZ). Use with start_date."),
+        result_type: z
+            .enum(["ONLY_LINKS", "LINKS_WITH_FINAL_SUMMARY"])
+            .optional()
+            .describe("ONLY_LINKS returns links only; LINKS_WITH_FINAL_SUMMARY adds an AI summary."),
+        include_domains: z
+            .array(z.string())
+            .optional()
+            .describe("Restrict Web Search results to these domains, example: ['bbc.com', 'reuters.com']"),
+        exclude_domains: z
+            .array(z.string())
+            .optional()
+            .describe("Drop Web Search results from these domains, example: ['pinterest.com']"),
         model: z
             .enum(["NOVA", "ORBIT"])
             .default("NOVA")
@@ -57,15 +77,21 @@ server.tool(
                 "Model to use for the search, example: 'NOVA', Nova is 10s model, Orbit is 30s model"
             ),
     },
-    async ({ prompt, tools, date_filter, model }) => {
+    async ({ prompt, tools, date_filter, start_date, end_date, result_type, include_domains, exclude_domains, model }) => {
         try {
-            const aiResult = await desearch.AISearch({
+            const payload = {
                 prompt,
                 tools,
                 date_filter,
+                start_date,
+                end_date,
+                result_type,
+                include_domains,
+                exclude_domains,
                 model,
                 streaming: false,
-            });
+            };
+            const aiResult = await desearch.AISearch(payload);
 
             return {
                 content: [
