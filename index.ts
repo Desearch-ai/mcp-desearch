@@ -6,7 +6,7 @@ import Desearch from "desearch-js";
 
 const server = new McpServer({
     name: "Desearch",
-    version: "0.0.1",
+    version: "0.1.1",
 });
 
 const DESEARCH_API_KEY = process.env.DESEARCH_API_KEY;
@@ -106,7 +106,7 @@ server.tool(
                 content: [
                     {
                         type: "text",
-                        text: `X Search error: ${
+                        text: `AI Search error: ${
                             error instanceof Error ? error.message : String(error)
                         }`,
                     },
@@ -169,9 +169,9 @@ server.tool(
         // Start receiving messages on stdin and sending messages on stdout
         const transport = new StdioServerTransport();
         await server.connect(transport);
-        console.log("Desearch server is running...");
+        console.error("Desearch server is running...");
     } catch (error) {
-        console.log(`Server error: ${error instanceof Error ? error.message : String(error)}`);
+        console.error(`Server error: ${error instanceof Error ? error.message : String(error)}`);
         process.exit(1);
     }
 })();
