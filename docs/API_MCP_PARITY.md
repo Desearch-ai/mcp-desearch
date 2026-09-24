@@ -10,8 +10,10 @@ Auth is unchanged: stdio reads `DESEARCH_API_KEY`; Streamable HTTP builds one cl
 | --- | --- | --- |
 | Shipped | `ai-search`, `x-search` | Done before this plan. Tool names and the base `query` / `count` arguments stay stable. |
 | Phase 2 | Web tools: `web-search`, `web-links-search` | Done. |
-| Phase 3 | Remaining X tools (posts, user timelines, replies, retweeters, AI X links). Also the extra `xSearch` filters on `x-search`. | This PR. |
-| Phase 4 | `extract`, legacy `webCrawl`, and `xTrends` | Later. Not implemented here. |
+| Phase 3 | Remaining X tools (posts, user timelines, replies, retweeters, AI X links). Also the extra `xSearch` filters on `x-search`. | Done. |
+| Phase 4 | `extract`, legacy `webCrawl` (`web-crawl`), and `xTrends` | Done. |
+
+Phase 4 covers the remaining public `desearch-js` 1.5 methods. Every method in the table below has an MCP tool. The intentional gap is `latestTweets`: desearch-js 1.0.1 called `GET /twitter/latest`, and 1.5 removed that method, so there is no MCP tool for it. `web-crawl` stays even though the SDK deprecates `webCrawl` in favor of `extract`.
 
 ## Current SDK surface
 
@@ -21,17 +23,17 @@ Auth is unchanged: stdio reads `DESEARCH_API_KEY`; Streamable HTTP builds one cl
 | `xSearch` | `GET /twitter` | `x-search` | done + Phase 3 filters | Base arguments stay `query` and `count` (default 20). The handler still sends `sort: "Top"` and does not expose `sort`. Phase 3 adds optional filters and omits any that the caller leaves unset: `user`, `start_date`, `end_date` (YYYY-MM-DD), `lang`, `verified`, `blue_verified`, `is_quote`, `is_video`, `is_image`, `min_retweets`, `min_replies`, `min_likes`. Engagement thresholds accept an integer or a string, matching `XSearchParams`. |
 | `webSearch` | `GET /web` | `web-search` | done (Phase 2) | Args match `WebSearchParams`: `query` (required), `start` (optional page offset). See the `num` note below. |
 | `aiWebLinksSearch` | `POST /desearch/ai/search/links/web` | `web-links-search` | done (Phase 2) | Args match `AiWebLinksSearchRequest`: `prompt`, `tools` (`web`, `hackernews`, `reddit`, `wikipedia`, `youtube`, `arxiv`), optional `count` (10–200). This route is POST in both 1.0.1 and 1.5.0, and in the public API reference. X is not a tool on this endpoint. |
-| `aiXLinksSearch` | `POST /desearch/ai/search/links/twitter` | `x-links-search` | this PR (Phase 3) | Args match `AiXLinksSearchRequest`: `prompt`, optional `count` (10–200). |
-| `xPostsByUrls` | `GET /twitter/urls` | `x-posts-by-urls` | this PR (Phase 3) | `urls: string[]` (at least one). |
-| `xPostById` | `GET /twitter/post` | `x-post-by-id` | this PR (Phase 3) | `id`. 1.0.1 called `GET /twitter/{id}` instead. |
-| `xPostsByUser` | `GET /twitter/post/user` | `x-posts-by-user` | this PR (Phase 3) | `user`, optional `query`, optional `count` (1–100). |
-| `xPostRetweeters` | `GET /twitter/post/retweeters` | `x-post-retweeters` | this PR (Phase 3) | `id`, optional `cursor`. Different route from 1.0.1 `retweetsForPost`. |
-| `xUserPosts` | `GET /twitter/user/posts` | `x-user-posts` | this PR (Phase 3) | `username`, optional `cursor`. |
-| `xUserReplies` | `GET /twitter/replies` | `x-user-replies` | this PR (Phase 3) | `user`, optional `count` (1–100), optional `query`. |
-| `xPostReplies` | `GET /twitter/replies/post` | `x-post-replies` | this PR (Phase 3) | `post_id`, optional `count` (1–100), optional `query`. |
-| `xTrends` | `GET /twitter/trends` | `x-trends` | later (Phase 4) | `woeid`, optional `count` (30–100). Grouped with extract/crawl, not with the Phase 3 post helpers. |
-| `extract` | `GET /web/extract` | `extract` | later (Phase 4) | `url`, optional `format` (`html` \| `text`), `js`, `wait`. Preferred over crawl for new integrations. |
-| `webCrawl` | `GET /web/crawl` | `web-crawl` | later (Phase 4) | Same params as `extract`. SDK marks it deprecated and keeps it only for the legacy route. |
+| `aiXLinksSearch` | `POST /desearch/ai/search/links/twitter` | `x-links-search` | done (Phase 3) | Args match `AiXLinksSearchRequest`: `prompt`, optional `count` (10–200). |
+| `xPostsByUrls` | `GET /twitter/urls` | `x-posts-by-urls` | done (Phase 3) | `urls: string[]` (at least one). |
+| `xPostById` | `GET /twitter/post` | `x-post-by-id` | done (Phase 3) | `id`. 1.0.1 called `GET /twitter/{id}` instead. |
+| `xPostsByUser` | `GET /twitter/post/user` | `x-posts-by-user` | done (Phase 3) | `user`, optional `query`, optional `count` (1–100). |
+| `xPostRetweeters` | `GET /twitter/post/retweeters` | `x-post-retweeters` | done (Phase 3) | `id`, optional `cursor`. Different route from 1.0.1 `retweetsForPost`. |
+| `xUserPosts` | `GET /twitter/user/posts` | `x-user-posts` | done (Phase 3) | `username`, optional `cursor`. |
+| `xUserReplies` | `GET /twitter/replies` | `x-user-replies` | done (Phase 3) | `user`, optional `count` (1–100), optional `query`. |
+| `xPostReplies` | `GET /twitter/replies/post` | `x-post-replies` | done (Phase 3) | `post_id`, optional `count` (1–100), optional `query`. |
+| `xTrends` | `GET /twitter/trends` | `x-trends` | done (Phase 4) | Args match `XTrendsParams`: `woeid` (required integer), optional `count` (30–100). |
+| `extract` | `GET /web/extract` | `extract` | done (Phase 4) | Args match `ExtractParams`: `url`, optional `format` (`html` \| `text`), `js`, `wait` (milliseconds). Preferred over crawl for new integrations. |
+| `webCrawl` | `GET /web/crawl` | `web-crawl` | done (Phase 4) | Same params as `extract` (`WebCrawlParams` extends `ExtractParams`). SDK marks `webCrawl` deprecated and keeps it only for the legacy route. The MCP tool description says to prefer `extract`. |
 
 Tool handlers return the SDK payload as pretty-printed JSON text. They do not pass `includeMetadata: true`, same as `ai-search` and `x-search`.
 
@@ -53,7 +55,7 @@ The MCP package previously depended on `desearch-js` ^1.0.1. It now depends on ^
 | `twitterRepliesPost` | `xPostReplies` | Same `GET /twitter/replies/post`. |
 | `retweetsForPost` | `xPostRetweeters` | Not a straight rename. 1.0.1 called `GET /twitter/retweets/post`. 1.5 calls `GET /twitter/post/retweeters` and returns users plus a cursor. |
 | `tweeterUser` | `xUserPosts` | Not a straight rename. 1.0.1 called `GET /twitter/user`. 1.5 calls `GET /twitter/user/posts`. |
-| `latestTweets` | — | Removed. 1.0.1 called `GET /twitter/latest`. No 1.5 method, so no MCP tool is planned. |
+| `latestTweets` | — | Removed. 1.0.1 called `GET /twitter/latest`. No 1.5 method, so no MCP tool. This is the intentional gap on an otherwise complete public surface. |
 | — | `xTrends` | New. `GET /twitter/trends`. |
 | — | `extract` | New. `GET /web/extract`. |
 | — | `webCrawl` | New, then deprecated in favor of `extract`. `GET /web/crawl`. |
