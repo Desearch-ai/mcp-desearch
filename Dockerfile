@@ -10,9 +10,10 @@ COPY . .
 
 RUN npm run build
 
-ENV DESEARCH_API_KEY=your-api-key
+ENV PORT=3000
 
 EXPOSE 3000
 
-# Command will be provided by smithery.yaml
-CMD ["node", "build/index.js"]
+# Streamable HTTP on port 3000. Clients send their own Desearch API key.
+# Smithery overrides this command and starts the stdio server from smithery.yaml.
+CMD ["node", "build/index.js", "--http"]

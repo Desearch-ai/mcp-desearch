@@ -119,6 +119,71 @@ For the changes to take effect:
 2. Start Claude Desktop again
 3. You can verify the server by checking status in Settings > Developer > desearch
 
+## Remote Streamable HTTP
+
+The same server can run over MCP Streamable HTTP for a remote client. Local stdio (`desearch-mcp-server`, Smithery) is unchanged and still reads `DESEARCH_API_KEY` from the environment.
+
+Remote requests do not use that environment variable. Each request must carry the caller's own Desearch API key, the same key from [console.desearch.ai/api-keys](https://console.desearch.ai/api-keys):
+
+- `Authorization: Bearer <DESEARCH_API_KEY>` (preferred)
+- `x-api-key: <DESEARCH_API_KEY>`
+
+A bare `Authorization: <DESEARCH_API_KEY>` value is also accepted. The key is not read from the query string. There is no shared server secret: the hosted process forwards the per-request key to the Desearch API.
+
+The MCP endpoint is `POST /mcp`. Responses are JSON (stateless Streamable HTTP). `GET` and `DELETE` on `/mcp` return `405` because the server does not keep a session or push server-to-client messages. `GET /` and `GET /health` are unauthenticated health checks.
+
+### Run locally
+
+```bash
+npm install
+npm run build
+npm run start:http
+```
+
+This listens on `0.0.0.0:3000` (`PORT` and `HOST` override that). `MCP_TRANSPORT=http` is the same as `--http`.
+
+```bash
+curl -sS http://127.0.0.1:3000/mcp \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -H 'Authorization: Bearer your-api-key' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"smoke","version":"0.0.1"}}}'
+```
+
+Cursor (or any remote MCP client):
+
+```json
+{
+    "mcpServers": {
+        "desearch": {
+            "url": "http://127.0.0.1:3000/mcp",
+            "headers": {
+                "Authorization": "Bearer your-api-key"
+            }
+        }
+    }
+}
+```
+
+Docker serves the same HTTP entrypoint (`EXPOSE 3000`). Smithery still starts stdio and injects `DESEARCH_API_KEY` itself.
+
+```bash
+docker build -t desearch-mcp .
+docker run --rm -p 3000:3000 desearch-mcp
+```
+
+### Deploy on Vercel
+
+Vercel fits this server because the handler is stateless and answers each JSON-RPC call in one response. `vercel.json` builds the project, serves `POST /mcp`, and allows tool calls up to 60 seconds (Orbit searches run about 30 seconds). Hobby plans cap function duration lower than that, so AI Search tool calls need a plan that allows at least 60 seconds. `initialize` and `tools/list` are short either way.
+
+No server-side Desearch API key is required in the Vercel project. After deploy, the endpoint is:
+
+`https://<project>.vercel.app/mcp`
+
+Pointing DNS for `mcp.desearch.ai` at that deployment is a later step. This repo does not create DNS records. Once that name exists, clients use `https://mcp.desearch.ai/mcp` with the same `Authorization` header.
+
+The same `node build/index.js --http` process is the fallback if you would rather run a long-lived Node host or the Docker image instead of Vercel.
+
 ## Troubleshooting 🔧
 
 ### Common Issues
@@ -133,6 +198,7 @@ For the changes to take effect:
     - Confirm your `DESEARCH_API_KEY` is valid
     - Check the `DESEARCH_API_KEY` is correctly set in the Cursor or Claude Desktop config
     - Verify that there are no spaces around the API key
+    - For the remote HTTP server, send `Authorization: Bearer <key>` or `x-api-key`. A hosted `DESEARCH_API_KEY` environment variable is not used for those requests.
 
 3. **Connection Issues**
 
