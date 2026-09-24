@@ -37,7 +37,6 @@ const TOOL_NAMES = [
     "x-posts-by-urls",
     "x-posts-by-user",
     "x-search",
-    "x-trends",
     "x-user-posts",
     "x-user-replies",
 ];
@@ -135,7 +134,6 @@ test("stdio initializes and lists tools", async () => {
             "x-post-replies": ["post_id"],
             extract: ["url"],
             "web-crawl": ["url"],
-            "x-trends": ["woeid"],
         };
         for (const [name, required] of Object.entries(requiredByTool)) {
             const tool = listed.tools.find((entry) => entry.name === name);
@@ -151,10 +149,6 @@ test("stdio initializes and lists tools", async () => {
         const webCrawl = listed.tools.find((entry) => entry.name === "web-crawl");
         assert.match(webCrawl.description, /deprecated/i);
         assert.match(webCrawl.description, /extract/);
-        const trends = listed.tools.find((entry) => entry.name === "x-trends");
-        assert.equal(typeof trends.inputSchema.properties.count, "object");
-        assert.equal(trends.inputSchema.properties.count.minimum, 30);
-        assert.equal(trends.inputSchema.properties.count.maximum, 100);
     });
 });
 

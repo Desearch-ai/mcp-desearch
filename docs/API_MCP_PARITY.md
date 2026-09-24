@@ -1,6 +1,6 @@
 # Desearch API ↔ MCP parity
 
-The product rule is that every public Desearch API / SDK method is exposed as an MCP tool. This file is the inventory for that work. It tracks `desearch-js` **1.5.0** (current) against the MCP server. HTTP paths are the ones the SDK calls on `https://api.desearch.ai`.
+This file inventories public Desearch API / SDK methods against the MCP server. Twitter/X trends (`xTrends`, `GET /twitter/trends`) is removed and has no MCP tool. It tracks `desearch-js` **1.5.0** (current). HTTP paths are the ones the SDK calls on `https://api.desearch.ai`.
 
 Auth is unchanged: stdio reads `DESEARCH_API_KEY`; Streamable HTTP builds one client per request from `Authorization: Bearer <key>` or `x-api-key`.
 
@@ -11,9 +11,9 @@ Auth is unchanged: stdio reads `DESEARCH_API_KEY`; Streamable HTTP builds one cl
 | Shipped | `ai-search`, `x-search` | Done before this plan. Tool names and the base `query` / `count` arguments stay stable. |
 | Phase 2 | Web tools: `web-search`, `web-links-search` | Done. |
 | Phase 3 | Remaining X tools (posts, user timelines, replies, retweeters, AI X links). Also the extra `xSearch` filters on `x-search`. | Done. |
-| Phase 4 | `extract`, legacy `webCrawl` (`web-crawl`), and `xTrends` | Done. |
+| Phase 4 | `extract` and legacy `webCrawl` (`web-crawl`) | Done. |
 
-Phase 4 covers the remaining public `desearch-js` 1.5 methods. Every method in the table below has an MCP tool. The intentional gap is `latestTweets`: desearch-js 1.0.1 called `GET /twitter/latest`, and 1.5 removed that method, so there is no MCP tool for it. `web-crawl` stays even though the SDK deprecates `webCrawl` in favor of `extract`.
+Phase 4 covers `extract` and legacy `webCrawl`. Every method in the table below has an MCP tool. `latestTweets` is gone from the SDK (desearch-js 1.0.1 called `GET /twitter/latest`; 1.5 removed that method), so there is no MCP tool for it. `xTrends` (`GET /twitter/trends`) is removed from this server by product decision and is not an MCP tool. `web-crawl` stays even though the SDK deprecates `webCrawl` in favor of `extract`.
 
 ## Current SDK surface
 
@@ -31,7 +31,6 @@ Phase 4 covers the remaining public `desearch-js` 1.5 methods. Every method in t
 | `xUserPosts` | `GET /twitter/user/posts` | `x-user-posts` | done (Phase 3) | `username`, optional `cursor`. |
 | `xUserReplies` | `GET /twitter/replies` | `x-user-replies` | done (Phase 3) | `user`, optional `count` (1–100), optional `query`. |
 | `xPostReplies` | `GET /twitter/replies/post` | `x-post-replies` | done (Phase 3) | `post_id`, optional `count` (1–100), optional `query`. |
-| `xTrends` | `GET /twitter/trends` | `x-trends` | done (Phase 4) | Args match `XTrendsParams`: `woeid` (required integer), optional `count` (30–100). |
 | `extract` | `GET /web/extract` | `extract` | done (Phase 4) | Args match `ExtractParams`: `url`, optional `format` (`html` \| `text`), `js`, `wait` (milliseconds). Preferred over crawl for new integrations. |
 | `webCrawl` | `GET /web/crawl` | `web-crawl` | done (Phase 4) | Same params as `extract` (`WebCrawlParams` extends `ExtractParams`). SDK marks `webCrawl` deprecated and keeps it only for the legacy route. The MCP tool description says to prefer `extract`. |
 
@@ -55,8 +54,8 @@ The MCP package previously depended on `desearch-js` ^1.0.1. It now depends on ^
 | `twitterRepliesPost` | `xPostReplies` | Same `GET /twitter/replies/post`. |
 | `retweetsForPost` | `xPostRetweeters` | Not a straight rename. 1.0.1 called `GET /twitter/retweets/post`. 1.5 calls `GET /twitter/post/retweeters` and returns users plus a cursor. |
 | `tweeterUser` | `xUserPosts` | Not a straight rename. 1.0.1 called `GET /twitter/user`. 1.5 calls `GET /twitter/user/posts`. |
-| `latestTweets` | — | Removed. 1.0.1 called `GET /twitter/latest`. No 1.5 method, so no MCP tool. This is the intentional gap on an otherwise complete public surface. |
-| — | `xTrends` | New. `GET /twitter/trends`. |
+| `latestTweets` | — | Removed. 1.0.1 called `GET /twitter/latest`. No 1.5 method, so no MCP tool. |
+| — | `xTrends` | Added in 1.5 (`GET /twitter/trends`), then removed from the MCP server. Not a tool. |
 | — | `extract` | New. `GET /web/extract`. |
 | — | `webCrawl` | New, then deprecated in favor of `extract`. `GET /web/crawl`. |
 

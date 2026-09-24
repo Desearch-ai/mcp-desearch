@@ -43,7 +43,6 @@ interface DesearchClient {
     xUserPosts(payload: { username: string; cursor?: string }): Promise<unknown>;
     xUserReplies(payload: { user: string; count?: number; query?: string }): Promise<unknown>;
     xPostReplies(payload: { post_id: string; count?: number; query?: string }): Promise<unknown>;
-    xTrends(payload: { woeid: number; count?: number }): Promise<unknown>;
     extract(payload: PageContentPayload): Promise<unknown>;
     webCrawl(payload: PageContentPayload): Promise<unknown>;
 }
@@ -541,32 +540,6 @@ export function createDesearchMcpServer(apiKey: string, client?: DesearchClient)
                 return ok(await desearch.webCrawl({ url, format, js, wait }));
             } catch (error) {
                 return fail("Web Crawl error", error);
-            }
-        }
-    );
-
-    registerTool(
-        server,
-        "x-trends",
-        "Retrieve trending topics on X (Twitter) for a location by its WOEID using Desearch.",
-        {
-            woeid: z
-                .number()
-                .int()
-                .describe("WOEID of the location, example: 23424977 for the United States."),
-            count: z
-                .number()
-                .int()
-                .min(30)
-                .max(100)
-                .optional()
-                .describe("Number of trends to return (30-100)."),
-        },
-        async ({ woeid, count }) => {
-            try {
-                return ok(await desearch.xTrends({ woeid, count }));
-            } catch (error) {
-                return fail("X Trends error", error);
             }
         }
     );

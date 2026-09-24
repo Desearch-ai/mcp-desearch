@@ -2,7 +2,7 @@
 
 [![npm version](https://badge.fury.io/js/desearch-mcp-server.svg)](https://www.npmjs.com/package/desearch-mcp-server)
 
-A Model Context Protocol (MCP) server lets clients like Claude or Cursor use Desearch for real-time AI search, X search, web search, page extraction, and X trends.
+A Model Context Protocol (MCP) server lets clients like Claude or Cursor use Desearch for real-time AI search, X search, web search, and page extraction.
 
 ## Tools
 
@@ -22,9 +22,8 @@ The Desearch MCP server includes the following tools:
 -   **X User Posts** (`x-user-posts`): A user's timeline. Arguments: `username` (required), `cursor` (optional).
 -   **X User Replies** (`x-user-replies`): Posts and replies by a user. Arguments: `user` (required), `count` (optional, 1–100), `query` (optional).
 -   **X Post Replies** (`x-post-replies`): Replies to a post. Arguments: `post_id` (required), `count` (optional, 1–100), `query` (optional).
--   **X Trends** (`x-trends`): Trending topics for a location. Arguments: `woeid` (required), `count` (optional, 30–100).
 
-The full SDK method → endpoint → MCP tool map is in [docs/API_MCP_PARITY.md](docs/API_MCP_PARITY.md). Every public `desearch-js` 1.5 method is a tool. `latestTweets` was removed from the SDK (`GET /twitter/latest` in 1.0.1) and is not exposed.
+The full SDK method → endpoint → MCP tool map is in [docs/API_MCP_PARITY.md](docs/API_MCP_PARITY.md). `xTrends` (`GET /twitter/trends`) is not an MCP tool. `latestTweets` was removed from the SDK (`GET /twitter/latest` in 1.0.1) and is not exposed.
 
 ## Prerequisites 📋
 

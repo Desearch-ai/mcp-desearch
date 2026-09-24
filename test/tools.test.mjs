@@ -279,7 +279,7 @@ test("phase 3 x tools call the matching desearch-js methods", async () => {
     ]);
 });
 
-test("phase 4 extract, web-crawl, and x-trends call the matching desearch-js methods", async () => {
+test("phase 4 extract and web-crawl call the matching desearch-js methods", async () => {
     const calls = [];
     const fake = {
         async extract(payload) {
@@ -292,10 +292,6 @@ test("phase 4 extract, web-crawl, and x-trends call the matching desearch-js met
         async webCrawl(payload) {
             calls.push(["webCrawl", payload]);
             return "<p>legacy</p>";
-        },
-        async xTrends(payload) {
-            calls.push(["xTrends", payload]);
-            return { trends: [{ name: "Desearch", rank: 1 }] };
         },
     };
 
@@ -316,7 +312,6 @@ test("phase 4 extract, web-crawl, and x-trends call the matching desearch-js met
                 "x-posts-by-urls",
                 "x-posts-by-user",
                 "x-search",
-                "x-trends",
                 "x-user-posts",
                 "x-user-replies",
             ]
@@ -351,18 +346,6 @@ test("phase 4 extract, web-crawl, and x-trends call the matching desearch-js met
         });
         assert.equal(JSON.parse(textOf(crawled)), "<p>legacy</p>");
 
-        const trends = await client.callTool({
-            name: "x-trends",
-            arguments: { woeid: 23424977, count: 30 },
-        });
-        assert.equal(JSON.parse(textOf(trends)).trends[0].name, "Desearch");
-
-        const trendsDefaultCount = await client.callTool({
-            name: "x-trends",
-            arguments: { woeid: 1 },
-        });
-        assert.equal(JSON.parse(textOf(trendsDefaultCount)).trends[0].rank, 1);
-
         const failed = await client.callTool({
             name: "extract",
             arguments: { url: "https://fail.example" },
@@ -381,18 +364,6 @@ test("phase 4 extract, web-crawl, and x-trends call the matching desearch-js met
             arguments: { format: "text" },
         });
         assert.equal(rejectedCrawl.isError, true);
-
-        const rejectedCount = await client.callTool({
-            name: "x-trends",
-            arguments: { woeid: 23424977, count: 10 },
-        });
-        assert.equal(rejectedCount.isError, true);
-
-        const rejectedWoeid = await client.callTool({
-            name: "x-trends",
-            arguments: { count: 30 },
-        });
-        assert.equal(rejectedWoeid.isError, true);
     });
 
     assert.deepEqual(calls, [
@@ -408,8 +379,6 @@ test("phase 4 extract, web-crawl, and x-trends call the matching desearch-js met
             "webCrawl",
             { url: "https://desearch.ai", format: "html", js: false, wait: 0 },
         ],
-        ["xTrends", { woeid: 23424977, count: 30 }],
-        ["xTrends", { woeid: 1, count: undefined }],
         ["extract", { url: "https://fail.example", format: undefined, js: undefined, wait: undefined }],
     ]);
 });
