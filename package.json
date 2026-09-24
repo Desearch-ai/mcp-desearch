@@ -29,14 +29,14 @@
     "scripts": {
         "build": "tsc && node -e \"require('fs').chmodSync('build/index.js', '755')\"",
         "start:http": "node build/index.js --http",
-        "test": "npm run build && node --test test/smoke.test.mjs",
+        "test": "npm run build && node --test test/*.test.mjs",
         "inspector": "npx @modelcontextprotocol/inspector build/index.js",
         "prepare": "npm run build",
         "prepublishOnly": "npm run build"
     },
     "dependencies": {
         "@modelcontextprotocol/sdk": "^1.30.1",
-        "desearch-js": "^1.0.1",
+        "desearch-js": "^1.5.0",
         "zod": "^3.24.4"
     },
     "devDependencies": {

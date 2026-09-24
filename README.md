@@ -8,8 +8,12 @@ A Model Context Protocol (MCP) server lets clients like Claude or Cursor use the
 
 The Desearch MCP server includes the following tools:
 
--   **AI Search**: Performs real-time AI Twitter and web searches with relevant links and summary.
--   **X Search**: Real-time tweet search on X.
+-   **AI Search** (`ai-search`): Performs real-time AI Twitter and web searches with relevant links and summary.
+-   **X Search** (`x-search`): Real-time tweet search on X.
+-   **Web Search** (`web-search`): SERP-style web search. Arguments: `query` (required), `start` (optional pagination offset).
+-   **Web Links Search** (`web-links-search`): Link search across web, Hacker News, Reddit, Wikipedia, YouTube, and arXiv. Arguments: `prompt` (required), `tools` (required; `web`, `hackernews`, `reddit`, `wikipedia`, `youtube`, `arxiv`), `count` (optional, 10–200).
+
+The full SDK method → endpoint → MCP tool map, including later phases, is in [docs/API_MCP_PARITY.md](docs/API_MCP_PARITY.md).
 
 ## Prerequisites 📋
 

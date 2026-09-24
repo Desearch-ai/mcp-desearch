@@ -24,6 +24,8 @@ const MCP_HEADERS = {
     accept: "application/json, text/event-stream",
 };
 
+const TOOL_NAMES = ["ai-search", "web-links-search", "web-search", "x-search"];
+
 function mcpPost(port, headers, path = "/mcp") {
     return fetch(`http://127.0.0.1:${port}${path}`, {
         method: "POST",
@@ -59,8 +61,31 @@ test("stdio initializes and lists tools", async () => {
         const listed = await client.listTools();
         assert.deepEqual(
             listed.tools.map((tool) => tool.name).sort(),
-            ["ai-search", "x-search"]
+            TOOL_NAMES
         );
+        const aiSearch = listed.tools.find((tool) => tool.name === "ai-search");
+        assert.deepEqual(aiSearch.inputSchema.properties.tools.items.enum, [
+            "Twitter Search",
+            "Web Search",
+            "ArXiv Search",
+            "Wikipedia Search",
+            "Youtube Search",
+            "Hacker News Search",
+            "Reddit Search",
+        ]);
+        const webSearch = listed.tools.find((tool) => tool.name === "web-search");
+        assert.deepEqual(webSearch.inputSchema.required, ["query"]);
+        assert.equal(typeof webSearch.inputSchema.properties.start, "object");
+        const webLinks = listed.tools.find((tool) => tool.name === "web-links-search");
+        assert.deepEqual(webLinks.inputSchema.required, ["prompt", "tools"]);
+        assert.deepEqual(webLinks.inputSchema.properties.tools.items.enum, [
+            "web",
+            "hackernews",
+            "reddit",
+            "wikipedia",
+            "youtube",
+            "arxiv",
+        ]);
     });
 });
 
@@ -136,7 +161,7 @@ test("streamable HTTP initialize and tools/list with Bearer and x-api-key", asyn
                 const listed = await client.listTools();
                 assert.deepEqual(
                     listed.tools.map((tool) => tool.name).sort(),
-                    ["ai-search", "x-search"]
+                    TOOL_NAMES
                 );
                 const aiSearch = listed.tools.find((tool) => tool.name === "ai-search");
                 assert.equal(typeof aiSearch?.inputSchema?.properties?.prompt, "object");
@@ -247,6 +272,6 @@ test("Vercel function entries initialize over the rewritten paths", async () => 
     const tools = await listed.json();
     assert.deepEqual(
         tools.result.tools.map((tool) => tool.name).sort(),
-        ["ai-search", "x-search"]
+        TOOL_NAMES
     );
 });

@@ -6,11 +6,13 @@ export const SERVER_NAME = "Desearch";
 export const SERVER_VERSION = "0.1.2";
 
 interface DesearchClient {
-    AISearch(payload: Record<string, unknown>): Promise<unknown>;
-    twitterSearch(payload: { query: string; sort?: "Top" | "Latest"; count?: number }): Promise<unknown>;
+    aiSearch(payload: Record<string, unknown>): Promise<unknown>;
+    xSearch(payload: { query: string; sort?: "Top" | "Latest"; count?: number }): Promise<unknown>;
+    webSearch(payload: { query: string; start?: number }): Promise<unknown>;
+    aiWebLinksSearch(payload: { prompt: string; tools: string[]; count?: number }): Promise<unknown>;
 }
 
-// desearch-js publishes a default class. Node16 resolution types that package
+// desearch-js 1.5 publishes a default class. Node16 resolution types that package
 // as a module namespace, so the constructor is applied through a cast.
 const Desearch = DesearchImport as unknown as new (apiKey: string) => DesearchClient;
 
@@ -20,6 +22,33 @@ type ToolResult = {
 };
 
 type ToolHandler = (args: any) => Promise<ToolResult>;
+
+const WEB_LINK_TOOLS = [
+    "web",
+    "hackernews",
+    "reddit",
+    "wikipedia",
+    "youtube",
+    "arxiv",
+] as const;
+
+function ok(value: unknown): ToolResult {
+    return {
+        content: [{ type: "text", text: JSON.stringify(value, null, 2) }],
+    };
+}
+
+function fail(label: string, error: unknown): ToolResult {
+    return {
+        content: [
+            {
+                type: "text",
+                text: `${label}: ${error instanceof Error ? error.message : String(error)}`,
+            },
+        ],
+        isError: true,
+    };
+}
 
 function registerTool(
     server: McpServer,
@@ -42,9 +71,11 @@ function registerTool(
  * One MCP server bound to a single Desearch API key.
  * Stdio uses the process env key. Remote HTTP builds a new server per request
  * so each caller spends their own key.
+ * `client` is a test seam. Production callers omit it and the server builds
+ * a desearch-js client from `apiKey`.
  */
-export function createDesearchMcpServer(apiKey: string): McpServer {
-    const desearch = new Desearch(apiKey);
+export function createDesearchMcpServer(apiKey: string, client?: DesearchClient): McpServer {
+    const desearch = client ?? new Desearch(apiKey);
     const server = new McpServer({
         name: SERVER_NAME,
         version: SERVER_VERSION,
@@ -125,28 +156,9 @@ export function createDesearchMcpServer(apiKey: string): McpServer {
                     model,
                     streaming: false,
                 };
-                const aiResult = await desearch.AISearch(payload);
-
-                return {
-                    content: [
-                        {
-                            type: "text" as const,
-                            text: JSON.stringify(aiResult, null, 2),
-                        },
-                    ],
-                };
+                return ok(await desearch.aiSearch(payload));
             } catch (error) {
-                return {
-                    content: [
-                        {
-                            type: "text" as const,
-                            text: `AI Search error: ${
-                                error instanceof Error ? error.message : String(error)
-                            }`,
-                        },
-                    ],
-                    isError: true,
-                };
+                return fail("AI Search error", error);
             }
         }
     );
@@ -169,32 +181,70 @@ export function createDesearchMcpServer(apiKey: string): McpServer {
         },
         async ({ query, count }) => {
             try {
-                const twitterResult = await desearch.twitterSearch({
-                    query,
-                    sort: "Top",
-                    count,
-                });
-
-                return {
-                    content: [
-                        {
-                            type: "text" as const,
-                            text: JSON.stringify(twitterResult, null, 2),
-                        },
-                    ],
-                };
+                return ok(
+                    await desearch.xSearch({
+                        query,
+                        sort: "Top",
+                        count,
+                    })
+                );
             } catch (error) {
-                return {
-                    content: [
-                        {
-                            type: "text" as const,
-                            text: `X Search error: ${
-                                error instanceof Error ? error.message : String(error)
-                            }`,
-                        },
-                    ],
-                    isError: true,
-                };
+                return fail("X Search error", error);
+            }
+        }
+    );
+
+    registerTool(
+        server,
+        "web-search",
+        "SERP-style web search using Desearch. Returns ranked titles, links, and snippets.",
+        {
+            query: z.string().describe("Search query, example: 'latest news on AI'"),
+            start: z
+                .number()
+                .int()
+                .min(0)
+                .optional()
+                .describe(
+                    "How many results to skip for pagination (0, 10, 20, ...). Omit for the first page."
+                ),
+        },
+        async ({ query, start }) => {
+            try {
+                return ok(await desearch.webSearch({ query, start }));
+            } catch (error) {
+                return fail("Web Search error", error);
+            }
+        }
+    );
+
+    registerTool(
+        server,
+        "web-links-search",
+        "Search for links across web sources (web, Hacker News, Reddit, Wikipedia, YouTube, arXiv) using Desearch. Does not search X.",
+        {
+            prompt: z
+                .string()
+                .describe("Search query prompt, example: 'open source browser automation tools'"),
+            tools: z
+                .array(z.enum(WEB_LINK_TOOLS))
+                .min(1)
+                .describe(
+                    "Sources to search. Example: ['web', 'reddit', 'arxiv']. X is not available on this tool."
+                ),
+            count: z
+                .number()
+                .int()
+                .min(10)
+                .max(200)
+                .optional()
+                .describe("Results to return per source. Min 10. Max 200."),
+        },
+        async ({ prompt, tools, count }) => {
+            try {
+                return ok(await desearch.aiWebLinksSearch({ prompt, tools, count }));
+            } catch (error) {
+                return fail("Web Links Search error", error);
             }
         }
     );
