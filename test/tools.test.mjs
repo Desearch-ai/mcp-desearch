@@ -111,3 +111,170 @@ test("tools call the desearch-js 1.5 methods with the existing ai/x payloads", a
         ["webSearch", { query: "fail", start: undefined }],
     ]);
 });
+
+test("phase 3 x tools call the matching desearch-js methods", async () => {
+    const calls = [];
+    const fake = {
+        async xSearch(payload) {
+            calls.push(["xSearch", payload]);
+            return [{ id: "filtered" }];
+        },
+        async aiXLinksSearch(payload) {
+            calls.push(["aiXLinksSearch", payload]);
+            return { search_results: [{ link: "https://x.com/user/status/1" }] };
+        },
+        async xPostsByUrls(payload) {
+            calls.push(["xPostsByUrls", payload]);
+            return [{ id: "url-post" }];
+        },
+        async xPostById(payload) {
+            calls.push(["xPostById", payload]);
+            if (payload.id === "missing") {
+                throw new Error("HTTP 404: not found");
+            }
+            return { id: payload.id, text: "one post" };
+        },
+        async xPostsByUser(payload) {
+            calls.push(["xPostsByUser", payload]);
+            return [{ id: "user-post" }];
+        },
+        async xPostRetweeters(payload) {
+            calls.push(["xPostRetweeters", payload]);
+            return { users: [{ username: "alice" }], cursor: "next" };
+        },
+        async xUserPosts(payload) {
+            calls.push(["xUserPosts", payload]);
+            return { posts: [{ id: "timeline" }] };
+        },
+        async xUserReplies(payload) {
+            calls.push(["xUserReplies", payload]);
+            return [{ id: "reply" }];
+        },
+        async xPostReplies(payload) {
+            calls.push(["xPostReplies", payload]);
+            return [{ id: "thread" }];
+        },
+    };
+
+    await withFakeClient(fake, async (client) => {
+        const filtered = await client.callTool({
+            name: "x-search",
+            arguments: {
+                query: "bittensor",
+                count: 15,
+                user: "opentensor",
+                start_date: "2024-01-01",
+                end_date: "2024-02-01",
+                lang: "en",
+                verified: true,
+                blue_verified: false,
+                is_quote: true,
+                is_video: false,
+                is_image: true,
+                min_retweets: 5,
+                min_replies: "2",
+                min_likes: 10,
+            },
+        });
+        assert.equal(JSON.parse(textOf(filtered))[0].id, "filtered");
+
+        const links = await client.callTool({
+            name: "x-links-search",
+            arguments: { prompt: "subnet updates", count: 20 },
+        });
+        assert.equal(JSON.parse(textOf(links)).search_results[0].link, "https://x.com/user/status/1");
+
+        const byUrls = await client.callTool({
+            name: "x-posts-by-urls",
+            arguments: { urls: ["https://x.com/user/status/1"] },
+        });
+        assert.equal(JSON.parse(textOf(byUrls))[0].id, "url-post");
+
+        const byId = await client.callTool({
+            name: "x-post-by-id",
+            arguments: { id: "123" },
+        });
+        assert.equal(JSON.parse(textOf(byId)).text, "one post");
+
+        const byUser = await client.callTool({
+            name: "x-posts-by-user",
+            arguments: { user: "elonmusk", query: "mars", count: 5 },
+        });
+        assert.equal(JSON.parse(textOf(byUser))[0].id, "user-post");
+
+        const retweeters = await client.callTool({
+            name: "x-post-retweeters",
+            arguments: { id: "123", cursor: "page-2" },
+        });
+        assert.equal(JSON.parse(textOf(retweeters)).users[0].username, "alice");
+
+        const timeline = await client.callTool({
+            name: "x-user-posts",
+            arguments: { username: "elonmusk" },
+        });
+        assert.equal(JSON.parse(textOf(timeline)).posts[0].id, "timeline");
+
+        const userReplies = await client.callTool({
+            name: "x-user-replies",
+            arguments: { user: "elonmusk", count: 8, query: "starship" },
+        });
+        assert.equal(JSON.parse(textOf(userReplies))[0].id, "reply");
+
+        const postReplies = await client.callTool({
+            name: "x-post-replies",
+            arguments: { post_id: "123" },
+        });
+        assert.equal(JSON.parse(textOf(postReplies))[0].id, "thread");
+
+        const failed = await client.callTool({
+            name: "x-post-by-id",
+            arguments: { id: "missing" },
+        });
+        assert.equal(failed.isError, true);
+        assert.match(textOf(failed), /^X Post By ID error: HTTP 404: not found$/);
+
+        const rejectedLinks = await client.callTool({
+            name: "x-links-search",
+            arguments: { prompt: "too few", count: 5 },
+        });
+        assert.equal(rejectedLinks.isError, true);
+
+        const rejectedUrls = await client.callTool({
+            name: "x-posts-by-urls",
+            arguments: { urls: [] },
+        });
+        assert.equal(rejectedUrls.isError, true);
+    });
+
+    assert.deepEqual(calls, [
+        [
+            "xSearch",
+            {
+                query: "bittensor",
+                sort: "Top",
+                count: 15,
+                user: "opentensor",
+                start_date: "2024-01-01",
+                end_date: "2024-02-01",
+                lang: "en",
+                verified: true,
+                blue_verified: false,
+                is_quote: true,
+                is_video: false,
+                is_image: true,
+                min_retweets: 5,
+                min_replies: "2",
+                min_likes: 10,
+            },
+        ],
+        ["aiXLinksSearch", { prompt: "subnet updates", count: 20 }],
+        ["xPostsByUrls", { urls: ["https://x.com/user/status/1"] }],
+        ["xPostById", { id: "123" }],
+        ["xPostsByUser", { user: "elonmusk", query: "mars", count: 5 }],
+        ["xPostRetweeters", { id: "123", cursor: "page-2" }],
+        ["xUserPosts", { username: "elonmusk", cursor: undefined }],
+        ["xUserReplies", { user: "elonmusk", count: 8, query: "starship" }],
+        ["xPostReplies", { post_id: "123", count: undefined, query: undefined }],
+        ["xPostById", { id: "missing" }],
+    ]);
+});

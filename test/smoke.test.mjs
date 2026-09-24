@@ -24,7 +24,20 @@ const MCP_HEADERS = {
     accept: "application/json, text/event-stream",
 };
 
-const TOOL_NAMES = ["ai-search", "web-links-search", "web-search", "x-search"];
+const TOOL_NAMES = [
+    "ai-search",
+    "web-links-search",
+    "web-search",
+    "x-links-search",
+    "x-post-by-id",
+    "x-post-replies",
+    "x-post-retweeters",
+    "x-posts-by-urls",
+    "x-posts-by-user",
+    "x-search",
+    "x-user-posts",
+    "x-user-replies",
+];
 
 function mcpPost(port, headers, path = "/mcp") {
     return fetch(`http://127.0.0.1:${port}${path}`, {
@@ -86,6 +99,42 @@ test("stdio initializes and lists tools", async () => {
             "youtube",
             "arxiv",
         ]);
+
+        const xSearch = listed.tools.find((tool) => tool.name === "x-search");
+        assert.deepEqual(xSearch.inputSchema.required, ["query"]);
+        assert.equal(xSearch.inputSchema.properties.count.default, 20);
+        assert.equal(xSearch.inputSchema.properties.sort, undefined);
+        for (const name of [
+            "user",
+            "start_date",
+            "end_date",
+            "lang",
+            "verified",
+            "blue_verified",
+            "is_quote",
+            "is_video",
+            "is_image",
+            "min_retweets",
+            "min_replies",
+            "min_likes",
+        ]) {
+            assert.equal(typeof xSearch.inputSchema.properties[name], "object", name);
+        }
+
+        const requiredByTool = {
+            "x-links-search": ["prompt"],
+            "x-posts-by-urls": ["urls"],
+            "x-post-by-id": ["id"],
+            "x-posts-by-user": ["user"],
+            "x-post-retweeters": ["id"],
+            "x-user-posts": ["username"],
+            "x-user-replies": ["user"],
+            "x-post-replies": ["post_id"],
+        };
+        for (const [name, required] of Object.entries(requiredByTool)) {
+            const tool = listed.tools.find((entry) => entry.name === name);
+            assert.deepEqual(tool.inputSchema.required, required, name);
+        }
     });
 });
 
