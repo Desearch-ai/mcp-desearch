@@ -9,9 +9,17 @@ A Model Context Protocol (MCP) server lets clients like Claude or Cursor use the
 The Desearch MCP server includes the following tools:
 
 -   **AI Search** (`ai-search`): Performs real-time AI Twitter and web searches with relevant links and summary.
--   **X Search** (`x-search`): Real-time tweet search on X.
+-   **X Search** (`x-search`): Real-time tweet search on X. Arguments: `query` (required), `count` (optional, default 20). Sort stays Top. Optional filters: `user`, `start_date`, `end_date` (YYYY-MM-DD), `lang`, `verified`, `blue_verified`, `is_quote`, `is_video`, `is_image`, `min_retweets`, `min_replies`, `min_likes`.
 -   **Web Search** (`web-search`): SERP-style web search. Arguments: `query` (required), `start` (optional pagination offset).
 -   **Web Links Search** (`web-links-search`): Link search across web, Hacker News, Reddit, Wikipedia, YouTube, and arXiv. Arguments: `prompt` (required), `tools` (required; `web`, `hackernews`, `reddit`, `wikipedia`, `youtube`, `arxiv`), `count` (optional, 10–200).
+-   **X Links Search** (`x-links-search`): AI search for X post links. Arguments: `prompt` (required), `count` (optional, 10–200).
+-   **X Posts By URLs** (`x-posts-by-urls`): Full posts for a list of URLs. Argument: `urls` (required).
+-   **X Post By ID** (`x-post-by-id`): One post by ID. Argument: `id` (required).
+-   **X Posts By User** (`x-posts-by-user`): Posts by a user. Arguments: `user` (required), `query` (optional), `count` (optional, 1–100).
+-   **X Post Retweeters** (`x-post-retweeters`): Users who retweeted a post. Arguments: `id` (required), `cursor` (optional).
+-   **X User Posts** (`x-user-posts`): A user's timeline. Arguments: `username` (required), `cursor` (optional).
+-   **X User Replies** (`x-user-replies`): Posts and replies by a user. Arguments: `user` (required), `count` (optional, 1–100), `query` (optional).
+-   **X Post Replies** (`x-post-replies`): Replies to a post. Arguments: `post_id` (required), `count` (optional, 1–100), `query` (optional).
 
 The full SDK method → endpoint → MCP tool map, including later phases, is in [docs/API_MCP_PARITY.md](docs/API_MCP_PARITY.md).
 
