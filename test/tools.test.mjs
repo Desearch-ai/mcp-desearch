@@ -278,3 +278,138 @@ test("phase 3 x tools call the matching desearch-js methods", async () => {
         ["xPostById", { id: "missing" }],
     ]);
 });
+
+test("phase 4 extract, web-crawl, and x-trends call the matching desearch-js methods", async () => {
+    const calls = [];
+    const fake = {
+        async extract(payload) {
+            calls.push(["extract", payload]);
+            if (payload.url === "https://fail.example") {
+                throw new Error("HTTP 422: bad url");
+            }
+            return "page text";
+        },
+        async webCrawl(payload) {
+            calls.push(["webCrawl", payload]);
+            return "<p>legacy</p>";
+        },
+        async xTrends(payload) {
+            calls.push(["xTrends", payload]);
+            return { trends: [{ name: "Desearch", rank: 1 }] };
+        },
+    };
+
+    await withFakeClient(fake, async (client) => {
+        const listed = await client.listTools();
+        assert.deepEqual(
+            listed.tools.map((tool) => tool.name).sort(),
+            [
+                "ai-search",
+                "extract",
+                "web-crawl",
+                "web-links-search",
+                "web-search",
+                "x-links-search",
+                "x-post-by-id",
+                "x-post-replies",
+                "x-post-retweeters",
+                "x-posts-by-urls",
+                "x-posts-by-user",
+                "x-search",
+                "x-trends",
+                "x-user-posts",
+                "x-user-replies",
+            ]
+        );
+
+        const extracted = await client.callTool({
+            name: "extract",
+            arguments: {
+                url: "https://desearch.ai",
+                format: "text",
+                js: true,
+                wait: 1500,
+            },
+        });
+        assert.equal(extracted.isError, undefined);
+        assert.equal(JSON.parse(textOf(extracted)), "page text");
+
+        const extractedDefaults = await client.callTool({
+            name: "extract",
+            arguments: { url: "https://desearch.ai/docs" },
+        });
+        assert.equal(JSON.parse(textOf(extractedDefaults)), "page text");
+
+        const crawled = await client.callTool({
+            name: "web-crawl",
+            arguments: {
+                url: "https://desearch.ai",
+                format: "html",
+                js: false,
+                wait: 0,
+            },
+        });
+        assert.equal(JSON.parse(textOf(crawled)), "<p>legacy</p>");
+
+        const trends = await client.callTool({
+            name: "x-trends",
+            arguments: { woeid: 23424977, count: 30 },
+        });
+        assert.equal(JSON.parse(textOf(trends)).trends[0].name, "Desearch");
+
+        const trendsDefaultCount = await client.callTool({
+            name: "x-trends",
+            arguments: { woeid: 1 },
+        });
+        assert.equal(JSON.parse(textOf(trendsDefaultCount)).trends[0].rank, 1);
+
+        const failed = await client.callTool({
+            name: "extract",
+            arguments: { url: "https://fail.example" },
+        });
+        assert.equal(failed.isError, true);
+        assert.match(textOf(failed), /^Extract error: HTTP 422: bad url$/);
+
+        const rejectedFormat = await client.callTool({
+            name: "extract",
+            arguments: { url: "https://desearch.ai", format: "markdown" },
+        });
+        assert.equal(rejectedFormat.isError, true);
+
+        const rejectedCrawl = await client.callTool({
+            name: "web-crawl",
+            arguments: { format: "text" },
+        });
+        assert.equal(rejectedCrawl.isError, true);
+
+        const rejectedCount = await client.callTool({
+            name: "x-trends",
+            arguments: { woeid: 23424977, count: 10 },
+        });
+        assert.equal(rejectedCount.isError, true);
+
+        const rejectedWoeid = await client.callTool({
+            name: "x-trends",
+            arguments: { count: 30 },
+        });
+        assert.equal(rejectedWoeid.isError, true);
+    });
+
+    assert.deepEqual(calls, [
+        [
+            "extract",
+            { url: "https://desearch.ai", format: "text", js: true, wait: 1500 },
+        ],
+        [
+            "extract",
+            { url: "https://desearch.ai/docs", format: undefined, js: undefined, wait: undefined },
+        ],
+        [
+            "webCrawl",
+            { url: "https://desearch.ai", format: "html", js: false, wait: 0 },
+        ],
+        ["xTrends", { woeid: 23424977, count: 30 }],
+        ["xTrends", { woeid: 1, count: undefined }],
+        ["extract", { url: "https://fail.example", format: undefined, js: undefined, wait: undefined }],
+    ]);
+});

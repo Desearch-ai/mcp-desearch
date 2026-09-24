@@ -23,6 +23,13 @@ interface XSearchPayload {
     min_likes?: number | string;
 }
 
+interface PageContentPayload {
+    url: string;
+    format?: "html" | "text";
+    js?: boolean;
+    wait?: number;
+}
+
 interface DesearchClient {
     aiSearch(payload: Record<string, unknown>): Promise<unknown>;
     xSearch(payload: XSearchPayload): Promise<unknown>;
@@ -36,6 +43,9 @@ interface DesearchClient {
     xUserPosts(payload: { username: string; cursor?: string }): Promise<unknown>;
     xUserReplies(payload: { user: string; count?: number; query?: string }): Promise<unknown>;
     xPostReplies(payload: { post_id: string; count?: number; query?: string }): Promise<unknown>;
+    xTrends(payload: { woeid: number; count?: number }): Promise<unknown>;
+    extract(payload: PageContentPayload): Promise<unknown>;
+    webCrawl(payload: PageContentPayload): Promise<unknown>;
 }
 
 // desearch-js 1.5 publishes a default class. Node16 resolution types that package
@@ -73,6 +83,21 @@ const optionalLinksCount = z
     .max(200)
     .optional()
     .describe("Results to return. Min 10. Max 200.");
+
+function pageContentFields(): Record<string, z.ZodTypeAny> {
+    return {
+        url: z.string().describe("Public URL to read, example: 'https://desearch.ai'"),
+        format: z
+            .enum(["html", "text"])
+            .optional()
+            .describe("Content format to return: 'html' or 'text'."),
+        js: z.boolean().optional().describe("Render JavaScript before reading the page."),
+        wait: z
+            .number()
+            .optional()
+            .describe("Post-load wait in milliseconds when JavaScript rendering is enabled."),
+    };
+}
 
 const engagementThreshold = z
     .union([z.number().int().min(0), z.string()])
@@ -488,6 +513,60 @@ export function createDesearchMcpServer(apiKey: string, client?: DesearchClient)
                 return ok(await desearch.xPostReplies({ post_id, count, query }));
             } catch (error) {
                 return fail("X Post Replies error", error);
+            }
+        }
+    );
+
+    registerTool(
+        server,
+        "extract",
+        "Extract a public URL and return its content as plain text or HTML using Desearch. Preferred over web-crawl for new integrations.",
+        pageContentFields(),
+        async ({ url, format, js, wait }) => {
+            try {
+                return ok(await desearch.extract({ url, format, js, wait }));
+            } catch (error) {
+                return fail("Extract error", error);
+            }
+        }
+    );
+
+    registerTool(
+        server,
+        "web-crawl",
+        "Crawl a public URL and return its content as plain text or HTML on the legacy Desearch /web/crawl route. The SDK marks webCrawl deprecated in favor of extract; this tool stays for parity with that route. Prefer extract for new integrations.",
+        pageContentFields(),
+        async ({ url, format, js, wait }) => {
+            try {
+                return ok(await desearch.webCrawl({ url, format, js, wait }));
+            } catch (error) {
+                return fail("Web Crawl error", error);
+            }
+        }
+    );
+
+    registerTool(
+        server,
+        "x-trends",
+        "Retrieve trending topics on X (Twitter) for a location by its WOEID using Desearch.",
+        {
+            woeid: z
+                .number()
+                .int()
+                .describe("WOEID of the location, example: 23424977 for the United States."),
+            count: z
+                .number()
+                .int()
+                .min(30)
+                .max(100)
+                .optional()
+                .describe("Number of trends to return (30-100)."),
+        },
+        async ({ woeid, count }) => {
+            try {
+                return ok(await desearch.xTrends({ woeid, count }));
+            } catch (error) {
+                return fail("X Trends error", error);
             }
         }
     );

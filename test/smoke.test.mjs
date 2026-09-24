@@ -26,6 +26,8 @@ const MCP_HEADERS = {
 
 const TOOL_NAMES = [
     "ai-search",
+    "extract",
+    "web-crawl",
     "web-links-search",
     "web-search",
     "x-links-search",
@@ -35,6 +37,7 @@ const TOOL_NAMES = [
     "x-posts-by-urls",
     "x-posts-by-user",
     "x-search",
+    "x-trends",
     "x-user-posts",
     "x-user-replies",
 ];
@@ -130,11 +133,28 @@ test("stdio initializes and lists tools", async () => {
             "x-user-posts": ["username"],
             "x-user-replies": ["user"],
             "x-post-replies": ["post_id"],
+            extract: ["url"],
+            "web-crawl": ["url"],
+            "x-trends": ["woeid"],
         };
         for (const [name, required] of Object.entries(requiredByTool)) {
             const tool = listed.tools.find((entry) => entry.name === name);
             assert.deepEqual(tool.inputSchema.required, required, name);
         }
+
+        for (const name of ["extract", "web-crawl"]) {
+            const tool = listed.tools.find((entry) => entry.name === name);
+            assert.deepEqual(tool.inputSchema.properties.format.enum, ["html", "text"]);
+            assert.equal(typeof tool.inputSchema.properties.js, "object");
+            assert.equal(typeof tool.inputSchema.properties.wait, "object");
+        }
+        const webCrawl = listed.tools.find((entry) => entry.name === "web-crawl");
+        assert.match(webCrawl.description, /deprecated/i);
+        assert.match(webCrawl.description, /extract/);
+        const trends = listed.tools.find((entry) => entry.name === "x-trends");
+        assert.equal(typeof trends.inputSchema.properties.count, "object");
+        assert.equal(trends.inputSchema.properties.count.minimum, 30);
+        assert.equal(trends.inputSchema.properties.count.maximum, 100);
     });
 });
 
