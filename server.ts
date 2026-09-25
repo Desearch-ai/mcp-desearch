@@ -113,12 +113,12 @@ function definedFields<T extends Record<string, unknown>>(fields: T): Partial<T>
     return out;
 }
 
-const BILLING_KEYS = new Set(["cost_usd", "cost_cents", "usage_count", "service", "currency"]);
+export const NO_RESULTS_MESSAGE = "no results returned";
 
 /**
- * Keys that have carried link lists. `/links/web` uses `search_results` (and
- * per-source `*_search_results`). AI search has used `search`, `results`, and
- * `data`. The formatter must not assume one of them.
+ * Keys that have carried link lists. `/links/web` uses `search_results`.
+ * AI search has used `search`, `results`, and `data`. Any one of these means
+ * the body is not the billing-only payload.
  */
 const LINK_COLLECTION_KEYS = [
     "search_results",
@@ -142,66 +142,26 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function isLinkList(value: unknown): value is unknown[] {
-    return (
-        Array.isArray(value) &&
-        value.some(
-            (item) =>
-                isPlainObject(item) &&
-                (typeof item.link === "string" ||
-                    typeof item.url === "string" ||
-                    typeof item.title === "string")
-        )
-    );
-}
-
-function linkCollections(value: Record<string, unknown>): Record<string, unknown> {
-    const found: Record<string, unknown> = {};
-    for (const key of LINK_COLLECTION_KEYS) {
-        if (Array.isArray(value[key])) {
-            found[key] = value[key];
-        }
-    }
-    return found;
+function hasLinkKey(value: Record<string, unknown>): boolean {
+    return LINK_COLLECTION_KEYS.some((key) => Array.isArray(value[key]));
 }
 
 /**
- * Keep billing fields and whichever key holds the links.
- * A top-level array (`search_results` on `/links/web`, `search` / `results` /
- * `data` on AI search) is copied through with the rest of the body.
- * If the top level is only billing fields plus a nested object that itself
- * holds a link array, that array is copied up so it is not left behind.
- * A cost-only object is returned unchanged. `ai-search` with
- * `result_type=ONLY_LINKS` still depends on the desearch-public-api fix for
- * links to be present at all.
+ * Pass a link payload through, including billing fields.
+ * `/links/web` and `ai-search` with `result_type=ONLY_LINKS` sometimes return
+ * only `cost_usd`, `usage_count`, `service`, and `currency`. That is an API
+ * bug. This does not invent links. When no link key is present it adds
+ * `message: "no results returned"` and keeps the billing fields.
  */
 export function presentSearchBody(value: unknown): unknown {
-    if (!isPlainObject(value)) {
+    if (!isPlainObject(value) || hasLinkKey(value)) {
         return value;
     }
 
-    if (Object.keys(linkCollections(value)).length > 0) {
-        return { ...value };
-    }
-
-    const hoisted: Record<string, unknown> = {};
-    for (const [key, entry] of Object.entries(value)) {
-        if (BILLING_KEYS.has(key) || !isPlainObject(entry)) {
-            continue;
-        }
-        const nested = linkCollections(entry);
-        for (const [nestedKey, nestedValue] of Object.entries(nested)) {
-            if (isLinkList(nestedValue)) {
-                hoisted[nestedKey] = nestedValue;
-            }
-        }
-    }
-
-    if (Object.keys(hoisted).length === 0) {
-        return { ...value };
-    }
-
-    return { ...hoisted, ...value };
+    return {
+        message: NO_RESULTS_MESSAGE,
+        ...value,
+    };
 }
 
 function ok(value: unknown): ToolResult {
