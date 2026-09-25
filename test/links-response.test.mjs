@@ -4,7 +4,7 @@ import { MockAgent, getGlobalDispatcher, setGlobalDispatcher } from "undici";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import Desearch from "desearch-js";
-import { NO_RESULTS_MESSAGE, createDesearchMcpServer, presentSearchBody } from "../build/server.js";
+import { NO_LINKS_MESSAGE, createDesearchMcpServer, presentSearchBody } from "../build/server.js";
 
 const WEB_LINKS_BODY = {
     search_results: [
@@ -90,7 +90,10 @@ test("desearch-js 1.5.0 methods used by server.ts exist", () => {
     assert.equal(client.twitterSearch, undefined);
 });
 
-test("presentSearchBody keeps link keys and labels a billing-only body", () => {
+test("presentSearchBody keeps real link lists and notes cost-only or empty ones", () => {
+    assert.equal(NO_LINKS_MESSAGE.includes("results"), false);
+    assert.equal(/web search|ai search|only_links/i.test(NO_LINKS_MESSAGE), false);
+
     assert.deepEqual(presentSearchBody(WEB_LINKS_BODY), WEB_LINKS_BODY);
     assert.equal(Object.hasOwn(presentSearchBody(WEB_LINKS_BODY), "message"), false);
 
@@ -101,8 +104,22 @@ test("presentSearchBody keeps link keys and labels a billing-only body", () => {
         currency: "USD",
     };
     assert.deepEqual(presentSearchBody(costOnly), {
-        message: NO_RESULTS_MESSAGE,
         ...costOnly,
+        message: NO_LINKS_MESSAGE,
+    });
+    assert.deepEqual(presentSearchBody({}), { message: NO_LINKS_MESSAGE });
+
+    const emptyLists = {
+        search_results: [],
+        youtube_search_results: [],
+        cost_usd: 0.00015,
+        usage_count: 10,
+        service: "/desearch/ai/search/links/web",
+        currency: "USD",
+    };
+    assert.deepEqual(presentSearchBody(emptyLists), {
+        ...emptyLists,
+        message: NO_LINKS_MESSAGE,
     });
 
     const underSearch = {
@@ -112,6 +129,18 @@ test("presentSearchBody keeps link keys and labels a billing-only body", () => {
         currency: "USD",
     };
     assert.deepEqual(presentSearchBody(underSearch), underSearch);
+
+    const summaryWithoutLinks = {
+        completion: "summary only",
+        cost_usd: 0.0003,
+        usage_count: 1,
+        service: "/desearch/ai/search",
+        currency: "USD",
+    };
+    assert.deepEqual(presentSearchBody(summaryWithoutLinks), {
+        ...summaryWithoutLinks,
+        message: NO_LINKS_MESSAGE,
+    });
 });
 
 test("web-links-search posts to /links/web and returns search_results plus billing", async () => {
@@ -182,7 +211,7 @@ test("web-links-search labels a cost-only API body instead of returning billing 
             });
             assert.equal(result.isError, undefined);
             assert.deepEqual(JSON.parse(textOf(result)), {
-                message: NO_RESULTS_MESSAGE,
+                message: NO_LINKS_MESSAGE,
                 ...costOnly,
             });
         });
@@ -272,7 +301,7 @@ test("ai-search ONLY_LINKS posts to /desearch/ai/search and keeps whichever link
                 },
             });
             assert.deepEqual(JSON.parse(textOf(onlyLinks)), {
-                message: NO_RESULTS_MESSAGE,
+                message: NO_LINKS_MESSAGE,
                 ...costOnly,
             });
 

@@ -16,6 +16,13 @@ jobs:
     environment: prod
 
     steps:
+      - name: Publish only from main
+        run: |
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "Refusing to publish from $GITHUB_REF. This workflow publishes only from main."
+            exit 1
+          fi
+
       - name: Check out the code
         uses: actions/checkout@v4
         with:
@@ -41,18 +48,19 @@ jobs:
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Install dependencies
+      - name: Install, build, and test
         if: steps.check.outputs.skip == 'false'
-        run: npm ci
+        run: npm ci && npm run build && npm test
 
       - name: Upgrade npm for Trusted Publishing
         if: steps.check.outputs.skip == 'false'
-        # Same pin as desearch.js: npm 12 needs Node 22.22.2+, npm 11 supports OIDC publishing on Node 20.
+        # npm 12 needs Node 22.19+. npm 11 supports OIDC trusted publishing on Node 20.
+        # No NPM_TOKEN. npm uses the GitHub OIDC token from id-token: write.
         run: npm install -g npm@11.19.1
 
       - name: Publish to npm
         if: steps.check.outputs.skip == 'false'
-        run: npm publish --access public --provenance
+        run: npm publish --provenance --access public
 
       - name: Tag release
         if: steps.check.outputs.skip == 'false'
