@@ -4,7 +4,7 @@ import { MockAgent, getGlobalDispatcher, setGlobalDispatcher } from "undici";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import Desearch from "desearch-js";
-import { createDesearchMcpServer, presentSearchBody } from "../build/server.js";
+import { NO_RESULTS_MESSAGE, createDesearchMcpServer, presentSearchBody } from "../build/server.js";
 
 const WEB_LINKS_BODY = {
     search_results: [
@@ -90,40 +90,20 @@ test("desearch-js 1.5.0 methods used by server.ts exist", () => {
     assert.equal(client.twitterSearch, undefined);
 });
 
-test("presentSearchBody keeps search_results and billing, and hoists nested link arrays", () => {
+test("presentSearchBody keeps link keys and labels a billing-only body", () => {
     assert.deepEqual(presentSearchBody(WEB_LINKS_BODY), WEB_LINKS_BODY);
+    assert.equal(Object.hasOwn(presentSearchBody(WEB_LINKS_BODY), "message"), false);
 
     const costOnly = {
         cost_usd: 0.00015,
         usage_count: 10,
-        service: "/desearch/ai/search",
+        service: "/desearch/ai/search/links/web",
         currency: "USD",
     };
-    assert.deepEqual(presentSearchBody(costOnly), costOnly);
-
-    const nested = {
-        cost_usd: 0.00015,
-        usage_count: 10,
-        service: "/desearch/ai/search",
-        currency: "USD",
-        payload: {
-            results: [{ title: "Nested", link: "https://example.com/nested", snippet: "n" }],
-        },
-    };
-    const presented = presentSearchBody(nested);
-    assert.equal(presented.results[0].link, "https://example.com/nested");
-    assert.equal(presented.cost_usd, 0.00015);
-    assert.equal(presented.payload.results[0].link, "https://example.com/nested");
-
-    const notLinks = {
-        cost_usd: 0.00015,
-        usage_count: 1,
-        service: "/desearch/ai/search",
-        currency: "USD",
-        meta: { data: [1, 2, 3] },
-    };
-    assert.deepEqual(presentSearchBody(notLinks), notLinks);
-    assert.equal(Object.hasOwn(presentSearchBody(notLinks), "data"), false);
+    assert.deepEqual(presentSearchBody(costOnly), {
+        message: NO_RESULTS_MESSAGE,
+        ...costOnly,
+    });
 
     const underSearch = {
         search: [{ title: "AI", link: "https://example.com/ai", snippet: "s" }],
@@ -176,6 +156,39 @@ test("web-links-search posts to /links/web and returns search_results plus billi
             ? headerBag.get("authorization") ?? headerBag.get("Authorization")
             : headerBag?.authorization ?? headerBag?.Authorization;
     assert.equal(authorization, "test-key", `header keys: ${headerBag && typeof headerBag === "object" ? Object.keys(headerBag).join(",") : typeof headerBag}`);
+});
+
+test("web-links-search labels a cost-only API body instead of returning billing alone", async () => {
+    const mock = installMock();
+    const costOnly = {
+        cost_usd: 0.00015,
+        usage_count: 10,
+        service: "/desearch/ai/search/links/web",
+        currency: "USD",
+    };
+    mock.pool
+        .intercept({ path: "/desearch/ai/search/links/web", method: "POST" })
+        .reply(200, costOnly, { headers: { "content-type": "application/json" } });
+
+    try {
+        await withServer(async (client) => {
+            const result = await client.callTool({
+                name: "web-links-search",
+                arguments: {
+                    prompt: "bittensor subnet news",
+                    tools: ["web"],
+                    count: 10,
+                },
+            });
+            assert.equal(result.isError, undefined);
+            assert.deepEqual(JSON.parse(textOf(result)), {
+                message: NO_RESULTS_MESSAGE,
+                ...costOnly,
+            });
+        });
+    } finally {
+        await mock.restore();
+    }
 });
 
 test("web-links-search omits count when the caller does not set it", async () => {
@@ -258,7 +271,10 @@ test("ai-search ONLY_LINKS posts to /desearch/ai/search and keeps whichever link
                     result_type: "ONLY_LINKS",
                 },
             });
-            assert.deepEqual(JSON.parse(textOf(onlyLinks)), costOnly);
+            assert.deepEqual(JSON.parse(textOf(onlyLinks)), {
+                message: NO_RESULTS_MESSAGE,
+                ...costOnly,
+            });
 
             const searchKey = await client.callTool({
                 name: "ai-search",
