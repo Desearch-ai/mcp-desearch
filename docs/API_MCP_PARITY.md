@@ -37,6 +37,14 @@ Phase 4 covers the remaining public `desearch-js` 1.5 methods. Every method in t
 
 Tool handlers return the SDK payload as pretty-printed JSON text. They do not pass `includeMetadata: true`, same as `ai-search` and `x-search`.
 
+## Link fields vs billing fields
+
+`web-links-search` calls `desearch.aiWebLinksSearch` (`server.ts`). That SDK method `POST`s `{ prompt, tools, count? }` to `/desearch/ai/search/links/web` and returns the parsed JSON body. It does not call `/desearch/ai/search` and does not send `result_type`. Undefined `count` is omitted so the body matches a direct call such as `{"prompt":"bittensor subnet news","tools":["web"],"count":10}`.
+
+The live `/links/web` body is `search_results` (plus per-source `*_search_results` when those tools are selected) together with `cost_usd`, `usage_count`, `service`, and `currency`. The handler does not read a single key such as `results` or `data`. `presentSearchBody` copies the whole object, so those link arrays stay next to the billing fields. If the top level has only billing fields and a nested object holds a link array (`search_results`, `search`, `results`, `data`, or a per-source key), that array is copied to the top level as well.
+
+`ai-search` calls `desearch.aiSearch`, which `POST`s to `/desearch/ai/search` and forwards `result_type` when the caller sets it (`streaming` is forced to `false`). `result_type: ONLY_LINKS` currently comes back from the API as a cost-only object (`cost_usd`, `usage_count`, `service`, `currency`). That response is an API bug being fixed in desearch-public-api, not in this server. Until that fix ships, the MCP tool cannot invent links. The same formatter keeps whichever key actually carries them (`search_results`, `search`, `results`, `data`, or a per-source list) once the API includes them, and it still returns the billing fields.
+
 ## Renames: desearch-js 1.0.1 → 1.5.0
 
 The MCP package previously depended on `desearch-js` ^1.0.1. It now depends on ^1.5.0. `ai-search` and `x-search` call the renamed methods; their MCP names and the JSON they send are the same.

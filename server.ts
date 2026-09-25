@@ -3,7 +3,7 @@ import DesearchImport from "desearch-js";
 import { z } from "zod";
 
 export const SERVER_NAME = "Desearch";
-export const SERVER_VERSION = "0.1.2";
+export const SERVER_VERSION = "0.1.3";
 
 interface XSearchPayload {
     query: string;
@@ -113,6 +113,97 @@ function definedFields<T extends Record<string, unknown>>(fields: T): Partial<T>
     return out;
 }
 
+const BILLING_KEYS = new Set(["cost_usd", "cost_cents", "usage_count", "service", "currency"]);
+
+/**
+ * Keys that have carried link lists. `/links/web` uses `search_results` (and
+ * per-source `*_search_results`). AI search has used `search`, `results`, and
+ * `data`. The formatter must not assume one of them.
+ */
+const LINK_COLLECTION_KEYS = [
+    "search_results",
+    "results",
+    "links",
+    "search",
+    "data",
+    "youtube_search_results",
+    "hacker_news_search_results",
+    "reddit_search_results",
+    "arxiv_search_results",
+    "wikipedia_search_results",
+    "hacker_news_search",
+    "reddit_search",
+    "youtube_search",
+    "tweets",
+    "miner_tweets",
+] as const;
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isLinkList(value: unknown): value is unknown[] {
+    return (
+        Array.isArray(value) &&
+        value.some(
+            (item) =>
+                isPlainObject(item) &&
+                (typeof item.link === "string" ||
+                    typeof item.url === "string" ||
+                    typeof item.title === "string")
+        )
+    );
+}
+
+function linkCollections(value: Record<string, unknown>): Record<string, unknown> {
+    const found: Record<string, unknown> = {};
+    for (const key of LINK_COLLECTION_KEYS) {
+        if (Array.isArray(value[key])) {
+            found[key] = value[key];
+        }
+    }
+    return found;
+}
+
+/**
+ * Keep billing fields and whichever key holds the links.
+ * A top-level array (`search_results` on `/links/web`, `search` / `results` /
+ * `data` on AI search) is copied through with the rest of the body.
+ * If the top level is only billing fields plus a nested object that itself
+ * holds a link array, that array is copied up so it is not left behind.
+ * A cost-only object is returned unchanged. `ai-search` with
+ * `result_type=ONLY_LINKS` still depends on the desearch-public-api fix for
+ * links to be present at all.
+ */
+export function presentSearchBody(value: unknown): unknown {
+    if (!isPlainObject(value)) {
+        return value;
+    }
+
+    if (Object.keys(linkCollections(value)).length > 0) {
+        return { ...value };
+    }
+
+    const hoisted: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(value)) {
+        if (BILLING_KEYS.has(key) || !isPlainObject(entry)) {
+            continue;
+        }
+        const nested = linkCollections(entry);
+        for (const [nestedKey, nestedValue] of Object.entries(nested)) {
+            if (isLinkList(nestedValue)) {
+                hoisted[nestedKey] = nestedValue;
+            }
+        }
+    }
+
+    if (Object.keys(hoisted).length === 0) {
+        return { ...value };
+    }
+
+    return { ...hoisted, ...value };
+}
+
 function ok(value: unknown): ToolResult {
     return {
         content: [{ type: "text", text: JSON.stringify(value, null, 2) }],
@@ -207,7 +298,9 @@ export function createDesearchMcpServer(apiKey: string, client?: DesearchClient)
             result_type: z
                 .enum(["ONLY_LINKS", "LINKS_WITH_FINAL_SUMMARY"])
                 .optional()
-                .describe("ONLY_LINKS returns links only; LINKS_WITH_FINAL_SUMMARY adds an AI summary."),
+                .describe(
+                    "ONLY_LINKS returns links only; LINKS_WITH_FINAL_SUMMARY adds an AI summary. Link arrays are kept under whichever key the API uses, along with billing fields. ONLY_LINKS still depends on the API to include those links."
+                ),
             include_domains: z
                 .array(z.string())
                 .optional()
@@ -237,7 +330,7 @@ export function createDesearchMcpServer(apiKey: string, client?: DesearchClient)
                     model,
                     streaming: false,
                 };
-                return ok(await desearch.aiSearch(payload));
+                return ok(presentSearchBody(await desearch.aiSearch(payload)));
             } catch (error) {
                 return fail("AI Search error", error);
             }
@@ -370,7 +463,15 @@ export function createDesearchMcpServer(apiKey: string, client?: DesearchClient)
         },
         async ({ prompt, tools, count }) => {
             try {
-                return ok(await desearch.aiWebLinksSearch({ prompt, tools, count }));
+                return ok(
+                    presentSearchBody(
+                        await desearch.aiWebLinksSearch({
+                            prompt,
+                            tools,
+                            ...definedFields({ count }),
+                        })
+                    )
+                );
             } catch (error) {
                 return fail("Web Links Search error", error);
             }

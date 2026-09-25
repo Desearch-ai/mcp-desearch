@@ -42,7 +42,13 @@ test("tools call the desearch-js 1.5 methods with the existing ai/x payloads", a
         },
         async aiWebLinksSearch(payload) {
             calls.push(["aiWebLinksSearch", payload]);
-            return { search_results: [{ title: "Docs", link: "https://desearch.ai", snippet: "sdk" }] };
+            return {
+                search_results: [{ title: "Docs", link: "https://desearch.ai", snippet: "sdk" }],
+                cost_usd: 0.00015,
+                usage_count: 10,
+                service: "/desearch/ai/search/links/web",
+                currency: "USD",
+            };
         },
     };
 
@@ -70,7 +76,13 @@ test("tools call the desearch-js 1.5 methods with the existing ai/x payloads", a
             name: "web-links-search",
             arguments: { prompt: "browser automation", tools: ["web", "reddit"], count: 20 },
         });
-        assert.equal(JSON.parse(textOf(links)).search_results[0].title, "Docs");
+        const linksBody = JSON.parse(textOf(links));
+        assert.equal(linksBody.search_results[0].title, "Docs");
+        assert.equal(linksBody.search_results[0].link, "https://desearch.ai");
+        assert.equal(linksBody.cost_usd, 0.00015);
+        assert.equal(linksBody.usage_count, 10);
+        assert.equal(linksBody.service, "/desearch/ai/search/links/web");
+        assert.equal(linksBody.currency, "USD");
 
         const failed = await client.callTool({
             name: "web-search",
