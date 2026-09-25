@@ -29,7 +29,7 @@ The full SDK method → endpoint → MCP tool map is in [docs/API_MCP_PARITY.md]
 ## Prerequisites 📋
 
 -   An [Desearch API Key](https://console.desearch.ai/api-keys)
--   [Node.js](https://nodejs.org/) (v18 or higher)
+-   [Node.js](https://nodejs.org/) (v20.18.1 or higher; Node 22 is supported. Node 18 is not.)
 -   [Claude Desktop](https://claude.ai/download) installed
 -   [Cursor IDE](https://www.cursor.com/)
 

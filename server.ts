@@ -107,12 +107,17 @@ function definedFields<T extends Record<string, unknown>>(fields: T): Partial<T>
     return out;
 }
 
-export const NO_RESULTS_MESSAGE = "no results returned";
+/**
+ * Payload note when a link search body has no link list.
+ * Does not name web vs AI search, and does not say the query had "results".
+ * A missing list (the cost-only API bug) and an empty list are the same note:
+ * this response body does not contain links.
+ */
+export const NO_LINKS_MESSAGE = "no links in response";
 
 /**
  * Keys that have carried link lists. `/links/web` uses `search_results`.
- * AI search has used `search`, `results`, and `data`. Any one of these means
- * the body is not the billing-only payload.
+ * AI search has used `search`, `results`, and `data`.
  */
 const LINK_COLLECTION_KEYS = [
     "search_results",
@@ -136,25 +141,35 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function hasLinkKey(value: Record<string, unknown>): boolean {
-    return LINK_COLLECTION_KEYS.some((key) => Array.isArray(value[key]));
+function linkLists(value: Record<string, unknown>): unknown[][] {
+    const lists: unknown[][] = [];
+    for (const key of LINK_COLLECTION_KEYS) {
+        const entry = value[key];
+        if (Array.isArray(entry)) {
+            lists.push(entry);
+        }
+    }
+    return lists;
 }
 
 /**
- * Pass a link payload through, including billing fields.
- * `/links/web` and `ai-search` with `result_type=ONLY_LINKS` sometimes return
- * only `cost_usd`, `usage_count`, `service`, and `currency`. That is an API
- * bug. This does not invent links. When no link key is present it adds
- * `message: "no results returned"` and keeps the billing fields.
+ * Pass a link payload through when it contains at least one link.
+ * A cost-only body (billing fields, no link list) and an empty link list
+ * both get `message: "no links in response"` plus the original fields,
+ * including billing. The note does not claim the search returned results
+ * and does not name which search tool produced the body.
  */
 export function presentSearchBody(value: unknown): unknown {
-    if (!isPlainObject(value) || hasLinkKey(value)) {
+    if (!isPlainObject(value)) {
         return value;
     }
-
+    const lists = linkLists(value);
+    if (lists.some((list) => list.length > 0)) {
+        return value;
+    }
     return {
-        message: NO_RESULTS_MESSAGE,
         ...value,
+        message: NO_LINKS_MESSAGE,
     };
 }
 
