@@ -74,7 +74,7 @@ test("tools call the desearch-js 1.5 methods with the existing ai/x payloads", a
 
         const links = await client.callTool({
             name: "web-links-search",
-            arguments: { prompt: "browser automation", tools: ["web", "reddit"], count: 20 },
+            arguments: { prompt: "browser automation", tools: ["web"], count: 20 },
         });
         const linksBody = JSON.parse(textOf(links));
         assert.equal(linksBody.search_results[0].title, "Docs");
@@ -96,6 +96,21 @@ test("tools call the desearch-js 1.5 methods with the existing ai/x payloads", a
             arguments: { prompt: "too few", tools: ["web"], count: 5 },
         });
         assert.equal(rejected.isError, true);
+
+        const defaultTools = await client.callTool({
+            name: "web-links-search",
+            arguments: { prompt: "browser automation" },
+        });
+        assert.equal(defaultTools.isError, undefined);
+        assert.equal(JSON.parse(textOf(defaultTools)).search_results[0].title, "Docs");
+
+        for (const source of ["hackernews", "reddit", "wikipedia", "youtube", "arxiv"]) {
+            const rejectedSource = await client.callTool({
+                name: "web-links-search",
+                arguments: { prompt: "browser automation", tools: [source] },
+            });
+            assert.equal(rejectedSource.isError, true, source);
+        }
     });
 
     assert.deepEqual(calls, [
@@ -118,9 +133,10 @@ test("tools call the desearch-js 1.5 methods with the existing ai/x payloads", a
         ["webSearch", { query: "desearch sdk", start: 10 }],
         [
             "aiWebLinksSearch",
-            { prompt: "browser automation", tools: ["web", "reddit"], count: 20 },
+            { prompt: "browser automation", tools: ["web"], count: 20 },
         ],
         ["webSearch", { query: "fail", start: undefined }],
+        ["aiWebLinksSearch", { prompt: "browser automation", tools: ["web"] }],
     ]);
 });
 

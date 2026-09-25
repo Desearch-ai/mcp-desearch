@@ -59,14 +59,8 @@ type ToolResult = {
 
 type ToolHandler = (args: any) => Promise<ToolResult>;
 
-const WEB_LINK_TOOLS = [
-    "web",
-    "hackernews",
-    "reddit",
-    "wikipedia",
-    "youtube",
-    "arxiv",
-] as const;
+// links/web accepts `web` and 422s the other short ids ("supported tools are Web Search").
+const WEB_LINK_TOOLS = ["web"] as const;
 
 const optionalPostCount = z
     .number()
@@ -402,7 +396,7 @@ export function createDesearchMcpServer(apiKey: string, client?: DesearchClient)
     registerTool(
         server,
         "web-links-search",
-        "Search for links across web sources (web, Hacker News, Reddit, Wikipedia, YouTube, arXiv) using Desearch. Does not search X.",
+        "Search the web for links using Desearch. Only the web source is accepted.",
         {
             prompt: z
                 .string()
@@ -410,9 +404,8 @@ export function createDesearchMcpServer(apiKey: string, client?: DesearchClient)
             tools: z
                 .array(z.enum(WEB_LINK_TOOLS))
                 .min(1)
-                .describe(
-                    "Sources to search. Example: ['web', 'reddit', 'arxiv']. X is not available on this tool."
-                ),
+                .default(["web"])
+                .describe("Sources to search. Only 'web' is accepted. Defaults to ['web']."),
             count: z
                 .number()
                 .int()

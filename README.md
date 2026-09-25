@@ -11,7 +11,7 @@ The Desearch MCP server includes the following tools:
 -   **AI Search** (`ai-search`): Performs real-time AI Twitter and web searches with relevant links and summary.
 -   **X Search** (`x-search`): Real-time tweet search on X. Arguments: `query` (required), `count` (optional, default 20). Sort stays Top. Optional filters: `user`, `start_date`, `end_date` (YYYY-MM-DD), `lang`, `verified`, `blue_verified`, `is_quote`, `is_video`, `is_image`, `min_retweets`, `min_replies`, `min_likes`.
 -   **Web Search** (`web-search`): SERP-style web search. Arguments: `query` (required), `start` (optional pagination offset).
--   **Web Links Search** (`web-links-search`): Link search across web, Hacker News, Reddit, Wikipedia, YouTube, and arXiv. Arguments: `prompt` (required), `tools` (required; `web`, `hackernews`, `reddit`, `wikipedia`, `youtube`, `arxiv`), `count` (optional, 10–200).
+-   **Web Links Search** (`web-links-search`): Web link search. Arguments: `prompt` (required), `tools` (optional, only `web`, default `["web"]`), `count` (optional, 10–200). The links/web API rejects other sources.
 -   **Extract** (`extract`): Read a public URL as text or HTML. Preferred over crawl. Arguments: `url` (required), `format` (optional, `html` or `text`), `js` (optional), `wait` (optional milliseconds).
 -   **Web Crawl** (`web-crawl`): Same arguments as `extract`, on the legacy `/web/crawl` route. The SDK marks `webCrawl` deprecated in favor of `extract`; this tool stays so that route remains reachable. Prefer `extract` for new integrations.
 -   **X Links Search** (`x-links-search`): AI search for X post links. Arguments: `prompt` (required), `count` (optional, 10–200).
