@@ -33,10 +33,15 @@ export interface RunningHttpServer {
 
 /**
  * Desearch API key from the remote client.
- * Prefer `Authorization: Bearer <key>` (what MCP clients send). `x-api-key` is
- * accepted as well. A bare `Authorization: <key>` value is accepted so the same
- * string used as `DESEARCH_API_KEY` for stdio can be sent without a scheme.
+ * Accepted forms, and only these:
+ * - `Authorization: Bearer <key>`
+ * - `Authorization: <key>` (the key alone: no scheme and no spaces)
+ * - `x-api-key: <key>`
  * Query strings are ignored so keys do not land in access logs.
+ *
+ * The key is not checked with the Desearch API here. The public spec has no
+ * unmetered account, balance, or usage route, and a search call would be billed.
+ * An invalid key still fails when a tool calls the API (HTTP 403).
  */
 /**
  * Copy a request onto another path. Used by the Vercel functions, which see
@@ -124,7 +129,7 @@ function healthResponse(): Response {
             version: SERVER_VERSION,
             transport: "streamable-http",
             endpoint: "/mcp",
-            auth: "Authorization: Bearer <DESEARCH_API_KEY> or x-api-key: <DESEARCH_API_KEY>",
+            auth: "Authorization: Bearer <key>, Authorization: <key>, or x-api-key: <key>",
         }),
         {
             status: 200,
@@ -139,7 +144,7 @@ function unauthorized(): Response {
     return jsonRpcError(
         401,
         -32001,
-        "Unauthorized. Send your Desearch API key in the Authorization: Bearer <key> header or the x-api-key header."
+        "Unauthorized. Send your Desearch API key as Authorization: Bearer <key>, Authorization: <key>, or x-api-key: <key>."
     );
 }
 

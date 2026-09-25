@@ -2,7 +2,7 @@
 
 The product rule is that every public Desearch API / SDK method is exposed as an MCP tool. This file is the inventory for that work. It tracks `desearch-js` **1.5.0** (current) against the MCP server. HTTP paths are the ones the SDK calls on `https://api.desearch.ai`.
 
-Auth is unchanged: stdio reads `DESEARCH_API_KEY`; Streamable HTTP builds one client per request from `Authorization: Bearer <key>` or `x-api-key`.
+Auth is unchanged: stdio reads `DESEARCH_API_KEY`. Streamable HTTP builds one client per request from exactly one of `Authorization: Bearer <key>`, `Authorization: <key>` (key alone, no spaces), or `x-api-key: <key>`. A missing key is HTTP 401. The key is not preflighted against the Desearch API, because the public spec has no unbilled account route. An invalid key fails later as HTTP 403 from the API when a tool runs.
 
 ## Phases
 

@@ -183,6 +183,10 @@ test("streamable HTTP initialize and tools/list with Bearer and x-api-key", asyn
         const healthBody = await health.json();
         assert.equal(healthBody.ok, true);
         assert.equal(healthBody.endpoint, "/mcp");
+        assert.equal(
+            healthBody.auth,
+            "Authorization: Bearer <key>, Authorization: <key>, or x-api-key: <key>"
+        );
 
         const healthAlias = await fetch(`http://127.0.0.1:${server.port}/health`);
         assert.equal(healthAlias.status, 200);
@@ -193,6 +197,14 @@ test("streamable HTTP initialize and tools/list with Bearer and x-api-key", asyn
             const missing = await mcpPost(server.port, {});
             assert.equal(missing.status, 401);
             const missingBody = await missing.text();
+            const missingJson = JSON.parse(missingBody);
+            assert.equal(missingJson.jsonrpc, "2.0");
+            assert.equal(missingJson.id, null);
+            assert.equal(missingJson.error.code, -32001);
+            assert.equal(
+                missingJson.error.message,
+                "Unauthorized. Send your Desearch API key as Authorization: Bearer <key>, Authorization: <key>, or x-api-key: <key>."
+            );
             assert.equal(missingBody.includes("server-secret"), false);
             assert.equal(missingBody.includes("super-secret"), false);
         } finally {
@@ -304,6 +316,10 @@ test("Vercel function entries initialize over the rewritten paths", async () => 
     assert.equal(health.status, 200);
     const healthBody = await health.json();
     assert.equal(healthBody.endpoint, "/mcp");
+    assert.equal(
+        healthBody.auth,
+        "Authorization: Bearer <key>, Authorization: <key>, or x-api-key: <key>"
+    );
 
     const denied = await mcpHandler.fetch(
         new Request("https://example.vercel.app/api/mcp", {

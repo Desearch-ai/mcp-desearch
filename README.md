@@ -138,12 +138,15 @@ For the changes to take effect:
 
 The same server can run over MCP Streamable HTTP for a remote client. Local stdio (`desearch-mcp-server`, Smithery) is unchanged and still reads `DESEARCH_API_KEY` from the environment.
 
-Remote requests do not use that environment variable. Each request must carry the caller's own Desearch API key, the same key from [console.desearch.ai/api-keys](https://console.desearch.ai/api-keys):
+Remote requests do not use that environment variable. Each request must carry the caller's own Desearch API key, the same key from [console.desearch.ai/api-keys](https://console.desearch.ai/api-keys). These are the accepted forms:
 
-- `Authorization: Bearer <DESEARCH_API_KEY>` (preferred)
+- `Authorization: Bearer <DESEARCH_API_KEY>`
+- `Authorization: <DESEARCH_API_KEY>` (the key alone, no scheme and no spaces)
 - `x-api-key: <DESEARCH_API_KEY>`
 
-A bare `Authorization: <DESEARCH_API_KEY>` value is also accepted. The key is not read from the query string. There is no shared server secret: the hosted process forwards the per-request key to the Desearch API.
+The key is not read from the query string. There is no shared server secret: the hosted process forwards the per-request key to the Desearch API.
+
+A missing key is rejected with HTTP 401 and a JSON-RPC error before `initialize` runs. The public Desearch API does not publish an unbilled account, balance, or usage route, so this server does not call the API to preflight a key (that call would be billed). An invalid key is still accepted on `initialize` and `tools/list`. The Desearch API returns HTTP 403 when a tool runs. Stdio still starts when `DESEARCH_API_KEY` is set and reports a bad key the same way, on the first tool call.
 
 The MCP endpoint is `POST /mcp`. Responses are JSON (stateless Streamable HTTP). `GET` and `DELETE` on `/mcp` return `405` because the server does not keep a session or push server-to-client messages. `GET /` and `GET /health` are unauthenticated health checks.
 
@@ -213,7 +216,8 @@ The same `node build/index.js --http` process is the fallback if you would rathe
     - Confirm your `DESEARCH_API_KEY` is valid
     - Check the `DESEARCH_API_KEY` is correctly set in the Cursor or Claude Desktop config
     - Verify that there are no spaces around the API key
-    - For the remote HTTP server, send `Authorization: Bearer <key>` or `x-api-key`. A hosted `DESEARCH_API_KEY` environment variable is not used for those requests.
+    - For the remote HTTP server, send `Authorization: Bearer <key>`, `Authorization: <key>`, or `x-api-key: <key>`. A hosted `DESEARCH_API_KEY` environment variable is not used for those requests.
+    - A missing key returns HTTP 401 from the MCP endpoint. An invalid key returns HTTP 403 from the Desearch API when a tool runs, not at `initialize`.
 
 3. **Connection Issues**
 
