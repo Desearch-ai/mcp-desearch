@@ -11,7 +11,7 @@ The Desearch MCP server includes the following tools:
 -   **AI Search** (`ai-search`): Performs real-time AI Twitter and web searches with relevant links and summary.
 -   **X Search** (`x-search`): Real-time tweet search on X. Arguments: `query` (required), `count` (optional, default 20). Sort stays Top. Optional filters: `user`, `start_date`, `end_date` (YYYY-MM-DD), `lang`, `verified`, `blue_verified`, `is_quote`, `is_video`, `is_image`, `min_retweets`, `min_replies`, `min_likes`.
 -   **Web Search** (`web-search`): SERP-style web search. Arguments: `query` (required), `start` (optional pagination offset).
--   **Web Links Search** (`web-links-search`): Link search across web, Hacker News, Reddit, Wikipedia, YouTube, and arXiv. Arguments: `prompt` (required), `tools` (required; `web`, `hackernews`, `reddit`, `wikipedia`, `youtube`, `arxiv`), `count` (optional, 10–200).
+-   **Web Links Search** (`web-links-search`): Web link search. Arguments: `prompt` (required), `tools` (optional, only `web`, default `["web"]`), `count` (optional, 10–200). The links/web API rejects other sources.
 -   **Extract** (`extract`): Read a public URL as text or HTML. Preferred over crawl. Arguments: `url` (required), `format` (optional, `html` or `text`), `js` (optional), `wait` (optional milliseconds).
 -   **Web Crawl** (`web-crawl`): Same arguments as `extract`, on the legacy `/web/crawl` route. The SDK marks `webCrawl` deprecated in favor of `extract`; this tool stays so that route remains reachable. Prefer `extract` for new integrations.
 -   **X Links Search** (`x-links-search`): AI search for X post links. Arguments: `prompt` (required), `count` (optional, 10–200).
@@ -29,7 +29,7 @@ The full SDK method → endpoint → MCP tool map is in [docs/API_MCP_PARITY.md]
 ## Prerequisites 📋
 
 -   An [Desearch API Key](https://console.desearch.ai/api-keys)
--   [Node.js](https://nodejs.org/) (v18 or higher)
+-   [Node.js](https://nodejs.org/) (v20.18.1 or higher; Node 22 is supported. Node 18 is not.)
 -   [Claude Desktop](https://claude.ai/download) installed
 -   [Cursor IDE](https://www.cursor.com/)
 
@@ -37,9 +37,35 @@ The full SDK method → endpoint → MCP tool map is in [docs/API_MCP_PARITY.md]
 
 ### NPM Installation
 
+The package name is `desearch-mcp-server`. The stdio entry is the `desearch-mcp-server` bin (`build/index.js`), which requires `DESEARCH_API_KEY`.
+
 ```bash
 npm install -g desearch-mcp-server
 ```
+
+Or run it without a global install:
+
+```bash
+npx -y desearch-mcp-server
+```
+
+Cursor or Claude can start that bin directly:
+
+```json
+{
+    "mcpServers": {
+        "desearch": {
+            "command": "npx",
+            "args": ["-y", "desearch-mcp-server"],
+            "env": {
+                "DESEARCH_API_KEY": "your-api-key"
+            }
+        }
+    }
+}
+```
+
+`command: "desearch-mcp-server"` (no `args`) is the same entry after the global install above.
 
 ### Using Smithery
 

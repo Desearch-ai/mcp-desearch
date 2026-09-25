@@ -93,15 +93,9 @@ test("stdio initializes and lists tools", async () => {
         assert.deepEqual(webSearch.inputSchema.required, ["query"]);
         assert.equal(typeof webSearch.inputSchema.properties.start, "object");
         const webLinks = listed.tools.find((tool) => tool.name === "web-links-search");
-        assert.deepEqual(webLinks.inputSchema.required, ["prompt", "tools"]);
-        assert.deepEqual(webLinks.inputSchema.properties.tools.items.enum, [
-            "web",
-            "hackernews",
-            "reddit",
-            "wikipedia",
-            "youtube",
-            "arxiv",
-        ]);
+        assert.deepEqual(webLinks.inputSchema.required, ["prompt"]);
+        assert.deepEqual(webLinks.inputSchema.properties.tools.items.enum, ["web"]);
+        assert.deepEqual(webLinks.inputSchema.properties.tools.default, ["web"]);
 
         const xSearch = listed.tools.find((tool) => tool.name === "x-search");
         assert.deepEqual(xSearch.inputSchema.required, ["query"]);

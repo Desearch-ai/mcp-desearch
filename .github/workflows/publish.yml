@@ -16,6 +16,13 @@ jobs:
     environment: prod
 
     steps:
+      - name: Publish only from main
+        run: |
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "Refusing to publish from $GITHUB_REF. This workflow publishes only from main."
+            exit 1
+          fi
+
       - name: Check out the code
         uses: actions/checkout@v4
         with:
@@ -41,9 +48,9 @@ jobs:
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Install dependencies
+      - name: Install, build, and test
         if: steps.check.outputs.skip == 'false'
-        run: npm ci
+        run: npm ci && npm run build && npm test
 
       - name: Upgrade npm for Trusted Publishing
         if: steps.check.outputs.skip == 'false'

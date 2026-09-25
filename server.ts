@@ -3,7 +3,7 @@ import DesearchImport from "desearch-js";
 import { z } from "zod";
 
 export const SERVER_NAME = "Desearch";
-export const SERVER_VERSION = "0.1.2";
+export const SERVER_VERSION = "0.1.3";
 
 interface XSearchPayload {
     query: string;
@@ -59,14 +59,8 @@ type ToolResult = {
 
 type ToolHandler = (args: any) => Promise<ToolResult>;
 
-const WEB_LINK_TOOLS = [
-    "web",
-    "hackernews",
-    "reddit",
-    "wikipedia",
-    "youtube",
-    "arxiv",
-] as const;
+// links/web accepts `web` and 422s the other short ids ("supported tools are Web Search").
+const WEB_LINK_TOOLS = ["web"] as const;
 
 const optionalPostCount = z
     .number()
@@ -111,6 +105,72 @@ function definedFields<T extends Record<string, unknown>>(fields: T): Partial<T>
         }
     }
     return out;
+}
+
+/**
+ * Payload note when a link search body has no link list.
+ * Does not name web vs AI search, and does not say the query had "results".
+ * A missing list (the cost-only API bug) and an empty list are the same note:
+ * this response body does not contain links.
+ */
+export const NO_LINKS_MESSAGE = "no links in response";
+
+/**
+ * Keys that have carried link lists. `/links/web` uses `search_results`.
+ * AI search has used `search`, `results`, and `data`.
+ */
+const LINK_COLLECTION_KEYS = [
+    "search_results",
+    "results",
+    "links",
+    "search",
+    "data",
+    "youtube_search_results",
+    "hacker_news_search_results",
+    "reddit_search_results",
+    "arxiv_search_results",
+    "wikipedia_search_results",
+    "hacker_news_search",
+    "reddit_search",
+    "youtube_search",
+    "tweets",
+    "miner_tweets",
+] as const;
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function linkLists(value: Record<string, unknown>): unknown[][] {
+    const lists: unknown[][] = [];
+    for (const key of LINK_COLLECTION_KEYS) {
+        const entry = value[key];
+        if (Array.isArray(entry)) {
+            lists.push(entry);
+        }
+    }
+    return lists;
+}
+
+/**
+ * Pass a link payload through when it contains at least one link.
+ * A cost-only body (billing fields, no link list) and an empty link list
+ * both get `message: "no links in response"` plus the original fields,
+ * including billing. The note does not claim the search returned results
+ * and does not name which search tool produced the body.
+ */
+export function presentSearchBody(value: unknown): unknown {
+    if (!isPlainObject(value)) {
+        return value;
+    }
+    const lists = linkLists(value);
+    if (lists.some((list) => list.length > 0)) {
+        return value;
+    }
+    return {
+        ...value,
+        message: NO_LINKS_MESSAGE,
+    };
 }
 
 function ok(value: unknown): ToolResult {
@@ -207,7 +267,9 @@ export function createDesearchMcpServer(apiKey: string, client?: DesearchClient)
             result_type: z
                 .enum(["ONLY_LINKS", "LINKS_WITH_FINAL_SUMMARY"])
                 .optional()
-                .describe("ONLY_LINKS returns links only; LINKS_WITH_FINAL_SUMMARY adds an AI summary."),
+                .describe(
+                    "ONLY_LINKS returns links only; LINKS_WITH_FINAL_SUMMARY adds an AI summary. Link arrays are kept under whichever key the API uses, along with billing fields. ONLY_LINKS still depends on the API to include those links."
+                ),
             include_domains: z
                 .array(z.string())
                 .optional()
@@ -237,7 +299,7 @@ export function createDesearchMcpServer(apiKey: string, client?: DesearchClient)
                     model,
                     streaming: false,
                 };
-                return ok(await desearch.aiSearch(payload));
+                return ok(presentSearchBody(await desearch.aiSearch(payload)));
             } catch (error) {
                 return fail("AI Search error", error);
             }
@@ -349,7 +411,7 @@ export function createDesearchMcpServer(apiKey: string, client?: DesearchClient)
     registerTool(
         server,
         "web-links-search",
-        "Search for links across web sources (web, Hacker News, Reddit, Wikipedia, YouTube, arXiv) using Desearch. Does not search X.",
+        "Search the web for links using Desearch. Only the web source is accepted.",
         {
             prompt: z
                 .string()
@@ -357,9 +419,8 @@ export function createDesearchMcpServer(apiKey: string, client?: DesearchClient)
             tools: z
                 .array(z.enum(WEB_LINK_TOOLS))
                 .min(1)
-                .describe(
-                    "Sources to search. Example: ['web', 'reddit', 'arxiv']. X is not available on this tool."
-                ),
+                .default(["web"])
+                .describe("Sources to search. Only 'web' is accepted. Defaults to ['web']."),
             count: z
                 .number()
                 .int()
@@ -370,7 +431,15 @@ export function createDesearchMcpServer(apiKey: string, client?: DesearchClient)
         },
         async ({ prompt, tools, count }) => {
             try {
-                return ok(await desearch.aiWebLinksSearch({ prompt, tools, count }));
+                return ok(
+                    presentSearchBody(
+                        await desearch.aiWebLinksSearch({
+                            prompt,
+                            tools,
+                            ...definedFields({ count }),
+                        })
+                    )
+                );
             } catch (error) {
                 return fail("Web Links Search error", error);
             }
