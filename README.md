@@ -37,9 +37,35 @@ The full SDK method → endpoint → MCP tool map is in [docs/API_MCP_PARITY.md]
 
 ### NPM Installation
 
+The package name is `desearch-mcp-server`. The stdio entry is the `desearch-mcp-server` bin (`build/index.js`), which requires `DESEARCH_API_KEY`.
+
 ```bash
 npm install -g desearch-mcp-server
 ```
+
+Or run it without a global install:
+
+```bash
+npx -y desearch-mcp-server
+```
+
+Cursor or Claude can start that bin directly:
+
+```json
+{
+    "mcpServers": {
+        "desearch": {
+            "command": "npx",
+            "args": ["-y", "desearch-mcp-server"],
+            "env": {
+                "DESEARCH_API_KEY": "your-api-key"
+            }
+        }
+    }
+}
+```
+
+`command: "desearch-mcp-server"` (no `args`) is the same entry after the global install above.
 
 ### Using Smithery
 
