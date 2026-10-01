@@ -180,11 +180,18 @@ Cursor (or any remote MCP client):
 }
 ```
 
-Docker serves the same HTTP entrypoint (`EXPOSE 3000`). Smithery still starts stdio and injects `DESEARCH_API_KEY` itself.
+The image default is stdio MCP (`node build/index.js`). Registries such as Glama start the container and speak MCP on stdin/stdout, so the image does not pass `--http` unless you override it. Stdio requires `DESEARCH_API_KEY`. Smithery does not use this image command; `smithery.yaml` starts `node build/index.js` and injects `DESEARCH_API_KEY` itself.
+
+Streamable HTTP is an override. Replace the command with `--http`, or set `MCP_TRANSPORT=http` and keep the default command. The image still exposes port 3000 for that mode.
 
 ```bash
 docker build -t desearch-mcp .
-docker run --rm -p 3000:3000 desearch-mcp
+# stdio (image default)
+docker run --rm -e DESEARCH_API_KEY=your-api-key -i desearch-mcp
+# Streamable HTTP
+docker run --rm -p 3000:3000 desearch-mcp node build/index.js --http
+# same HTTP mode via env, without replacing the command
+docker run --rm -e MCP_TRANSPORT=http -p 3000:3000 desearch-mcp
 ```
 
 ### Deploy on Vercel
@@ -197,7 +204,7 @@ No server-side Desearch API key is required in the Vercel project. After deploy,
 
 Pointing DNS for `mcp.desearch.ai` at that deployment is a later step. This repo does not create DNS records. Once that name exists, clients use `https://mcp.desearch.ai/mcp` with the same `Authorization` header.
 
-The same `node build/index.js --http` process is the fallback if you would rather run a long-lived Node host or the Docker image instead of Vercel.
+The same `node build/index.js --http` process is the fallback if you would rather run a long-lived Node host instead of Vercel. The Docker image defaults to stdio; pass `--http` or set `MCP_TRANSPORT=http` to serve Streamable HTTP from it.
 
 ## Troubleshooting 🔧
 
