@@ -74,8 +74,8 @@ jobs:
           git tag "v${VERSION}"
           git push origin "v${VERSION}"
 
-      # Registry publish is independent of the npm skip above. npm 0.1.2 is already
-      # published; this still publishes server.json once, then no-ops on reruns.
+      # Independent of the npm skip above: publish server.json whenever this
+      # name and version are not in the registry yet, then no-op on reruns.
       # https://github.com/modelcontextprotocol/registry/blob/main/docs/modelcontextprotocol-io/github-actions.mdx
       - name: Verify server.json matches package.json
         run: |
@@ -112,9 +112,11 @@ jobs:
       - name: Check if version is in the MCP Registry
         id: registry
         run: |
-          name=$(node --input-type=commonjs -p "encodeURIComponent(JSON.parse(require('fs').readFileSync('server.json','utf8')).name)")
-          version=$(node --input-type=commonjs -p "encodeURIComponent(JSON.parse(require('fs').readFileSync('server.json','utf8')).version)")
-          url="https://registry.modelcontextprotocol.io/v0.1/servers/${name}/versions/${version}"
+          name=$(node --input-type=commonjs -p "JSON.parse(require('fs').readFileSync('server.json','utf8')).name")
+          version=$(node --input-type=commonjs -p "JSON.parse(require('fs').readFileSync('server.json','utf8')).version")
+          encoded_name=$(node --input-type=commonjs -p "encodeURIComponent(process.argv[1])" "$name")
+          encoded_version=$(node --input-type=commonjs -p "encodeURIComponent(process.argv[1])" "$version")
+          url="https://registry.modelcontextprotocol.io/v0.1/servers/${encoded_name}/versions/${encoded_version}"
           code=$(curl -sS --retry 3 --retry-delay 2 -o /tmp/mcp-registry-version.json -w "%{http_code}" "$url")
           if [ "$code" = "200" ]; then
             echo "MCP Registry already has ${name}@${version} — skipping publish."
