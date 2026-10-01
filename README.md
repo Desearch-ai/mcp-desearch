@@ -37,7 +37,7 @@ The full SDK method → endpoint → MCP tool map is in [docs/API_MCP_PARITY.md]
 
 ### NPM Installation
 
-The package name is `desearch-mcp-server`. The stdio entry is the `desearch-mcp-server` bin (`build/index.js`), which requires `DESEARCH_API_KEY`.
+The package name is `desearch-mcp-server`. The first npm publish of this tree is `0.1.2` (the registry still has `0.0.1`). See [CHANGELOG.md](CHANGELOG.md) for the 0.0.1 → 0.1.2 migration. The stdio entry is the `desearch-mcp-server` bin (`build/index.js`), which requires `DESEARCH_API_KEY`.
 
 ```bash
 npm install -g desearch-mcp-server

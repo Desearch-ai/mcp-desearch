@@ -1,12 +1,12 @@
 # Changelog
 
-## 0.1.3
+## 0.1.2
 
 Migration from the published npm package `desearch-mcp-server@0.0.1`.
 
 ### npm 0.0.1 versus this release
 
-`0.0.1` exposed two tools and called desearch-js methods that 1.5.0 does not have (`AISearch`, `twitterSearch`). Those calls throw. `0.1.3` depends on desearch-js 1.5.0 and calls `aiSearch` and `xSearch`.
+`0.0.1` exposed two tools and called desearch-js methods that 1.5.0 does not have (`AISearch`, `twitterSearch`). Those calls throw. `0.1.2` depends on desearch-js 1.5.0 and calls `aiSearch` and `xSearch`.
 
 `0.0.1` did not include `web-links-search` or the other tools below. npm users are not losing a source list they already had.
 
