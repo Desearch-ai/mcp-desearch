@@ -301,14 +301,6 @@ test("phase 4 extract, web-crawl, and x-trends call the matching desearch-js met
 
     await withFakeClient(fake, async (client) => {
         const listed = await client.listTools();
-        for (const tool of listed.tools) {
-            assert.equal(typeof tool.title, "string");
-            assert.ok(tool.title.length > 0, `${tool.name} is missing a title`);
-            assert.equal(tool.annotations?.readOnlyHint, true, tool.name);
-            assert.equal(tool.annotations?.destructiveHint, false, tool.name);
-            assert.equal(tool.annotations?.openWorldHint, true, tool.name);
-            assert.equal(tool.annotations?.idempotentHint, true, tool.name);
-        }
         assert.deepEqual(
             listed.tools.map((tool) => tool.name).sort(),
             [

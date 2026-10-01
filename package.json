@@ -2,7 +2,7 @@
     "name": "desearch-mcp-server",
     "version": "0.1.2",
     "mcpName": "io.github.Desearch-ai/mcp-desearch",
-    "description": "A Model Context Protocol server with Desearch for AI search, X search and web search.",
+    "description": "A Model Context Protocol server with Desearch for real-time AI search, X search and web search.",
     "license": "MIT",
     "homepage": "https://www.desearch.ai/docs/guide/sdk/mcp",
     "type": "module",
@@ -28,7 +28,6 @@
     ],
     "scripts": {
         "build": "tsc && node -e \"require('fs').chmodSync('build/index.js', '755')\"",
-        "start": "node build/index.js",
         "start:http": "node build/index.js --http",
         "test": "npm run build && node --test test/*.test.mjs",
         "inspector": "npx @modelcontextprotocol/inspector build/index.js",
