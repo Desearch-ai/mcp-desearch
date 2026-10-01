@@ -33,6 +33,10 @@ Hosted `https://mcp.desearch.ai/mcp` already lists `web-links-search`. After thi
 
 When `web-links-search` or `ai-search` gets a body with no links (billing fields only, or an empty link list), the tool text includes `message: "no links in response"` and the billing fields. A non-empty link list is returned as the API sent it. The API still sometimes omits links; that fix is in desearch-public-api.
 
+### Docker
+
+The image command is `node build/index.js` (stdio). Streamable HTTP is `node build/index.js --http` or `MCP_TRANSPORT=http`.
+
 ### Runtime
 
 Node.js `>=20.18.1`. Node 22 is supported. Node 18 is not. `desearch-js` loads `undici` at runtime with a range of `>=5`, which a lockfile-free install resolves to undici 8 (Node `>=22.19`, and it crashes on Node 20). This package depends on `undici@^7.29.1` so a clean install stays on undici 7.

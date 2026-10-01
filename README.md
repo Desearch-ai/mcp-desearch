@@ -173,6 +173,49 @@ A bare `Authorization: <DESEARCH_API_KEY>` value is also accepted. The key is no
 
 The MCP endpoint is `POST /mcp`. Responses are JSON (stateless Streamable HTTP). `GET` and `DELETE` on `/mcp` return `405` because the server does not keep a session or push server-to-client messages. `GET /` and `GET /health` are unauthenticated health checks.
 
+## Hosted endpoint
+
+The public Streamable HTTP endpoint is `https://mcp.desearch.ai/mcp`. Send your Desearch API key on each request in the `x-api-key` header. `Authorization: Bearer <key>` is also accepted. Use the key from [console.desearch.ai/api-keys](https://console.desearch.ai/api-keys). The server does not read a key from the query string. Remote requests do not use a process-level `DESEARCH_API_KEY`.
+
+Cursor, or any remote MCP client:
+
+```json
+{
+    "mcpServers": {
+        "desearch": {
+            "url": "https://mcp.desearch.ai/mcp",
+            "headers": {
+                "x-api-key": "your-api-key"
+            }
+        }
+    }
+}
+```
+
+### Use with Claude (custom connector)
+
+Desearch is not in the Claude Connectors Directory yet. You can add the hosted server as a custom connector with your Desearch API key.
+
+Sources: [Custom remote MCP connectors](https://claude.com/docs/connectors/custom/remote-mcp) and [connector authentication](https://claude.com/docs/connectors/building/authentication). Request-header authentication is a beta feature in Claude.
+
+**Claude.ai / Claude Desktop (organization admin)**
+
+1. Open **Organization settings > Connectors**.
+2. Select **Add**, then **Custom**. If asked for the connector type, choose **Web**.
+3. Server URL: `https://mcp.desearch.ai/mcp`
+4. Sign-in option: **No sign-in**.
+5. Under **Request headers**, add `x-api-key` with your Desearch API key as the value.
+6. Select **Add**.
+
+The header value is stored once and shared by everyone in the organization who uses the connector.
+
+**Claude Code**
+
+```bash
+claude mcp add --transport http desearch https://mcp.desearch.ai/mcp \
+  --header "x-api-key: YOUR_DESEARCH_API_KEY"
+```
+
 ### Run locally
 
 ```bash
@@ -228,7 +271,7 @@ No server-side Desearch API key is required in the Vercel project. After deploy,
 
 `https://<project>.vercel.app/mcp`
 
-Pointing DNS for `mcp.desearch.ai` at that deployment is a later step. This repo does not create DNS records. Once that name exists, clients use `https://mcp.desearch.ai/mcp` with the same `Authorization` header.
+`https://mcp.desearch.ai/mcp` is the public hostname. This repo does not create DNS records. Clients send `x-api-key`, or `Authorization: Bearer <key>`.
 
 The same `node build/index.js --http` process is the fallback if you would rather run a long-lived Node host instead of Vercel. The Docker image defaults to stdio; pass `--http` or set `MCP_TRANSPORT=http` to serve Streamable HTTP from it.
 
