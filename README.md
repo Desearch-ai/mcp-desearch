@@ -69,17 +69,93 @@ Cursor or Claude can start that bin directly:
 
 ### Using Smithery
 
-To install the Desearch MCP server for Claude Desktop automatically via [Smithery](https://smithery.ai/server/@Desearch-ai/desearch):
+To install the Desearch MCP server for Claude Desktop automatically via [Smithery](https://smithery.ai/servers/desearch/desearch):
 
 ```bash
-npx -y @smithery/cli install @Desearch-ai/desearch --client claude
+npx -y @smithery/cli install desearch/desearch --client claude
 ```
 
 Or for Cursor IDE:
 
 ```bash
-npx -y @smithery/cli install @Desearch-ai/desearch --client cursor
+npx -y @smithery/cli install desearch/desearch --client cursor
 ```
+
+### Windsurf
+
+Windsurf's Cascade agent reads MCP servers from `mcp_config.json` under the `mcpServers` key. Open it from the Cascade panel: click the `...` (Actions) menu, then `Open MCP config file`. Windsurf builds use `~/.codeium/windsurf/mcp_config.json` (on Windows, `%USERPROFILE%\.codeium\windsurf\mcp_config.json`). Newer builds may open `~/.config/devin/mcp_config.json` instead (Windows: `%APPDATA%\devin\mcp_config.json`); edit whichever file that action opens.
+
+Hosted server (no local install). Remote servers use `serverUrl` with `headers`:
+
+```json
+{
+    "mcpServers": {
+        "desearch": {
+            "serverUrl": "https://mcp.desearch.ai/mcp",
+            "headers": {
+                "x-api-key": "your-api-key"
+            }
+        }
+    }
+}
+```
+
+To keep the key out of the file, Windsurf can interpolate an environment variable: `"x-api-key": "${env:DESEARCH_API_KEY}"`.
+
+Local stdio alternative:
+
+```json
+{
+    "mcpServers": {
+        "desearch": {
+            "command": "npx",
+            "args": ["-y", "desearch-mcp-server"],
+            "env": {
+                "DESEARCH_API_KEY": "your-api-key"
+            }
+        }
+    }
+}
+```
+
+Save the file, then refresh the MCP servers list in Cascade.
+
+### Zed
+
+Zed calls MCP servers context servers. Open your settings file with the `zed: open settings file` action (or use Settings → AI → MCP Servers → `Add Server`) and add a `context_servers` entry.
+
+Hosted server:
+
+```json
+{
+    "context_servers": {
+        "desearch": {
+            "url": "https://mcp.desearch.ai/mcp",
+            "headers": {
+                "x-api-key": "your-api-key"
+            }
+        }
+    }
+}
+```
+
+Local stdio alternative:
+
+```json
+{
+    "context_servers": {
+        "desearch": {
+            "command": "npx",
+            "args": ["-y", "desearch-mcp-server"],
+            "env": {
+                "DESEARCH_API_KEY": "your-api-key"
+            }
+        }
+    }
+}
+```
+
+The server is ready when the dot next to `desearch` in Settings → AI → MCP Servers turns green ("Server is active").
 
 ## Configuration ⚙️
 
