@@ -68,7 +68,13 @@ jobs:
         run: npm install -g npm@11.19.1
 
       - name: Publish package to npm
-        run: npm publish --access public --provenance
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          if npm view "desearch-mcp-server@${VERSION}" version > /dev/null 2>&1; then
+            echo "desearch-mcp-server@${VERSION} is already on npm. Skipping npm publish."
+          else
+            npm publish --access public --provenance
+          fi
 
       - name: Install mcp-publisher
         run: |
