@@ -79,6 +79,11 @@ test("stdio initializes and lists tools", async () => {
             listed.tools.map((tool) => tool.name).sort(),
             TOOL_NAMES
         );
+        for (const tool of listed.tools) {
+            assert.equal(tool.annotations?.readOnlyHint, true, tool.name);
+            assert.equal(tool.annotations?.destructiveHint, false, tool.name);
+            assert.equal(tool.annotations?.openWorldHint, true, tool.name);
+        }
         const aiSearch = listed.tools.find((tool) => tool.name === "ai-search");
         assert.deepEqual(aiSearch.inputSchema.properties.tools.items.enum, [
             "web",

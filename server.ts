@@ -60,6 +60,18 @@ type ToolResult = {
 
 type ToolHandler = (args: any) => Promise<ToolResult>;
 
+/**
+ * Every tool reads live Desearch, web, or X data and returns it. None of them
+ * write caller state. Hints only: clients must not treat them as a safety check.
+ * destructiveHint is false so a client that ignores the readOnlyHint gate does
+ * not treat a search as a destructive update (the MCP default for that hint is true).
+ */
+const READ_ONLY_OPEN_WORLD = {
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: true,
+};
+
 const optionalPostCount = z
     .number()
     .int()
@@ -200,10 +212,14 @@ function registerTool(
     // schemas. Runtime registration is the same registerTool call.
     const register = server.registerTool.bind(server) as (
         toolName: string,
-        config: { description: string; inputSchema: Record<string, z.ZodTypeAny> },
+        config: {
+            description: string;
+            inputSchema: Record<string, z.ZodTypeAny>;
+            annotations: typeof READ_ONLY_OPEN_WORLD;
+        },
         callback: ToolHandler
     ) => unknown;
-    register(name, { description, inputSchema }, handler);
+    register(name, { description, inputSchema, annotations: READ_ONLY_OPEN_WORLD }, handler);
 }
 
 /**

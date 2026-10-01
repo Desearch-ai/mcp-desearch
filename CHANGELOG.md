@@ -36,3 +36,13 @@ When `web-links-search` or `ai-search` gets a body with no links (billing fields
 ### Runtime
 
 Node.js `>=20.18.1`. Node 22 is supported. Node 18 is not. `desearch-js` loads `undici` at runtime with a range of `>=5`, which a lockfile-free install resolves to undici 8 (Node `>=22.19`, and it crashes on Node 20). This package depends on `undici@^7.29.1` so a clean install stays on undici 7.
+
+### Tool annotations
+
+`tools/list` sets MCP tool annotations on every tool:
+
+- `readOnlyHint: true` — the tool reads Desearch, the web, or X and does not write caller state
+- `destructiveHint: false` — it does not perform a destructive update
+- `openWorldHint: true` — results come from live external sources
+
+These are hints. A call still bills the Desearch API key. Repeating a call is not free.
