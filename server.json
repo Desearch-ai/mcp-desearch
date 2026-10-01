@@ -1,0 +1,54 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.Desearch-ai/mcp-desearch",
+  "title": "Desearch",
+  "description": "AI search, X search, web search, page extraction, and X trends.",
+  "version": "0.1.2",
+  "websiteUrl": "https://www.desearch.ai/docs/guide/sdk/mcp",
+  "repository": {
+    "url": "https://github.com/Desearch-ai/mcp-desearch",
+    "source": "github",
+    "id": "978047438"
+  },
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "desearch-mcp-server",
+      "version": "0.1.2",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "DESEARCH_API_KEY",
+          "description": "Desearch API key from https://console.desearch.ai/api-keys",
+          "isRequired": true,
+          "isSecret": true
+        }
+      ]
+    }
+  ],
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://mcp.desearch.ai/mcp",
+      "headers": [
+        {
+          "name": "x-api-key",
+          "description": "Desearch API key. Clients prompt for this secret and send it on every request.",
+          "isRequired": true,
+          "isSecret": true,
+          "value": "{desearch_api_key}",
+          "variables": {
+            "desearch_api_key": {
+              "description": "Desearch API key from https://console.desearch.ai/api-keys",
+              "isRequired": true,
+              "isSecret": true
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

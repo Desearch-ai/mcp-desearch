@@ -79,29 +79,29 @@ test("stdio initializes and lists tools", async () => {
             listed.tools.map((tool) => tool.name).sort(),
             TOOL_NAMES
         );
+        for (const tool of listed.tools) {
+            assert.equal(tool.annotations?.readOnlyHint, true, tool.name);
+            assert.equal(tool.annotations?.destructiveHint, false, tool.name);
+            assert.equal(tool.annotations?.openWorldHint, true, tool.name);
+        }
         const aiSearch = listed.tools.find((tool) => tool.name === "ai-search");
         assert.deepEqual(aiSearch.inputSchema.properties.tools.items.enum, [
-            "Twitter Search",
-            "Web Search",
-            "ArXiv Search",
-            "Wikipedia Search",
-            "Youtube Search",
-            "Hacker News Search",
-            "Reddit Search",
+            "web",
+            "twitter",
+            "arxiv",
+            "wikipedia",
+            "youtube",
+            "hackernews",
+            "reddit",
         ]);
+        assert.deepEqual(aiSearch.inputSchema.properties.tools.default, ["web", "twitter"]);
         const webSearch = listed.tools.find((tool) => tool.name === "web-search");
         assert.deepEqual(webSearch.inputSchema.required, ["query"]);
         assert.equal(typeof webSearch.inputSchema.properties.start, "object");
         const webLinks = listed.tools.find((tool) => tool.name === "web-links-search");
-        assert.deepEqual(webLinks.inputSchema.required, ["prompt", "tools"]);
-        assert.deepEqual(webLinks.inputSchema.properties.tools.items.enum, [
-            "web",
-            "hackernews",
-            "reddit",
-            "wikipedia",
-            "youtube",
-            "arxiv",
-        ]);
+        assert.deepEqual(webLinks.inputSchema.required, ["prompt"]);
+        assert.deepEqual(webLinks.inputSchema.properties.tools.items.enum, ["web"]);
+        assert.deepEqual(webLinks.inputSchema.properties.tools.default, ["web"]);
 
         const xSearch = listed.tools.find((tool) => tool.name === "x-search");
         assert.deepEqual(xSearch.inputSchema.required, ["query"]);

@@ -8,10 +8,10 @@ A Model Context Protocol (MCP) server lets clients like Claude or Cursor use Des
 
 The Desearch MCP server includes the following tools:
 
--   **AI Search** (`ai-search`): Performs real-time AI Twitter and web searches with relevant links and summary.
+-   **AI Search** (`ai-search`): Performs real-time AI Twitter and web searches with relevant links and summary. `tools` uses short source ids (`web`, `twitter`, `arxiv`, `wikipedia`, `youtube`, `hackernews`, `reddit`). Older labels such as `Web Search` are still accepted and sent to the API as the short id. Default is `["web", "twitter"]`.
 -   **X Search** (`x-search`): Real-time tweet search on X. Arguments: `query` (required), `count` (optional, default 20). Sort stays Top. Optional filters: `user`, `start_date`, `end_date` (YYYY-MM-DD), `lang`, `verified`, `blue_verified`, `is_quote`, `is_video`, `is_image`, `min_retweets`, `min_replies`, `min_likes`.
 -   **Web Search** (`web-search`): SERP-style web search. Arguments: `query` (required), `start` (optional pagination offset).
--   **Web Links Search** (`web-links-search`): Link search across web, Hacker News, Reddit, Wikipedia, YouTube, and arXiv. Arguments: `prompt` (required), `tools` (required; `web`, `hackernews`, `reddit`, `wikipedia`, `youtube`, `arxiv`), `count` (optional, 10–200).
+-   **Web Links Search** (`web-links-search`): Web link search. Arguments: `prompt` (required), `tools` (optional, only `web`, default `["web"]`; `Web Search` is accepted and rewritten to `web`), `count` (optional, 10–200). The links/web API rejects other sources, so they are not in the enum.
 -   **Extract** (`extract`): Read a public URL as text or HTML. Preferred over crawl. Arguments: `url` (required), `format` (optional, `html` or `text`), `js` (optional), `wait` (optional milliseconds).
 -   **Web Crawl** (`web-crawl`): Same arguments as `extract`, on the legacy `/web/crawl` route. The SDK marks `webCrawl` deprecated in favor of `extract`; this tool stays so that route remains reachable. Prefer `extract` for new integrations.
 -   **X Links Search** (`x-links-search`): AI search for X post links. Arguments: `prompt` (required), `count` (optional, 10–200).
@@ -29,7 +29,7 @@ The full SDK method → endpoint → MCP tool map is in [docs/API_MCP_PARITY.md]
 ## Prerequisites 📋
 
 -   An [Desearch API Key](https://console.desearch.ai/api-keys)
--   [Node.js](https://nodejs.org/) (v18 or higher)
+-   [Node.js](https://nodejs.org/) (v20.18.1 or higher; Node 22 is supported. Node 18 is not.)
 -   [Claude Desktop](https://claude.ai/download) installed
 -   [Cursor IDE](https://www.cursor.com/)
 
@@ -37,9 +37,35 @@ The full SDK method → endpoint → MCP tool map is in [docs/API_MCP_PARITY.md]
 
 ### NPM Installation
 
+The package name is `desearch-mcp-server`. The first npm publish of this tree is `0.1.2` (the registry still has `0.0.1`). See [CHANGELOG.md](CHANGELOG.md) for the 0.0.1 → 0.1.2 migration. The stdio entry is the `desearch-mcp-server` bin (`build/index.js`), which requires `DESEARCH_API_KEY`.
+
 ```bash
 npm install -g desearch-mcp-server
 ```
+
+Or run it without a global install:
+
+```bash
+npx -y desearch-mcp-server
+```
+
+Cursor or Claude can start that bin directly:
+
+```json
+{
+    "mcpServers": {
+        "desearch": {
+            "command": "npx",
+            "args": ["-y", "desearch-mcp-server"],
+            "env": {
+                "DESEARCH_API_KEY": "your-api-key"
+            }
+        }
+    }
+}
+```
+
+`command: "desearch-mcp-server"` (no `args`) is the same entry after the global install above.
 
 ### Using Smithery
 
@@ -147,6 +173,49 @@ A bare `Authorization: <DESEARCH_API_KEY>` value is also accepted. The key is no
 
 The MCP endpoint is `POST /mcp`. Responses are JSON (stateless Streamable HTTP). `GET` and `DELETE` on `/mcp` return `405` because the server does not keep a session or push server-to-client messages. `GET /` and `GET /health` are unauthenticated health checks.
 
+## Hosted endpoint
+
+The public Streamable HTTP endpoint is `https://mcp.desearch.ai/mcp`. Send your Desearch API key on each request in the `x-api-key` header. `Authorization: Bearer <key>` is also accepted. Use the key from [console.desearch.ai/api-keys](https://console.desearch.ai/api-keys). The server does not read a key from the query string. Remote requests do not use a process-level `DESEARCH_API_KEY`.
+
+Cursor, or any remote MCP client:
+
+```json
+{
+    "mcpServers": {
+        "desearch": {
+            "url": "https://mcp.desearch.ai/mcp",
+            "headers": {
+                "x-api-key": "your-api-key"
+            }
+        }
+    }
+}
+```
+
+### Use with Claude (custom connector)
+
+Desearch is not in the Claude Connectors Directory yet. You can add the hosted server as a custom connector with your Desearch API key.
+
+Sources: [Custom remote MCP connectors](https://claude.com/docs/connectors/custom/remote-mcp) and [connector authentication](https://claude.com/docs/connectors/building/authentication). Request-header authentication is a beta feature in Claude.
+
+**Claude.ai / Claude Desktop (organization admin)**
+
+1. Open **Organization settings > Connectors**.
+2. Select **Add**, then **Custom**. If asked for the connector type, choose **Web**.
+3. Server URL: `https://mcp.desearch.ai/mcp`
+4. Sign-in option: **No sign-in**.
+5. Under **Request headers**, add `x-api-key` with your Desearch API key as the value.
+6. Select **Add**.
+
+The header value is stored once and shared by everyone in the organization who uses the connector.
+
+**Claude Code**
+
+```bash
+claude mcp add --transport http desearch https://mcp.desearch.ai/mcp \
+  --header "x-api-key: YOUR_DESEARCH_API_KEY"
+```
+
 ### Run locally
 
 ```bash
@@ -180,11 +249,18 @@ Cursor (or any remote MCP client):
 }
 ```
 
-Docker serves the same HTTP entrypoint (`EXPOSE 3000`). Smithery still starts stdio and injects `DESEARCH_API_KEY` itself.
+The image default is stdio MCP (`node build/index.js`). Registries such as Glama start the container and speak MCP on stdin/stdout, so the image does not pass `--http` unless you override it. Stdio requires `DESEARCH_API_KEY`. Smithery does not use this image command; `smithery.yaml` starts `node build/index.js` and injects `DESEARCH_API_KEY` itself.
+
+Streamable HTTP is an override. Replace the command with `--http`, or set `MCP_TRANSPORT=http` and keep the default command. The image still exposes port 3000 for that mode.
 
 ```bash
 docker build -t desearch-mcp .
-docker run --rm -p 3000:3000 desearch-mcp
+# stdio (image default)
+docker run --rm -e DESEARCH_API_KEY=your-api-key -i desearch-mcp
+# Streamable HTTP
+docker run --rm -p 3000:3000 desearch-mcp node build/index.js --http
+# same HTTP mode via env, without replacing the command
+docker run --rm -e MCP_TRANSPORT=http -p 3000:3000 desearch-mcp
 ```
 
 ### Deploy on Vercel
@@ -195,9 +271,9 @@ No server-side Desearch API key is required in the Vercel project. After deploy,
 
 `https://<project>.vercel.app/mcp`
 
-Pointing DNS for `mcp.desearch.ai` at that deployment is a later step. This repo does not create DNS records. Once that name exists, clients use `https://mcp.desearch.ai/mcp` with the same `Authorization` header.
+`https://mcp.desearch.ai/mcp` is the public hostname. This repo does not create DNS records. Clients send `x-api-key`, or `Authorization: Bearer <key>`.
 
-The same `node build/index.js --http` process is the fallback if you would rather run a long-lived Node host or the Docker image instead of Vercel.
+The same `node build/index.js --http` process is the fallback if you would rather run a long-lived Node host instead of Vercel. The Docker image defaults to stdio; pass `--http` or set `MCP_TRANSPORT=http` to serve Streamable HTTP from it.
 
 ## Troubleshooting 🔧
 

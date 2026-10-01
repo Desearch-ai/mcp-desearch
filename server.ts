@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import DesearchImport from "desearch-js";
 import { z } from "zod";
+import { AI_SEARCH_TOOLS, WEB_LINK_TOOLS, toolIdSchema } from "./tool-sources.js";
 
 export const SERVER_NAME = "Desearch";
 export const SERVER_VERSION = "0.1.2";
@@ -59,14 +60,17 @@ type ToolResult = {
 
 type ToolHandler = (args: any) => Promise<ToolResult>;
 
-const WEB_LINK_TOOLS = [
-    "web",
-    "hackernews",
-    "reddit",
-    "wikipedia",
-    "youtube",
-    "arxiv",
-] as const;
+/**
+ * Every tool reads live Desearch, web, or X data and returns it. None of them
+ * write caller state. Hints only: clients must not treat them as a safety check.
+ * destructiveHint is false so a client that ignores the readOnlyHint gate does
+ * not treat a search as a destructive update (the MCP default for that hint is true).
+ */
+const READ_ONLY_OPEN_WORLD = {
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: true,
+};
 
 const optionalPostCount = z
     .number()
@@ -113,6 +117,72 @@ function definedFields<T extends Record<string, unknown>>(fields: T): Partial<T>
     return out;
 }
 
+/**
+ * Payload note when a link search body has no link list.
+ * Does not name web vs AI search, and does not say the query had "results".
+ * A missing list (the cost-only API bug) and an empty list are the same note:
+ * this response body does not contain links.
+ */
+export const NO_LINKS_MESSAGE = "no links in response";
+
+/**
+ * Keys that have carried link lists. `/links/web` uses `search_results`.
+ * AI search has used `search`, `results`, and `data`.
+ */
+const LINK_COLLECTION_KEYS = [
+    "search_results",
+    "results",
+    "links",
+    "search",
+    "data",
+    "youtube_search_results",
+    "hacker_news_search_results",
+    "reddit_search_results",
+    "arxiv_search_results",
+    "wikipedia_search_results",
+    "hacker_news_search",
+    "reddit_search",
+    "youtube_search",
+    "tweets",
+    "miner_tweets",
+] as const;
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function linkLists(value: Record<string, unknown>): unknown[][] {
+    const lists: unknown[][] = [];
+    for (const key of LINK_COLLECTION_KEYS) {
+        const entry = value[key];
+        if (Array.isArray(entry)) {
+            lists.push(entry);
+        }
+    }
+    return lists;
+}
+
+/**
+ * Pass a link payload through when it contains at least one link.
+ * A cost-only body (billing fields, no link list) and an empty link list
+ * both get `message: "no links in response"` plus the original fields,
+ * including billing. The note does not claim the search returned results
+ * and does not name which search tool produced the body.
+ */
+export function presentSearchBody(value: unknown): unknown {
+    if (!isPlainObject(value)) {
+        return value;
+    }
+    const lists = linkLists(value);
+    if (lists.some((list) => list.length > 0)) {
+        return value;
+    }
+    return {
+        ...value,
+        message: NO_LINKS_MESSAGE,
+    };
+}
+
 function ok(value: unknown): ToolResult {
     return {
         content: [{ type: "text", text: JSON.stringify(value, null, 2) }],
@@ -142,10 +212,14 @@ function registerTool(
     // schemas. Runtime registration is the same registerTool call.
     const register = server.registerTool.bind(server) as (
         toolName: string,
-        config: { description: string; inputSchema: Record<string, z.ZodTypeAny> },
+        config: {
+            description: string;
+            inputSchema: Record<string, z.ZodTypeAny>;
+            annotations: typeof READ_ONLY_OPEN_WORLD;
+        },
         callback: ToolHandler
     ) => unknown;
-    register(name, { description, inputSchema }, handler);
+    register(name, { description, inputSchema, annotations: READ_ONLY_OPEN_WORLD }, handler);
 }
 
 /**
@@ -169,20 +243,12 @@ export function createDesearchMcpServer(apiKey: string, client?: DesearchClient)
         {
             prompt: z.string().describe("Question, example: 'What is the latest news on AI?'"),
             tools: z
-                .array(
-                    z.enum([
-                        "Twitter Search",
-                        "Web Search",
-                        "ArXiv Search",
-                        "Wikipedia Search",
-                        "Youtube Search",
-                        "Hacker News Search",
-                        "Reddit Search",
-                    ])
-                )
+                .array(toolIdSchema(AI_SEARCH_TOOLS))
                 .optional()
-                .default(["Twitter Search", "Web Search"])
-                .describe("Tools to use for the search, example: ['Web Search', 'Twitter Search']"),
+                .default(["web", "twitter"])
+                .describe(
+                    "Source ids sent to POST /desearch/ai/search. Use short ids such as 'web' and 'twitter'. Legacy labels such as 'Web Search' are accepted and rewritten to those ids. Example: ['web', 'twitter']."
+                ),
             date_filter: z
                 .enum([
                     "PAST_24_HOURS",
@@ -207,7 +273,9 @@ export function createDesearchMcpServer(apiKey: string, client?: DesearchClient)
             result_type: z
                 .enum(["ONLY_LINKS", "LINKS_WITH_FINAL_SUMMARY"])
                 .optional()
-                .describe("ONLY_LINKS returns links only; LINKS_WITH_FINAL_SUMMARY adds an AI summary."),
+                .describe(
+                    "ONLY_LINKS returns links only; LINKS_WITH_FINAL_SUMMARY adds an AI summary. Link arrays are kept under whichever key the API uses, along with billing fields. ONLY_LINKS still depends on the API to include those links."
+                ),
             include_domains: z
                 .array(z.string())
                 .optional()
@@ -237,7 +305,7 @@ export function createDesearchMcpServer(apiKey: string, client?: DesearchClient)
                     model,
                     streaming: false,
                 };
-                return ok(await desearch.aiSearch(payload));
+                return ok(presentSearchBody(await desearch.aiSearch(payload)));
             } catch (error) {
                 return fail("AI Search error", error);
             }
@@ -349,16 +417,17 @@ export function createDesearchMcpServer(apiKey: string, client?: DesearchClient)
     registerTool(
         server,
         "web-links-search",
-        "Search for links across web sources (web, Hacker News, Reddit, Wikipedia, YouTube, arXiv) using Desearch. Does not search X.",
+        "Search the web for links using Desearch. Only the web source is accepted.",
         {
             prompt: z
                 .string()
                 .describe("Search query prompt, example: 'open source browser automation tools'"),
             tools: z
-                .array(z.enum(WEB_LINK_TOOLS))
+                .array(toolIdSchema(WEB_LINK_TOOLS))
                 .min(1)
+                .default(["web"])
                 .describe(
-                    "Sources to search. Example: ['web', 'reddit', 'arxiv']. X is not available on this tool."
+                    "Sources to search. Only 'web' is accepted; other ids are rejected before the API call. 'Web Search' is accepted and rewritten to 'web'. Defaults to ['web']."
                 ),
             count: z
                 .number()
@@ -370,7 +439,15 @@ export function createDesearchMcpServer(apiKey: string, client?: DesearchClient)
         },
         async ({ prompt, tools, count }) => {
             try {
-                return ok(await desearch.aiWebLinksSearch({ prompt, tools, count }));
+                return ok(
+                    presentSearchBody(
+                        await desearch.aiWebLinksSearch({
+                            prompt,
+                            tools,
+                            ...definedFields({ count }),
+                        })
+                    )
+                );
             } catch (error) {
                 return fail("Web Links Search error", error);
             }
