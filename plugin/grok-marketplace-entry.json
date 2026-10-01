@@ -1,0 +1,13 @@
+{
+  "name": "desearch",
+  "description": "AI search, X search, web search, page extraction, and X trends.",
+  "category": "development",
+  "source": {
+    "source": "url",
+    "url": "https://github.com/Desearch-ai/desearch-plugin.git",
+    "sha": "0000000000000000000000000000000000000000"
+  },
+  "homepage": "https://www.desearch.ai",
+  "keywords": ["desearch", "bittensor subnet 22"],
+  "domains": ["desearch.ai", "www.desearch.ai", "console.desearch.ai", "mcp.desearch.ai"]
+}

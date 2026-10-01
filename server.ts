@@ -131,9 +131,25 @@ function fail(label: string, error: unknown): ToolResult {
     };
 }
 
+/**
+ * Every tool reads Desearch, the public web, or X. None create, update, or
+ * delete data, so readOnlyHint is true and destructiveHint is false.
+ * Repeated calls with the same arguments do not change that environment
+ * (idempotentHint). Results can still differ between calls because the
+ * sources are live. openWorldHint is true because each call leaves this
+ * process and reaches external services.
+ */
+const READ_ONLY_ANNOTATIONS = {
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: true,
+} as const;
+
 function registerTool(
     server: McpServer,
     name: string,
+    title: string,
     description: string,
     inputSchema: Record<string, z.ZodTypeAny>,
     handler: ToolHandler
@@ -142,10 +158,24 @@ function registerTool(
     // schemas. Runtime registration is the same registerTool call.
     const register = server.registerTool.bind(server) as (
         toolName: string,
-        config: { description: string; inputSchema: Record<string, z.ZodTypeAny> },
+        config: {
+            title: string;
+            description: string;
+            inputSchema: Record<string, z.ZodTypeAny>;
+            annotations: typeof READ_ONLY_ANNOTATIONS;
+        },
         callback: ToolHandler
     ) => unknown;
-    register(name, { description, inputSchema }, handler);
+    register(
+        name,
+        {
+            title,
+            description,
+            inputSchema,
+            annotations: READ_ONLY_ANNOTATIONS,
+        },
+        handler
+    );
 }
 
 /**
@@ -165,6 +195,7 @@ export function createDesearchMcpServer(apiKey: string, client?: DesearchClient)
     registerTool(
         server,
         "ai-search",
+        "AI Search",
         "Real-time AI search and analysis on web using Desearch AI",
         {
             prompt: z.string().describe("Question, example: 'What is the latest news on AI?'"),
@@ -247,6 +278,7 @@ export function createDesearchMcpServer(apiKey: string, client?: DesearchClient)
     registerTool(
         server,
         "x-search",
+        "X Search",
         "Search the X (Twitter) using Desearch AI - performs real-time tweet search on X. Optional filters narrow by user, date, language, verification, media, and engagement. Sort stays Top.",
         {
             query: z
@@ -325,6 +357,7 @@ export function createDesearchMcpServer(apiKey: string, client?: DesearchClient)
     registerTool(
         server,
         "web-search",
+        "Web Search",
         "SERP-style web search using Desearch. Returns ranked titles, links, and snippets.",
         {
             query: z.string().describe("Search query, example: 'latest news on AI'"),
@@ -349,6 +382,7 @@ export function createDesearchMcpServer(apiKey: string, client?: DesearchClient)
     registerTool(
         server,
         "web-links-search",
+        "Web Links Search",
         "Search for links across web sources (web, Hacker News, Reddit, Wikipedia, YouTube, arXiv) using Desearch. Does not search X.",
         {
             prompt: z
@@ -380,6 +414,7 @@ export function createDesearchMcpServer(apiKey: string, client?: DesearchClient)
     registerTool(
         server,
         "x-links-search",
+        "X Links Search",
         "AI search for X (Twitter) post links using Desearch. Returns links from posts that match the prompt.",
         {
             prompt: z.string().describe("Search query prompt, example: 'Bittensor subnet updates'"),
@@ -397,6 +432,7 @@ export function createDesearchMcpServer(apiKey: string, client?: DesearchClient)
     registerTool(
         server,
         "x-posts-by-urls",
+        "X Posts by URLs",
         "Fetch full X (Twitter) posts for a list of post URLs.",
         {
             urls: z
@@ -416,6 +452,7 @@ export function createDesearchMcpServer(apiKey: string, client?: DesearchClient)
     registerTool(
         server,
         "x-post-by-id",
+        "X Post by ID",
         "Fetch a single X (Twitter) post by its ID.",
         {
             id: z.string().describe("The unique ID of the post, example: '1234567890'"),
@@ -432,6 +469,7 @@ export function createDesearchMcpServer(apiKey: string, client?: DesearchClient)
     registerTool(
         server,
         "x-posts-by-user",
+        "X Posts by User",
         "Search X (Twitter) posts by a specific user, with an optional keyword query.",
         {
             user: z.string().describe("User to search for, example: 'elonmusk'"),
@@ -450,6 +488,7 @@ export function createDesearchMcpServer(apiKey: string, client?: DesearchClient)
     registerTool(
         server,
         "x-post-retweeters",
+        "X Post Retweeters",
         "List users who retweeted an X (Twitter) post. Pass cursor to page through more users.",
         {
             id: z.string().describe("The ID of the post to get retweeters for."),
@@ -467,6 +506,7 @@ export function createDesearchMcpServer(apiKey: string, client?: DesearchClient)
     registerTool(
         server,
         "x-user-posts",
+        "X User Posts",
         "Retrieve a user's X (Twitter) timeline posts by username. Pass cursor to page through more posts.",
         {
             username: z.string().describe("Username to fetch posts for, example: 'elonmusk'"),
@@ -484,6 +524,7 @@ export function createDesearchMcpServer(apiKey: string, client?: DesearchClient)
     registerTool(
         server,
         "x-user-replies",
+        "X User Replies",
         "Fetch posts and replies by an X (Twitter) user, with an optional keyword query.",
         {
             user: z.string().describe("Username of the user to search for, example: 'elonmusk'"),
@@ -502,6 +543,7 @@ export function createDesearchMcpServer(apiKey: string, client?: DesearchClient)
     registerTool(
         server,
         "x-post-replies",
+        "X Post Replies",
         "Fetch replies to an X (Twitter) post, with an optional keyword query.",
         {
             post_id: z.string().describe("The ID of the post to fetch replies for."),
@@ -520,6 +562,7 @@ export function createDesearchMcpServer(apiKey: string, client?: DesearchClient)
     registerTool(
         server,
         "extract",
+        "Extract Page",
         "Extract a public URL and return its content as plain text or HTML using Desearch. Preferred over web-crawl for new integrations.",
         pageContentFields(),
         async ({ url, format, js, wait }) => {
@@ -534,6 +577,7 @@ export function createDesearchMcpServer(apiKey: string, client?: DesearchClient)
     registerTool(
         server,
         "web-crawl",
+        "Web Crawl",
         "Crawl a public URL and return its content as plain text or HTML on the legacy Desearch /web/crawl route. The SDK marks webCrawl deprecated in favor of extract; this tool stays for parity with that route. Prefer extract for new integrations.",
         pageContentFields(),
         async ({ url, format, js, wait }) => {
@@ -548,6 +592,7 @@ export function createDesearchMcpServer(apiKey: string, client?: DesearchClient)
     registerTool(
         server,
         "x-trends",
+        "X Trends",
         "Retrieve trending topics on X (Twitter) for a location by its WOEID using Desearch.",
         {
             woeid: z

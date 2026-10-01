@@ -1,0 +1,81 @@
+# Release workflow. Do not run it from a pull request.
+# Trigger: push a tag whose name is v plus the package version, for example v0.1.2.
+#
+# npm auth is Trusted Publishing (GitHub OIDC). There is no npm token in this file.
+# https://docs.npmjs.com/trusted-publishers/
+# Provenance: https://docs.npmjs.com/generating-provenance-statements/
+#
+# One-time setup on npmjs.com, by a package owner, before the first tag:
+# Packages -> desearch-mcp-server -> Settings -> Trusted Publisher -> GitHub Actions
+#   Organization or user: Desearch-ai
+#   Repository: mcp-desearch
+#   Workflow filename: publish-mcp.yml
+#   Environment name: leave empty (this job does not set environment:)
+#   Allowed actions: npm publish (this job runs `npm publish`, not `npm stage publish`)
+# npm does not check that form until a publish runs. The workflow filename must match exactly.
+#
+# Registry publish commands follow
+# https://github.com/modelcontextprotocol/registry/blob/main/docs/modelcontextprotocol-io/github-actions.mdx
+
+name: Publish to MCP Registry
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # OIDC for npm trusted publishing and mcp-publisher github-oidc
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build package
+        run: npm run build
+
+      - name: Require tag, package.json, and server.json to agree
+        run: |
+          TAG="${GITHUB_REF#refs/tags/v}"
+          PKG="$(node -p "require('./package.json').version")"
+          MCP_NAME="$(node -p "require('./package.json').mcpName")"
+          SRV="$(node -p "require('./server.json').version")"
+          SRV_NAME="$(node -p "require('./server.json').name")"
+          PKG_VER="$(node -p "require('./server.json').packages[0].version")"
+          if [ "$TAG" != "$PKG" ] || [ "$PKG" != "$SRV" ] || [ "$SRV" != "$PKG_VER" ] || [ "$MCP_NAME" != "$SRV_NAME" ]; then
+            echo "Mismatch: tag v${TAG}, package.json ${PKG} (${MCP_NAME}), server.json ${SRV} (${SRV_NAME}, package ${PKG_VER})"
+            exit 1
+          fi
+
+      - name: Use an npm CLI that supports trusted publishing
+        # Trusted publishing needs npm >= 11.5.1 and Node >= 22.14.
+        # https://docs.npmjs.com/trusted-publishers/
+        run: npm install -g npm@11.19.1
+
+      - name: Publish package to npm
+        run: npm publish --access public --provenance
+
+      - name: Install mcp-publisher
+        run: |
+          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
+
+      - name: Authenticate to MCP Registry
+        run: ./mcp-publisher login github-oidc
+
+      - name: Publish server to MCP Registry
+        run: ./mcp-publisher publish

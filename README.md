@@ -2,19 +2,19 @@
 
 [![npm version](https://badge.fury.io/js/desearch-mcp-server.svg)](https://www.npmjs.com/package/desearch-mcp-server)
 
-A Model Context Protocol (MCP) server lets clients like Claude or Cursor use Desearch for real-time AI search, X search, web search, page extraction, and X trends.
+A Model Context Protocol (MCP) server lets clients like Claude or Cursor call Desearch for AI search, X search, web search, page extraction, and X trends.
 
 ## Tools
 
 The Desearch MCP server includes the following tools:
 
--   **AI Search** (`ai-search`): Performs real-time AI Twitter and web searches with relevant links and summary.
--   **X Search** (`x-search`): Real-time tweet search on X. Arguments: `query` (required), `count` (optional, default 20). Sort stays Top. Optional filters: `user`, `start_date`, `end_date` (YYYY-MM-DD), `lang`, `verified`, `blue_verified`, `is_quote`, `is_video`, `is_image`, `min_retweets`, `min_replies`, `min_likes`.
--   **Web Search** (`web-search`): SERP-style web search. Arguments: `query` (required), `start` (optional pagination offset).
--   **Web Links Search** (`web-links-search`): Link search across web, Hacker News, Reddit, Wikipedia, YouTube, and arXiv. Arguments: `prompt` (required), `tools` (required; `web`, `hackernews`, `reddit`, `wikipedia`, `youtube`, `arxiv`), `count` (optional, 10–200).
--   **Extract** (`extract`): Read a public URL as text or HTML. Preferred over crawl. Arguments: `url` (required), `format` (optional, `html` or `text`), `js` (optional), `wait` (optional milliseconds).
--   **Web Crawl** (`web-crawl`): Same arguments as `extract`, on the legacy `/web/crawl` route. The SDK marks `webCrawl` deprecated in favor of `extract`; this tool stays so that route remains reachable. Prefer `extract` for new integrations.
--   **X Links Search** (`x-links-search`): AI search for X post links. Arguments: `prompt` (required), `count` (optional, 10–200).
+-   **AI Search** (`ai-search`): Calls Desearch AI search. Arguments: `prompt` (required), `tools` (optional, default `["Twitter Search", "Web Search"]`; allowed values are `Twitter Search`, `Web Search`, `ArXiv Search`, `Wikipedia Search`, `Youtube Search`, `Hacker News Search`, `Reddit Search`), `date_filter` (optional), `start_date` and `end_date` (optional, UTC `YYYY-MM-DDTHH:MM:SSZ`), `result_type` (optional, `ONLY_LINKS` or `LINKS_WITH_FINAL_SUMMARY`), `include_domains` and `exclude_domains` (optional), `model` (optional, `NOVA` or `ORBIT`, default `NOVA`).
+-   **X Search** (`x-search`): Search posts on X. Arguments: `query` (required), `count` (optional, default 20). Sort stays Top. Optional filters: `user`, `start_date`, `end_date` (YYYY-MM-DD), `lang`, `verified`, `blue_verified`, `is_quote`, `is_video`, `is_image`, `min_retweets`, `min_replies`, `min_likes`.
+-   **Web Search** (`web-search`): Web search. Returns titles, links, and snippets. Arguments: `query` (required), `start` (optional pagination offset).
+-   **Web Links Search** (`web-links-search`): Link search across web, Hacker News, Reddit, Wikipedia, YouTube, and arXiv. Arguments: `prompt` (required), `tools` (required; `web`, `hackernews`, `reddit`, `wikipedia`, `youtube`, `arxiv`), `count` (optional, 10-200). Does not search X.
+-   **Extract** (`extract`): Read a public URL as text or HTML. Arguments: `url` (required), `format` (optional, `html` or `text`), `js` (optional), `wait` (optional milliseconds).
+-   **Web Crawl** (`web-crawl`): Same arguments as `extract`, on the legacy `/web/crawl` route. The SDK marks `webCrawl` deprecated in favor of `extract`; this tool stays so that route remains reachable.
+-   **X Links Search** (`x-links-search`): Search for X post links. Arguments: `prompt` (required), `count` (optional, 10-200).
 -   **X Posts By URLs** (`x-posts-by-urls`): Full posts for a list of URLs. Argument: `urls` (required).
 -   **X Post By ID** (`x-post-by-id`): One post by ID. Argument: `id` (required).
 -   **X Posts By User** (`x-posts-by-user`): Posts by a user. Arguments: `user` (required), `query` (optional), `count` (optional, 1–100).
@@ -140,12 +140,55 @@ The same server can run over MCP Streamable HTTP for a remote client. Local stdi
 
 Remote requests do not use that environment variable. Each request must carry the caller's own Desearch API key, the same key from [console.desearch.ai/api-keys](https://console.desearch.ai/api-keys):
 
-- `Authorization: Bearer <DESEARCH_API_KEY>` (preferred)
+- `Authorization: Bearer <DESEARCH_API_KEY>`
 - `x-api-key: <DESEARCH_API_KEY>`
 
 A bare `Authorization: <DESEARCH_API_KEY>` value is also accepted. The key is not read from the query string. There is no shared server secret: the hosted process forwards the per-request key to the Desearch API.
 
 The MCP endpoint is `POST /mcp`. Responses are JSON (stateless Streamable HTTP). `GET` and `DELETE` on `/mcp` return `405` because the server does not keep a session or push server-to-client messages. `GET /` and `GET /health` are unauthenticated health checks.
+
+## Hosted endpoint
+
+The public Streamable HTTP endpoint is `https://mcp.desearch.ai/mcp`. Send your Desearch API key on each request in the `x-api-key` header. `Authorization: Bearer <key>` is also accepted. Use the key from [console.desearch.ai/api-keys](https://console.desearch.ai/api-keys). The server does not read a key from the query string. Remote requests do not use a process-level `DESEARCH_API_KEY`.
+
+Cursor, or any remote MCP client:
+
+```json
+{
+    "mcpServers": {
+        "desearch": {
+            "url": "https://mcp.desearch.ai/mcp",
+            "headers": {
+                "x-api-key": "your-api-key"
+            }
+        }
+    }
+}
+```
+
+### Use with Claude (custom connector)
+
+Desearch is not in the Claude Connectors Directory yet. You can add the hosted server as a custom connector with your Desearch API key.
+
+Sources: [Custom remote MCP connectors](https://claude.com/docs/connectors/custom/remote-mcp) and [connector authentication](https://claude.com/docs/connectors/building/authentication). Request-header authentication is a beta feature in Claude.
+
+**Claude.ai / Claude Desktop (organization admin)**
+
+1. Open **Organization settings > Connectors**.
+2. Select **Add**, then **Custom**. If asked for the connector type, choose **Web**.
+3. Server URL: `https://mcp.desearch.ai/mcp`
+4. Sign-in option: **No sign-in**.
+5. Under **Request headers**, add `x-api-key` with your Desearch API key as the value.
+6. Select **Add**.
+
+The header value is stored once and shared by everyone in the organization who uses the connector.
+
+**Claude Code**
+
+```bash
+claude mcp add --transport http desearch https://mcp.desearch.ai/mcp \
+  --header "x-api-key: YOUR_DESEARCH_API_KEY"
+```
 
 ### Run locally
 
@@ -180,22 +223,28 @@ Cursor (or any remote MCP client):
 }
 ```
 
-Docker serves the same HTTP entrypoint (`EXPOSE 3000`). Smithery still starts stdio and injects `DESEARCH_API_KEY` itself.
+The image command is stdio (`node build/index.js`). Stdio reads `DESEARCH_API_KEY`. Smithery still starts stdio and injects that variable itself.
 
 ```bash
 docker build -t desearch-mcp .
-docker run --rm -p 3000:3000 desearch-mcp
+docker run -i --rm -e DESEARCH_API_KEY=your-api-key desearch-mcp
+```
+
+The same image can serve Streamable HTTP:
+
+```bash
+docker run --rm -p 3000:3000 desearch-mcp node build/index.js --http
 ```
 
 ### Deploy on Vercel
 
-Vercel fits this server because the handler is stateless and answers each JSON-RPC call in one response. `vercel.json` builds the project, serves `POST /mcp`, and allows tool calls up to 60 seconds (Orbit searches run about 30 seconds). Hobby plans cap function duration lower than that, so AI Search tool calls need a plan that allows at least 60 seconds. `initialize` and `tools/list` are short either way.
+Vercel fits this server because the handler is stateless and answers each JSON-RPC call in one response. `vercel.json` builds the project, serves `POST /mcp`, and allows tool calls up to 60 seconds. Hobby plans cap function duration lower than that, so AI Search calls need a plan that allows at least 60 seconds.
 
 No server-side Desearch API key is required in the Vercel project. After deploy, the endpoint is:
 
 `https://<project>.vercel.app/mcp`
 
-Pointing DNS for `mcp.desearch.ai` at that deployment is a later step. This repo does not create DNS records. Once that name exists, clients use `https://mcp.desearch.ai/mcp` with the same `Authorization` header.
+`https://mcp.desearch.ai/mcp` is the public hostname for that deployment. This repo does not create DNS records. Clients send `x-api-key`, or `Authorization: Bearer <key>`.
 
 The same `node build/index.js --http` process is the fallback if you would rather run a long-lived Node host or the Docker image instead of Vercel.
 
