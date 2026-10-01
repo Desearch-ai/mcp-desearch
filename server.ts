@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import DesearchImport from "desearch-js";
 import { z } from "zod";
+import { AI_SEARCH_TOOLS, WEB_LINK_TOOLS, toolIdSchema } from "./tool-sources.js";
 
 export const SERVER_NAME = "Desearch";
 export const SERVER_VERSION = "0.1.2";
@@ -58,9 +59,6 @@ type ToolResult = {
 };
 
 type ToolHandler = (args: any) => Promise<ToolResult>;
-
-// links/web accepts `web` and 422s the other short ids ("supported tools are Web Search").
-const WEB_LINK_TOOLS = ["web"] as const;
 
 const optionalPostCount = z
     .number()
@@ -229,20 +227,12 @@ export function createDesearchMcpServer(apiKey: string, client?: DesearchClient)
         {
             prompt: z.string().describe("Question, example: 'What is the latest news on AI?'"),
             tools: z
-                .array(
-                    z.enum([
-                        "Twitter Search",
-                        "Web Search",
-                        "ArXiv Search",
-                        "Wikipedia Search",
-                        "Youtube Search",
-                        "Hacker News Search",
-                        "Reddit Search",
-                    ])
-                )
+                .array(toolIdSchema(AI_SEARCH_TOOLS))
                 .optional()
-                .default(["Twitter Search", "Web Search"])
-                .describe("Tools to use for the search, example: ['Web Search', 'Twitter Search']"),
+                .default(["web", "twitter"])
+                .describe(
+                    "Source ids sent to POST /desearch/ai/search. Use short ids such as 'web' and 'twitter'. Legacy labels such as 'Web Search' are accepted and rewritten to those ids. Example: ['web', 'twitter']."
+                ),
             date_filter: z
                 .enum([
                     "PAST_24_HOURS",
@@ -417,10 +407,12 @@ export function createDesearchMcpServer(apiKey: string, client?: DesearchClient)
                 .string()
                 .describe("Search query prompt, example: 'open source browser automation tools'"),
             tools: z
-                .array(z.enum(WEB_LINK_TOOLS))
+                .array(toolIdSchema(WEB_LINK_TOOLS))
                 .min(1)
                 .default(["web"])
-                .describe("Sources to search. Only 'web' is accepted. Defaults to ['web']."),
+                .describe(
+                    "Sources to search. Only 'web' is accepted; other ids are rejected before the API call. 'Web Search' is accepted and rewritten to 'web'. Defaults to ['web']."
+                ),
             count: z
                 .number()
                 .int()

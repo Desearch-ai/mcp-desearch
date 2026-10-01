@@ -14,7 +14,7 @@ Migration from the published npm package `desearch-mcp-server@0.0.1`.
 
 | Tool | In 0.0.1 |
 | --- | --- |
-| `ai-search` | Present, under the broken `AISearch` call. Arguments now include date range, `result_type`, and domain filters. Tool names stay the long labels (`"Web Search"`, `"Twitter Search"`, and the rest of that enum). |
+| `ai-search` | Present, under the broken `AISearch` call. Arguments now include date range, `result_type`, and domain filters. `tools` uses short ids (`web`, `twitter`, and the other sources this tool already exposed). Older labels such as `"Web Search"` are accepted and rewritten to the short id before the API call. Default is `["web", "twitter"]`. |
 | `x-search` | Present, under the broken `twitterSearch` call. Optional filters were added later (`user`, dates, language, verification, media, engagement). Sort stays Top. |
 | `web-search` | New. |
 | `web-links-search` | New. `tools` accepts only `web` and defaults to `["web"]`. |
@@ -27,7 +27,7 @@ The same process can serve MCP Streamable HTTP (`--http` or `MCP_TRANSPORT=http`
 
 ### `web-links-search` sources
 
-Hosted `https://mcp.desearch.ai/mcp` already lists `web-links-search`. After this release, that tool's schema accepts only `web`. Callers that send `hackernews`, `reddit`, `wikipedia`, `youtube`, or `arxiv` fail input validation. The live `POST /desearch/ai/search/links/web` route rejects those ids with HTTP 422 (`supported tools are Web Search`). npm `0.0.1` never shipped this tool, so this is a break for hosted MCP clients, not for existing npm installs.
+Hosted `https://mcp.desearch.ai/mcp` already lists `web-links-search`. After this release, that tool's schema accepts only `web`. `"Web Search"` is rewritten to `web`. Callers that send `hackernews`, `reddit`, `wikipedia`, `youtube`, or `arxiv` fail input validation. The live `POST /desearch/ai/search/links/web` route rejects those ids with HTTP 422 (`supported tools are Web Search`). npm `0.0.1` never shipped this tool, so this is a break for hosted MCP clients, not for existing npm installs.
 
 ### Link payloads
 

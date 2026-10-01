@@ -118,7 +118,7 @@ test("tools call the desearch-js 1.5 methods with the existing ai/x payloads", a
             "aiSearch",
             {
                 prompt: "latest AI news",
-                tools: ["Twitter Search", "Web Search"],
+                tools: ["web", "twitter"],
                 date_filter: undefined,
                 start_date: undefined,
                 end_date: undefined,

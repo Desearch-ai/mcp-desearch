@@ -342,6 +342,6 @@ test("ai-search ONLY_LINKS posts to /desearch/ai/search and keeps whichever link
         assert.equal(body.model, "NOVA");
         assert.equal(Object.hasOwn(body, "date_filter"), false);
     }
-    assert.deepEqual(seen[0].tools, ["Web Search"]);
+    assert.deepEqual(seen[0].tools, ["web"]);
     assert.equal(seen[0].prompt, "bittensor subnet news");
 });
