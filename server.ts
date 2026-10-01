@@ -3,7 +3,7 @@ import DesearchImport from "desearch-js";
 import { z } from "zod";
 
 export const SERVER_NAME = "Desearch";
-export const SERVER_VERSION = "0.1.3";
+export const SERVER_VERSION = "0.1.2";
 
 interface XSearchPayload {
     query: string;
