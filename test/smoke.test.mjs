@@ -60,6 +60,8 @@ const TOOL_TITLES = {
     "x-trends": "Get X Trends",
 };
 
+const UNSOURCED_SPEED = /real-?time|nova is|orbit is|\b10s\b|\b30s\b/i;
+
 function assertToolMetadata(tools) {
     assert.equal(tools.length, 15);
     for (const tool of tools) {
@@ -68,6 +70,9 @@ function assertToolMetadata(tools) {
         assert.equal(tool.annotations?.readOnlyHint, true, tool.name);
         assert.equal(tool.annotations?.destructiveHint, false, tool.name);
         assert.equal(tool.annotations?.openWorldHint, true, tool.name);
+        const blob = JSON.stringify(tool);
+        const hit = blob.match(UNSOURCED_SPEED);
+        assert.equal(hit, null, `${tool.name} still has an unsourced speed claim: ${hit?.[0]}`);
     }
 }
 

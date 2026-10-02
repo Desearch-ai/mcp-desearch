@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.3
+
+Tool copy no longer states unsourced speed or latency.
+
+- `ai-search` description is `AI search and analysis on web using Desearch AI`.
+- `x-search` description is `Search X (Twitter) using Desearch AI. Optional filters narrow by user, date, language, verification, media, and engagement. Sort stays Top.`
+- `ai-search` `model` is `Model to use for the search: NOVA (default) or ORBIT.`
+
+Removed from those strings: `Real-time`, `real-time`, and `Nova is 10s model, Orbit is 30s model`. The Vercel section of the README no longer says Orbit searches run about 30 seconds. The 60-second figure there is the `vercel.json` function duration.
+
 ## 0.1.2
 
 Migration from the published npm package `desearch-mcp-server@0.0.1`.

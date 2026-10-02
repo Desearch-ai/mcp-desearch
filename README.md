@@ -341,7 +341,7 @@ docker run --rm -e MCP_TRANSPORT=http -p 3000:3000 desearch-mcp
 
 ### Deploy on Vercel
 
-Vercel fits this server because the handler is stateless and answers each JSON-RPC call in one response. `vercel.json` builds the project, serves `POST /mcp`, and allows tool calls up to 60 seconds (Orbit searches run about 30 seconds). Hobby plans cap function duration lower than that, so AI Search tool calls need a plan that allows at least 60 seconds. `initialize` and `tools/list` are short either way.
+Vercel fits this server because the handler is stateless and answers each JSON-RPC call in one response. `vercel.json` builds the project, serves `POST /mcp`, and sets the function duration to 60 seconds. Hobby plans cap function duration lower than that, so AI Search tool calls need a plan that allows at least 60 seconds. `initialize` and `tools/list` are short either way.
 
 No server-side Desearch API key is required in the Vercel project. After deploy, the endpoint is:
 
