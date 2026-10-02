@@ -42,6 +42,35 @@ const TOOL_NAMES = [
     "x-user-replies",
 ];
 
+const TOOL_TITLES = {
+    "ai-search": "AI Search",
+    "x-search": "X Search",
+    "web-search": "Web Search",
+    "web-links-search": "Web Links Search",
+    "x-links-search": "X Links Search",
+    "x-posts-by-urls": "Get X Posts by URLs",
+    "x-post-by-id": "Get X Post by ID",
+    "x-posts-by-user": "Search X Posts by User",
+    "x-post-retweeters": "List X Post Retweeters",
+    "x-user-posts": "Get X User Timeline",
+    "x-user-replies": "Get X User Replies",
+    "x-post-replies": "Get X Post Replies",
+    extract: "Extract Page Content",
+    "web-crawl": "Crawl Web Page (Legacy)",
+    "x-trends": "Get X Trends",
+};
+
+function assertToolMetadata(tools) {
+    assert.equal(tools.length, 15);
+    for (const tool of tools) {
+        assert.equal(tool.title, TOOL_TITLES[tool.name], tool.name);
+        assert.equal(tool.annotations?.title, TOOL_TITLES[tool.name], tool.name);
+        assert.equal(tool.annotations?.readOnlyHint, true, tool.name);
+        assert.equal(tool.annotations?.destructiveHint, false, tool.name);
+        assert.equal(tool.annotations?.openWorldHint, true, tool.name);
+    }
+}
+
 function mcpPost(port, headers, path = "/mcp") {
     return fetch(`http://127.0.0.1:${port}${path}`, {
         method: "POST",
@@ -79,11 +108,7 @@ test("stdio initializes and lists tools", async () => {
             listed.tools.map((tool) => tool.name).sort(),
             TOOL_NAMES
         );
-        for (const tool of listed.tools) {
-            assert.equal(tool.annotations?.readOnlyHint, true, tool.name);
-            assert.equal(tool.annotations?.destructiveHint, false, tool.name);
-            assert.equal(tool.annotations?.openWorldHint, true, tool.name);
-        }
+        assertToolMetadata(listed.tools);
         const aiSearch = listed.tools.find((tool) => tool.name === "ai-search");
         assert.deepEqual(aiSearch.inputSchema.properties.tools.items.enum, [
             "web",
@@ -186,15 +211,30 @@ test("streamable HTTP initialize and tools/list with Bearer and x-api-key", asyn
 
         const healthAlias = await fetch(`http://127.0.0.1:${server.port}/health`);
         assert.equal(healthAlias.status, 200);
+        const healthSlash = await fetch(`http://127.0.0.1:${server.port}/health/`);
+        assert.equal(healthSlash.status, 200);
+        const apiHealth = await fetch(`http://127.0.0.1:${server.port}/api/health`);
+        assert.equal(apiHealth.status, 200);
 
         const previousKey = process.env.DESEARCH_API_KEY;
         process.env.DESEARCH_API_KEY = "server-secret";
         try {
-            const missing = await mcpPost(server.port, {});
+            const missing = await fetch(`http://127.0.0.1:${server.port}/mcp`, {
+                method: "POST",
+                headers: MCP_HEADERS,
+                body: JSON.stringify({
+                    jsonrpc: "2.0",
+                    id: 9,
+                    method: "tools/call",
+                    params: { name: "web-search", arguments: { query: "should-not-run" } },
+                }),
+            });
             assert.equal(missing.status, 401);
+            assert.equal(missing.headers.get("www-authenticate"), null);
             const missingBody = await missing.text();
             assert.equal(missingBody.includes("server-secret"), false);
             assert.equal(missingBody.includes("super-secret"), false);
+            assert.match(missingBody, /API key/);
         } finally {
             if (previousKey === undefined) {
                 delete process.env.DESEARCH_API_KEY;
@@ -203,7 +243,16 @@ test("streamable HTTP initialize and tools/list with Bearer and x-api-key", asyn
             }
         }
 
-        const queryKey = await mcpPost(server.port, {}, "/mcp?api_key=super-secret");
+        const queryKey = await fetch(`http://127.0.0.1:${server.port}/mcp?api_key=super-secret`, {
+            method: "POST",
+            headers: MCP_HEADERS,
+            body: JSON.stringify({
+                jsonrpc: "2.0",
+                id: 10,
+                method: "tools/call",
+                params: { name: "web-search", arguments: { query: "should-not-run" } },
+            }),
+        });
         assert.equal(queryKey.status, 401);
         assert.equal((await queryKey.text()).includes("super-secret"), false);
 
@@ -250,6 +299,99 @@ test("streamable HTTP initialize and tools/list with Bearer and x-api-key", asyn
         const initialized = await direct.json();
         assert.equal(initialized.result.serverInfo.name, "Desearch");
         assert.ok(initialized.result.protocolVersion);
+    } finally {
+        await server.close();
+    }
+});
+
+test("keyless discovery lists tools and tools/call stays unauthorized", async () => {
+    const server = await startHttpServer({ host: "127.0.0.1", port: 0 });
+    try {
+        const endpoint = `http://127.0.0.1:${server.port}/mcp`;
+        const post = (body) =>
+            fetch(endpoint, {
+                method: "POST",
+                headers: MCP_HEADERS,
+                body: JSON.stringify(body),
+            });
+
+        const initialized = await post(INIT_BODY);
+        assert.equal(initialized.status, 200);
+        assert.equal(initialized.headers.get("www-authenticate"), null);
+        const initBody = await initialized.json();
+        assert.equal(initBody.result.serverInfo.name, "Desearch");
+
+        const notified = await post({
+            jsonrpc: "2.0",
+            method: "notifications/initialized",
+        });
+        assert.notEqual(notified.status, 401);
+        assert.ok(notified.status === 200 || notified.status === 202);
+
+        const ping = await post({ jsonrpc: "2.0", id: 4, method: "ping" });
+        assert.equal(ping.status, 200);
+
+        const prompts = await post({ jsonrpc: "2.0", id: 5, method: "prompts/list" });
+        assert.equal(prompts.status, 200);
+        assert.deepEqual((await prompts.json()).result.prompts, []);
+
+        const resources = await post({ jsonrpc: "2.0", id: 6, method: "resources/list" });
+        assert.equal(resources.status, 200);
+        assert.deepEqual((await resources.json()).result.resources, []);
+
+        const templates = await post({ jsonrpc: "2.0", id: 7, method: "resources/templates/list" });
+        assert.equal(templates.status, 200);
+        assert.deepEqual((await templates.json()).result.resourceTemplates, []);
+
+        const tools = await post({ jsonrpc: "2.0", id: 2, method: "tools/list" });
+        assert.equal(tools.status, 200);
+        const toolsBody = await tools.json();
+        assert.deepEqual(
+            toolsBody.result.tools.map((tool) => tool.name).sort(),
+            TOOL_NAMES
+        );
+        assertToolMetadata(toolsBody.result.tools);
+
+        const transport = new StreamableHTTPClientTransport(new URL(endpoint));
+        await withClient(transport, async (client) => {
+            assert.equal(client.getServerVersion()?.name, "Desearch");
+            const listed = await client.listTools();
+            assertToolMetadata(listed.tools);
+        });
+
+        const called = await post({
+            jsonrpc: "2.0",
+            id: 3,
+            method: "tools/call",
+            params: { name: "web-search", arguments: { query: "should-not-run" } },
+        });
+        assert.equal(called.status, 401);
+        assert.equal(called.headers.get("www-authenticate"), null);
+        const calledBody = await called.json();
+        assert.equal(calledBody.error.code, -32001);
+        assert.match(calledBody.error.message, /Desearch API key/);
+
+        const mixed = await post([
+            { jsonrpc: "2.0", id: 1, method: "tools/list" },
+            {
+                jsonrpc: "2.0",
+                id: 2,
+                method: "tools/call",
+                params: { name: "ai-search", arguments: { prompt: "should-not-run" } },
+            },
+        ]);
+        assert.equal(mixed.status, 401);
+        assert.equal((await mixed.json()).error.code, -32001);
+
+        const rawGarbage = await fetch(endpoint, {
+            method: "POST",
+            headers: MCP_HEADERS,
+            body: "{",
+        });
+        assert.equal(rawGarbage.status, 401);
+
+        const unknown = await post({ jsonrpc: "2.0", id: 8, method: "resources/read" });
+        assert.equal(unknown.status, 401);
     } finally {
         await server.close();
     }
@@ -305,14 +447,30 @@ test("Vercel function entries initialize over the rewritten paths", async () => 
     const healthBody = await health.json();
     assert.equal(healthBody.endpoint, "/mcp");
 
-    const denied = await mcpHandler.fetch(
+    const discovered = await mcpHandler.fetch(
         new Request("https://example.vercel.app/api/mcp", {
             method: "POST",
             headers: MCP_HEADERS,
             body: JSON.stringify(INIT_BODY),
         })
     );
+    assert.equal(discovered.status, 200);
+    assert.equal((await discovered.json()).result.serverInfo.name, "Desearch");
+
+    const denied = await mcpHandler.fetch(
+        new Request("https://example.vercel.app/api/mcp", {
+            method: "POST",
+            headers: MCP_HEADERS,
+            body: JSON.stringify({
+                jsonrpc: "2.0",
+                id: 3,
+                method: "tools/call",
+                params: { name: "web-search", arguments: { query: "should-not-run" } },
+            }),
+        })
+    );
     assert.equal(denied.status, 401);
+    assert.equal(denied.headers.get("www-authenticate"), null);
 
     const initialized = await mcpHandler.fetch(
         new Request("https://example.vercel.app/api/mcp", {

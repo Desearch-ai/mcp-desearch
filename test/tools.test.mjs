@@ -441,3 +441,63 @@ test("phase 4 extract, web-crawl, and x-trends call the matching desearch-js met
         ["extract", { url: "https://fail.example", format: undefined, js: undefined, wait: undefined }],
     ]);
 });
+
+test("every listed tool has a title and readOnlyHint", async () => {
+    const expected = {
+        "ai-search": "AI Search",
+        "x-search": "X Search",
+        "web-search": "Web Search",
+        "web-links-search": "Web Links Search",
+        "x-links-search": "X Links Search",
+        "x-posts-by-urls": "Get X Posts by URLs",
+        "x-post-by-id": "Get X Post by ID",
+        "x-posts-by-user": "Search X Posts by User",
+        "x-post-retweeters": "List X Post Retweeters",
+        "x-user-posts": "Get X User Timeline",
+        "x-user-replies": "Get X User Replies",
+        "x-post-replies": "Get X Post Replies",
+        extract: "Extract Page Content",
+        "web-crawl": "Crawl Web Page (Legacy)",
+        "x-trends": "Get X Trends",
+    };
+    await withFakeClient({}, async (client) => {
+        const listed = await client.listTools();
+        assert.equal(listed.tools.length, 15);
+        for (const tool of listed.tools) {
+            assert.equal(tool.title, expected[tool.name], tool.name);
+            assert.equal(tool.annotations?.title, expected[tool.name], tool.name);
+            assert.equal(tool.annotations?.readOnlyHint, true, tool.name);
+        }
+    });
+});
+
+test("an empty API key does not call Desearch", async () => {
+    let called = false;
+    const fake = new Proxy(
+        {},
+        {
+            get() {
+                return async () => {
+                    called = true;
+                    throw new Error("Desearch was called");
+                };
+            },
+        }
+    );
+    const server = createDesearchMcpServer("", fake);
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "tools", version: "0.0.1" });
+    try {
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+        const result = await client.callTool({
+            name: "web-search",
+            arguments: { query: "should-not-run" },
+        });
+        assert.equal(result.isError, true);
+        assert.match(textOf(result), /API key required/);
+        assert.equal(called, false);
+    } finally {
+        await client.close();
+        await server.close();
+    }
+});

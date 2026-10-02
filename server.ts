@@ -1,4 +1,9 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import {
+    ListPromptsRequestSchema,
+    ListResourcesRequestSchema,
+    ListResourceTemplatesRequestSchema,
+} from "@modelcontextprotocol/sdk/types.js";
 import DesearchImport from "desearch-js";
 import { z } from "zod";
 import { AI_SEARCH_TOOLS, WEB_LINK_TOOLS, toolIdSchema } from "./tool-sources.js";
@@ -203,7 +208,9 @@ function fail(label: string, error: unknown): ToolResult {
 
 function registerTool(
     server: McpServer,
+    apiKey: string,
     name: string,
+    title: string,
     description: string,
     inputSchema: Record<string, z.ZodTypeAny>,
     handler: ToolHandler
@@ -213,13 +220,34 @@ function registerTool(
     const register = server.registerTool.bind(server) as (
         toolName: string,
         config: {
+            title: string;
             description: string;
             inputSchema: Record<string, z.ZodTypeAny>;
-            annotations: typeof READ_ONLY_OPEN_WORLD;
+            annotations: typeof READ_ONLY_OPEN_WORLD & { title: string };
         },
         callback: ToolHandler
     ) => unknown;
-    register(name, { description, inputSchema, annotations: READ_ONLY_OPEN_WORLD }, handler);
+    const guarded: ToolHandler = async (args) => {
+        if (!apiKey) {
+            return fail(
+                "Desearch",
+                new Error(
+                    "Desearch API key required. Send it in the Authorization: Bearer <key> header or the x-api-key header."
+                )
+            );
+        }
+        return handler(args);
+    };
+    register(
+        name,
+        {
+            title,
+            description,
+            inputSchema,
+            annotations: { ...READ_ONLY_OPEN_WORLD, title },
+        },
+        guarded
+    );
 }
 
 /**
@@ -238,7 +266,9 @@ export function createDesearchMcpServer(apiKey: string, client?: DesearchClient)
 
     registerTool(
         server,
+        apiKey,
         "ai-search",
+        "AI Search",
         "Real-time AI search and analysis on web using Desearch AI",
         {
             prompt: z.string().describe("Question, example: 'What is the latest news on AI?'"),
@@ -314,7 +344,9 @@ export function createDesearchMcpServer(apiKey: string, client?: DesearchClient)
 
     registerTool(
         server,
+        apiKey,
         "x-search",
+        "X Search",
         "Search the X (Twitter) using Desearch AI - performs real-time tweet search on X. Optional filters narrow by user, date, language, verification, media, and engagement. Sort stays Top.",
         {
             query: z
@@ -392,7 +424,9 @@ export function createDesearchMcpServer(apiKey: string, client?: DesearchClient)
 
     registerTool(
         server,
+        apiKey,
         "web-search",
+        "Web Search",
         "SERP-style web search using Desearch. Returns ranked titles, links, and snippets.",
         {
             query: z.string().describe("Search query, example: 'latest news on AI'"),
@@ -416,7 +450,9 @@ export function createDesearchMcpServer(apiKey: string, client?: DesearchClient)
 
     registerTool(
         server,
+        apiKey,
         "web-links-search",
+        "Web Links Search",
         "Search the web for links using Desearch. Only the web source is accepted.",
         {
             prompt: z
@@ -456,7 +492,9 @@ export function createDesearchMcpServer(apiKey: string, client?: DesearchClient)
 
     registerTool(
         server,
+        apiKey,
         "x-links-search",
+        "X Links Search",
         "AI search for X (Twitter) post links using Desearch. Returns links from posts that match the prompt.",
         {
             prompt: z.string().describe("Search query prompt, example: 'Bittensor subnet updates'"),
@@ -473,7 +511,9 @@ export function createDesearchMcpServer(apiKey: string, client?: DesearchClient)
 
     registerTool(
         server,
+        apiKey,
         "x-posts-by-urls",
+        "Get X Posts by URLs",
         "Fetch full X (Twitter) posts for a list of post URLs.",
         {
             urls: z
@@ -492,7 +532,9 @@ export function createDesearchMcpServer(apiKey: string, client?: DesearchClient)
 
     registerTool(
         server,
+        apiKey,
         "x-post-by-id",
+        "Get X Post by ID",
         "Fetch a single X (Twitter) post by its ID.",
         {
             id: z.string().describe("The unique ID of the post, example: '1234567890'"),
@@ -508,7 +550,9 @@ export function createDesearchMcpServer(apiKey: string, client?: DesearchClient)
 
     registerTool(
         server,
+        apiKey,
         "x-posts-by-user",
+        "Search X Posts by User",
         "Search X (Twitter) posts by a specific user, with an optional keyword query.",
         {
             user: z.string().describe("User to search for, example: 'elonmusk'"),
@@ -526,7 +570,9 @@ export function createDesearchMcpServer(apiKey: string, client?: DesearchClient)
 
     registerTool(
         server,
+        apiKey,
         "x-post-retweeters",
+        "List X Post Retweeters",
         "List users who retweeted an X (Twitter) post. Pass cursor to page through more users.",
         {
             id: z.string().describe("The ID of the post to get retweeters for."),
@@ -543,7 +589,9 @@ export function createDesearchMcpServer(apiKey: string, client?: DesearchClient)
 
     registerTool(
         server,
+        apiKey,
         "x-user-posts",
+        "Get X User Timeline",
         "Retrieve a user's X (Twitter) timeline posts by username. Pass cursor to page through more posts.",
         {
             username: z.string().describe("Username to fetch posts for, example: 'elonmusk'"),
@@ -560,7 +608,9 @@ export function createDesearchMcpServer(apiKey: string, client?: DesearchClient)
 
     registerTool(
         server,
+        apiKey,
         "x-user-replies",
+        "Get X User Replies",
         "Fetch posts and replies by an X (Twitter) user, with an optional keyword query.",
         {
             user: z.string().describe("Username of the user to search for, example: 'elonmusk'"),
@@ -578,7 +628,9 @@ export function createDesearchMcpServer(apiKey: string, client?: DesearchClient)
 
     registerTool(
         server,
+        apiKey,
         "x-post-replies",
+        "Get X Post Replies",
         "Fetch replies to an X (Twitter) post, with an optional keyword query.",
         {
             post_id: z.string().describe("The ID of the post to fetch replies for."),
@@ -596,7 +648,9 @@ export function createDesearchMcpServer(apiKey: string, client?: DesearchClient)
 
     registerTool(
         server,
+        apiKey,
         "extract",
+        "Extract Page Content",
         "Extract a public URL and return its content as plain text or HTML using Desearch. Preferred over web-crawl for new integrations.",
         pageContentFields(),
         async ({ url, format, js, wait }) => {
@@ -610,7 +664,9 @@ export function createDesearchMcpServer(apiKey: string, client?: DesearchClient)
 
     registerTool(
         server,
+        apiKey,
         "web-crawl",
+        "Crawl Web Page (Legacy)",
         "Crawl a public URL and return its content as plain text or HTML on the legacy Desearch /web/crawl route. The SDK marks webCrawl deprecated in favor of extract; this tool stays for parity with that route. Prefer extract for new integrations.",
         pageContentFields(),
         async ({ url, format, js, wait }) => {
@@ -624,7 +680,9 @@ export function createDesearchMcpServer(apiKey: string, client?: DesearchClient)
 
     registerTool(
         server,
+        apiKey,
         "x-trends",
+        "Get X Trends",
         "Retrieve trending topics on X (Twitter) for a location by its WOEID using Desearch.",
         {
             woeid: z
@@ -647,6 +705,19 @@ export function createDesearchMcpServer(apiKey: string, client?: DesearchClient)
             }
         }
     );
+
+    // Scanners ask for these lists during discovery. There is nothing to return,
+    // but an empty list is a successful response. Method-not-found looks like a
+    // broken server to some directory crawlers.
+    server.server.registerCapabilities({
+        prompts: {},
+        resources: {},
+    });
+    server.server.setRequestHandler(ListPromptsRequestSchema, () => ({ prompts: [] }));
+    server.server.setRequestHandler(ListResourcesRequestSchema, () => ({ resources: [] }));
+    server.server.setRequestHandler(ListResourceTemplatesRequestSchema, () => ({
+        resourceTemplates: [],
+    }));
 
     return server;
 }

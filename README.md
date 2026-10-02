@@ -240,18 +240,18 @@ For the changes to take effect:
 
 The same server can run over MCP Streamable HTTP for a remote client. Local stdio (`desearch-mcp-server`, Smithery) is unchanged and still reads `DESEARCH_API_KEY` from the environment.
 
-Remote requests do not use that environment variable. Each request must carry the caller's own Desearch API key, the same key from [console.desearch.ai/api-keys](https://console.desearch.ai/api-keys):
+Remote requests do not use that environment variable. Discovery does not need a key: `initialize`, `notifications/initialized`, `ping`, `tools/list`, `prompts/list`, `resources/list`, and `resources/templates/list` return 200 so a marketplace scanner can read the tool list. `tools/call` and every other method still require the caller's own Desearch API key, the same key from [console.desearch.ai/api-keys](https://console.desearch.ai/api-keys):
 
 - `Authorization: Bearer <DESEARCH_API_KEY>` (preferred)
 - `x-api-key: <DESEARCH_API_KEY>`
 
-A bare `Authorization: <DESEARCH_API_KEY>` value is also accepted. The key is not read from the query string. There is no shared server secret: the hosted process forwards the per-request key to the Desearch API.
+A bare `Authorization: <DESEARCH_API_KEY>` value is also accepted. The key is not read from the query string. There is no shared server secret and no `WWW-Authenticate` challenge: the hosted process forwards the per-request key to the Desearch API only when a call needs it.
 
-The MCP endpoint is `POST /mcp`. Responses are JSON (stateless Streamable HTTP). `GET` and `DELETE` on `/mcp` return `405` because the server does not keep a session or push server-to-client messages. `GET /` and `GET /health` are unauthenticated health checks.
+The MCP endpoint is `POST /mcp`. Responses are JSON (stateless Streamable HTTP). `GET` and `DELETE` on `/mcp` return `405` because the server does not keep a session or push server-to-client messages. `GET /`, `GET /health`, and `GET /api/health` are unauthenticated health checks.
 
 ## Hosted endpoint
 
-The public Streamable HTTP endpoint is `https://mcp.desearch.ai/mcp`. Send your Desearch API key on each request in the `x-api-key` header. `Authorization: Bearer <key>` is also accepted. Use the key from [console.desearch.ai/api-keys](https://console.desearch.ai/api-keys). The server does not read a key from the query string. Remote requests do not use a process-level `DESEARCH_API_KEY`.
+The public Streamable HTTP endpoint is `https://mcp.desearch.ai/mcp`. Listing the tools does not need a key. Send your Desearch API key on each `tools/call` in the `x-api-key` header. `Authorization: Bearer <key>` is also accepted. Use the key from [console.desearch.ai/api-keys](https://console.desearch.ai/api-keys). The server does not read a key from the query string. Remote requests do not use a process-level `DESEARCH_API_KEY`.
 
 Cursor, or any remote MCP client:
 

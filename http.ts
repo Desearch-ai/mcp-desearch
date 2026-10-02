@@ -89,7 +89,10 @@ function isMcpPath(pathname: string): boolean {
 }
 
 function isHealthPath(pathname: string): boolean {
-    return pathname === "/" || pathname === "/health";
+    // `/api/health` is the Vercel function path. The public rewrite of `/health`
+    // delivers that pathname when the function wrapper does not remap it, and
+    // `isMcpPath` already accepts both `/mcp` and `/api/mcp` for the same reason.
+    return pathname === "/" || pathname === "/health" || pathname === "/api/health";
 }
 
 function withCors(response: Response): Response {
@@ -124,7 +127,7 @@ function healthResponse(): Response {
             version: SERVER_VERSION,
             transport: "streamable-http",
             endpoint: "/mcp",
-            auth: "Authorization: Bearer <DESEARCH_API_KEY> or x-api-key: <DESEARCH_API_KEY>",
+            auth: "initialize and tools/list are public. tools/call requires Authorization: Bearer <DESEARCH_API_KEY> or x-api-key.",
         }),
         {
             status: 200,
@@ -141,6 +144,65 @@ function unauthorized(): Response {
         -32001,
         "Unauthorized. Send your Desearch API key in the Authorization: Bearer <key> header or the x-api-key header."
     );
+}
+
+/**
+ * Methods a marketplace scanner can call with no Desearch API key.
+ * Anything else, including tools/call, stays on the 401 gate so a missing
+ * key never reaches the Desearch API.
+ */
+const KEYLESS_METHODS = new Set([
+    "initialize",
+    "notifications/initialized",
+    "ping",
+    "tools/list",
+    "prompts/list",
+    "resources/list",
+    "resources/templates/list",
+]);
+
+function isKeylessDiscovery(raw: string): boolean {
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(raw);
+    } catch {
+        return false;
+    }
+    const messages = Array.isArray(parsed) ? parsed : [parsed];
+    return (
+        messages.length > 0 &&
+        messages.every((message) => {
+            if (typeof message !== "object" || message === null) {
+                return false;
+            }
+            const method = (message as { method?: unknown }).method;
+            return typeof method === "string" && KEYLESS_METHODS.has(method);
+        })
+    );
+}
+
+function copyRequestHeaders(headers: Headers): Headers {
+    const copied = new Headers();
+    headers.forEach((value, key) => {
+        if (key.toLowerCase() === "content-length" || key.toLowerCase() === "host") {
+            return;
+        }
+        try {
+            copied.append(key, value);
+        } catch {
+            // The Fetch constructor rejects forbidden request headers such as host.
+        }
+    });
+    return copied;
+}
+
+function requestWithJsonBody(request: Request, body: string): Request {
+    const init = { method: "POST", headers: request.headers, body };
+    try {
+        return new Request(request.url, init);
+    } catch {
+        return new Request(request.url, { ...init, headers: copyRequestHeaders(request.headers) });
+    }
 }
 
 /**
@@ -173,17 +235,25 @@ export async function handleMcpHttpRequest(request: Request): Promise<Response> 
         );
     }
 
-    const apiKey = extractDesearchApiKey(request);
-    if (!apiKey) {
-        return withCors(unauthorized());
-    }
-
     if (request.method === "GET" || request.method === "DELETE") {
+        if (!extractDesearchApiKey(request)) {
+            return withCors(unauthorized());
+        }
         return withCors(jsonRpcError(405, -32000, "Method not allowed. This server is stateless; use POST.", { Allow: "POST" }));
     }
 
     if (request.method !== "POST") {
         return withCors(jsonRpcError(405, -32000, "Method not allowed.", { Allow: "POST" }));
+    }
+
+    let apiKey = extractDesearchApiKey(request);
+    if (!apiKey) {
+        const raw = await request.text();
+        if (!isKeylessDiscovery(raw)) {
+            return withCors(unauthorized());
+        }
+        request = requestWithJsonBody(request, raw);
+        apiKey = "";
     }
 
     const server = createDesearchMcpServer(apiKey);
@@ -209,13 +279,16 @@ export async function handleMcpHttpRequest(request: Request): Promise<Response> 
     }
 }
 
-function readRawBody(req: IncomingMessage): Promise<Uint8Array> {
+function readRawBody(req: IncomingMessage): Promise<Uint8Array<ArrayBuffer>> {
     return new Promise((resolve, reject) => {
         const chunks: Buffer[] = [];
         req.on("data", (chunk: Buffer | string) => {
             chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
         });
-        req.on("end", () => resolve(Buffer.concat(chunks)));
+        // TS 5.7+ DOM BodyInit accepts Uint8Array<ArrayBuffer> and rejects
+        // Uint8Array<ArrayBufferLike> (Node Buffer, whose buffer may be a
+        // SharedArrayBuffer). Copy into a plain ArrayBuffer.
+        req.on("end", () => resolve(new Uint8Array(Buffer.concat(chunks))));
         req.on("error", reject);
     });
 }
