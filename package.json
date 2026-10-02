@@ -2,7 +2,7 @@
     "name": "desearch-mcp-server",
     "version": "0.1.2",
     "mcpName": "io.github.Desearch-ai/mcp-desearch",
-    "description": "A Model Context Protocol server with Desearch for real-time AI search, X search and web search.",
+    "description": "AI search, X search and web search for AI agents, plus page extraction and X data tools. Bring your own Desearch API key.",
     "license": "MIT",
     "homepage": "https://www.desearch.ai/docs/guide/sdk/mcp",
     "type": "module",
