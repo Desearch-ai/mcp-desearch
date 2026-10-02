@@ -9,7 +9,7 @@ import { z } from "zod";
 import { AI_SEARCH_TOOLS, WEB_LINK_TOOLS, toolIdSchema } from "./tool-sources.js";
 
 export const SERVER_NAME = "Desearch";
-export const SERVER_VERSION = "0.1.2";
+export const SERVER_VERSION = "0.1.3";
 
 interface XSearchPayload {
     query: string;
@@ -269,7 +269,7 @@ export function createDesearchMcpServer(apiKey: string, client?: DesearchClient)
         apiKey,
         "ai-search",
         "AI Search",
-        "Real-time AI search and analysis on web using Desearch AI",
+        "AI search and analysis on web using Desearch AI",
         {
             prompt: z.string().describe("Question, example: 'What is the latest news on AI?'"),
             tools: z
@@ -318,7 +318,7 @@ export function createDesearchMcpServer(apiKey: string, client?: DesearchClient)
                 .enum(["NOVA", "ORBIT"])
                 .default("NOVA")
                 .describe(
-                    "Model to use for the search, example: 'NOVA', Nova is 10s model, Orbit is 30s model"
+                    "Model to use for the search: NOVA (default) or ORBIT."
                 ),
         },
         async ({ prompt, tools, date_filter, start_date, end_date, result_type, include_domains, exclude_domains, model }) => {
@@ -347,7 +347,7 @@ export function createDesearchMcpServer(apiKey: string, client?: DesearchClient)
         apiKey,
         "x-search",
         "X Search",
-        "Search the X (Twitter) using Desearch AI - performs real-time tweet search on X. Optional filters narrow by user, date, language, verification, media, and engagement. Sort stays Top.",
+        "Search X (Twitter) using Desearch AI. Optional filters narrow by user, date, language, verification, media, and engagement. Sort stays Top.",
         {
             query: z
                 .string()

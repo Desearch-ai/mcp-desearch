@@ -1,6 +1,6 @@
 {
     "name": "desearch-mcp-server",
-    "version": "0.1.2",
+    "version": "0.1.3",
     "mcpName": "io.github.Desearch-ai/mcp-desearch",
     "description": "AI search, X search and web search for AI agents, plus page extraction and X data tools. Bring your own Desearch API key.",
     "license": "MIT",
