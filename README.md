@@ -2,14 +2,14 @@
 
 [![npm version](https://badge.fury.io/js/desearch-mcp-server.svg)](https://www.npmjs.com/package/desearch-mcp-server)
 
-A Model Context Protocol (MCP) server lets clients like Claude or Cursor use Desearch for real-time AI search, X search, web search, page extraction, and X trends.
+AI search, X search and web search for AI agents, plus page extraction and X data tools. Bring your own Desearch API key.
 
 ## Tools
 
 The Desearch MCP server includes the following tools:
 
--   **AI Search** (`ai-search`): Performs real-time AI Twitter and web searches with relevant links and summary. `tools` uses short source ids (`web`, `twitter`, `arxiv`, `wikipedia`, `youtube`, `hackernews`, `reddit`). Older labels such as `Web Search` are still accepted and sent to the API as the short id. Default is `["web", "twitter"]`.
--   **X Search** (`x-search`): Real-time tweet search on X. Arguments: `query` (required), `count` (optional, default 20). Sort stays Top. Optional filters: `user`, `start_date`, `end_date` (YYYY-MM-DD), `lang`, `verified`, `blue_verified`, `is_quote`, `is_video`, `is_image`, `min_retweets`, `min_replies`, `min_likes`.
+-   **AI Search** (`ai-search`): Performs AI Twitter and web searches with relevant links and summary. `tools` uses short source ids (`web`, `twitter`, `arxiv`, `wikipedia`, `youtube`, `hackernews`, `reddit`). Older labels such as `Web Search` are still accepted and sent to the API as the short id. Default is `["web", "twitter"]`.
+-   **X Search** (`x-search`): Tweet search on X. Arguments: `query` (required), `count` (optional, default 20). Sort stays Top. Optional filters: `user`, `start_date`, `end_date` (YYYY-MM-DD), `lang`, `verified`, `blue_verified`, `is_quote`, `is_video`, `is_image`, `min_retweets`, `min_replies`, `min_likes`.
 -   **Web Search** (`web-search`): SERP-style web search. Arguments: `query` (required), `start` (optional pagination offset).
 -   **Web Links Search** (`web-links-search`): Web link search. Arguments: `prompt` (required), `tools` (optional, only `web`, default `["web"]`; `Web Search` is accepted and rewritten to `web`), `count` (optional, 10–200). The links/web API rejects other sources, so they are not in the enum.
 -   **Extract** (`extract`): Read a public URL as text or HTML. Preferred over crawl. Arguments: `url` (required), `format` (optional, `html` or `text`), `js` (optional), `wait` (optional milliseconds).
