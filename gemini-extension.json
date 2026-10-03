@@ -1,0 +1,22 @@
+{
+  "name": "desearch",
+  "version": "0.1.3",
+  "description": "AI search, X search and web search for AI agents, plus page extraction and X data tools. Bring your own Desearch API key.",
+  "mcpServers": {
+    "desearch": {
+      "httpUrl": "https://mcp.desearch.ai/mcp",
+      "headers": {
+        "x-api-key": "${DESEARCH_API_KEY}"
+      }
+    }
+  },
+  "contextFileName": "GEMINI.md",
+  "settings": [
+    {
+      "name": "Desearch API key",
+      "description": "Your Desearch API key from https://console.desearch.ai/api-keys",
+      "envVar": "DESEARCH_API_KEY",
+      "sensitive": true
+    }
+  ]
+}
