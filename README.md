@@ -67,6 +67,16 @@ Cursor or Claude can start that bin directly:
 
 `command: "desearch-mcp-server"` (no `args`) is the same entry after the global install above.
 
+### Gemini CLI
+
+Install the extension from this repository. Gemini CLI asks for your Desearch API key (stored as a sensitive setting) and connects to the hosted server `https://mcp.desearch.ai/mcp`:
+
+```bash
+gemini extensions install https://github.com/Desearch-ai/mcp-desearch
+```
+
+To change the key later, run `gemini extensions config desearch`. AI agents such as Cline can follow [llms-install.md](llms-install.md) to set up the server.
+
 ### Using Smithery
 
 To install the Desearch MCP server for Claude Desktop automatically via [Smithery](https://smithery.ai/servers/desearch/desearch):
