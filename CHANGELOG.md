@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.4
+
+`ai-search` tools enum drops `youtube`. Allowed ids are `web`, `twitter`, `arxiv`, `wikipedia`, `hackernews`, and `reddit`.
+
 ## 0.1.3
 
 Tool copy no longer states unsourced speed or latency.

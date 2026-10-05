@@ -9,7 +9,7 @@ import { z } from "zod";
 import { AI_SEARCH_TOOLS, WEB_LINK_TOOLS, toolIdSchema } from "./tool-sources.js";
 
 export const SERVER_NAME = "Desearch";
-export const SERVER_VERSION = "0.1.3";
+export const SERVER_VERSION = "0.1.4";
 
 interface XSearchPayload {
     query: string;
@@ -277,7 +277,7 @@ export function createDesearchMcpServer(apiKey: string, client?: DesearchClient)
                 .optional()
                 .default(["web", "twitter"])
                 .describe(
-                    "Source ids sent to POST /desearch/ai/search. Use short ids such as 'web' and 'twitter'. Legacy labels such as 'Web Search' are accepted and rewritten to those ids. Example: ['web', 'twitter']."
+                    "Source ids sent to POST /desearch/ai/search. Short ids: 'web', 'twitter', 'arxiv', 'wikipedia', 'hackernews', 'reddit'. Legacy labels such as 'Web Search', 'ArXiv Search', 'Wikipedia Search', 'Hacker News Search', and 'Reddit Search' are rewritten to those ids. Example: ['web', 'twitter']."
                 ),
             date_filter: z
                 .enum([

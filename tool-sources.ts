@@ -1,22 +1,15 @@
 import { z } from "zod";
 
 /**
- * Short source ids shared by ai-search and web-links-search.
+ * Short source ids for ai-search and web-links-search.
  *
- * Wire values are the short ids from live OpenAPI
- * (https://api.desearch.ai/openapi.json, checked 2026-10-01) and from
- * desearch-js `ToolEnum` / `WebToolEnum`. Display labels such as "Web Search"
- * are the previous ai-search schema. They are accepted here and rewritten to
- * the short id before the Desearch call.
+ * Display labels such as "Web Search" are the previous ai-search schema.
+ * They are accepted here and rewritten to the short id before the Desearch call.
+ * "Youtube Search" is not rewritten; `youtube` is not an ai-search tool id.
  *
- * Live OpenAPI names a narrower set than desearch-js 1.5:
- * - `ToolEnum` (`POST /desearch/ai/search`): `web`, `twitter`. Items are
- *   `ToolEnum | string`, and the previous MCP tool already offered the other
- *   desearch-js sources under display labels. Those stay, spelled as short ids.
- *   PR #13 did not see a 422 for this route.
- * - `WebToolEnum` (`POST /desearch/ai/search/links/web`): `web` only. The other
- *   short ids 422 (`supported tools are Web Search`). `WEB_LINK_TOOLS` is
- *   `["web"]` so the MCP enum does not offer ids the route rejects.
+ * - `AI_SEARCH_TOOLS` (`POST /desearch/ai/search`): `web`, `twitter`, `arxiv`,
+ *   `wikipedia`, `hackernews`, `reddit`. Same order as before, without `youtube`.
+ * - `WEB_LINK_TOOLS` (`POST /desearch/ai/search/links/web`): `web` only.
  *   `"Web Search"` still rewrites to `web`.
  */
 export const AI_SEARCH_TOOLS = [
@@ -24,7 +17,6 @@ export const AI_SEARCH_TOOLS = [
     "twitter",
     "arxiv",
     "wikipedia",
-    "youtube",
     "hackernews",
     "reddit",
 ] as const;
@@ -37,7 +29,6 @@ export const LEGACY_DISPLAY_TO_ID: Readonly<Record<string, string>> = {
     "Twitter Search": "twitter",
     "ArXiv Search": "arxiv",
     "Wikipedia Search": "wikipedia",
-    "Youtube Search": "youtube",
     "Hacker News Search": "hackernews",
     "Reddit Search": "reddit",
 };

@@ -4,7 +4,7 @@ The `desearch` MCP server connects to the hosted Desearch endpoint `https://mcp.
 
 Tools:
 
-- `ai-search`: AI search across web and X sources (also arxiv, wikipedia, youtube, hackernews, reddit) with relevant links and a summary.
+- `ai-search`: AI search across web and X sources (also arxiv, wikipedia, hackernews, reddit) with relevant links and a summary. `youtube` is not a tool id.
 - `web-search`: SERP-style web search. `web-links-search`: web link search.
 - `x-search`: tweet search on X. `x-links-search`: AI search for X post links.
 - `extract`: read a public URL as text or HTML. Prefer it over `web-crawl` (legacy route, same arguments).

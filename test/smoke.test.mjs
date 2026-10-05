@@ -120,10 +120,13 @@ test("stdio initializes and lists tools", async () => {
             "twitter",
             "arxiv",
             "wikipedia",
-            "youtube",
             "hackernews",
             "reddit",
         ]);
+        assert.equal(
+            JSON.stringify(aiSearch.inputSchema).toLowerCase().includes("youtube"),
+            false
+        );
         assert.deepEqual(aiSearch.inputSchema.properties.tools.default, ["web", "twitter"]);
         const webSearch = listed.tools.find((tool) => tool.name === "web-search");
         assert.deepEqual(webSearch.inputSchema.required, ["query"]);
