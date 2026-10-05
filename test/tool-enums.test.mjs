@@ -29,15 +29,21 @@ async function withFakeClient(fake, fn) {
 }
 
 test("canonicalToolId maps legacy display labels and leaves short ids alone", () => {
+    assert.deepEqual([...AI_SEARCH_TOOLS], ["web", "twitter"]);
     assert.equal(canonicalToolId("Web Search"), "web");
     assert.equal(canonicalToolId("Twitter Search"), "twitter");
-    assert.equal(canonicalToolId("Hacker News Search"), "hackernews");
     assert.equal(canonicalToolId("web"), "web");
     assert.equal(canonicalToolId("not-a-source"), "not-a-source");
+    assert.equal(canonicalToolId("Youtube Search"), "Youtube Search");
+    assert.equal(canonicalToolId("youtube"), "youtube");
     for (const [label, id] of Object.entries(LEGACY_DISPLAY_TO_ID)) {
         assert.equal(canonicalToolId(label), id);
         assert.equal(AI_SEARCH_TOOLS.includes(id), true, id);
+        assert.equal(/youtube/i.test(label), false, label);
+        assert.equal(/youtube/i.test(id), false, id);
     }
+    const allowed = [...AI_SEARCH_TOOLS, ...Object.keys(LEGACY_DISPLAY_TO_ID), ...Object.values(LEGACY_DISPLAY_TO_ID)];
+    assert.equal(allowed.some((value) => /youtube/i.test(value)), false);
     assert.equal(WEB_LINK_TOOLS.includes("twitter"), false);
     assert.equal(WEB_LINK_TOOLS.includes("web"), true);
 });
@@ -60,7 +66,9 @@ test("ai-search and web-links-search schemas use short ids and validate both way
         const aiSearch = listed.tools.find((tool) => tool.name === "ai-search");
         const webLinks = listed.tools.find((tool) => tool.name === "web-links-search");
 
+        assert.deepEqual(aiSearch.inputSchema.properties.tools.items.enum, ["web", "twitter"]);
         assert.deepEqual(aiSearch.inputSchema.properties.tools.items.enum, [...AI_SEARCH_TOOLS]);
+        assert.equal(JSON.stringify(aiSearch.inputSchema).toLowerCase().includes("youtube"), false);
         assert.equal(aiSearch.inputSchema.properties.tools.items.enum.includes("Web Search"), false);
         assert.deepEqual(aiSearch.inputSchema.properties.tools.default, ["web", "twitter"]);
         assert.deepEqual(webLinks.inputSchema.properties.tools.items.enum, [...WEB_LINK_TOOLS]);
@@ -85,6 +93,23 @@ test("ai-search and web-links-search schemas use short ids and validate both way
             arguments: { prompt: "latest", tools: ["not-a-source"] },
         });
         assert.equal(rejectedAi.isError, true);
+
+        for (const source of [
+            "youtube",
+            "Youtube",
+            "YOUTUBE",
+            "Youtube Search",
+            "arxiv",
+            "wikipedia",
+            "hackernews",
+            "reddit",
+        ]) {
+            const rejectedSource = await client.callTool({
+                name: "ai-search",
+                arguments: { prompt: "latest", tools: [source] },
+            });
+            assert.equal(rejectedSource.isError, true, source);
+        }
 
         const shortLinks = await client.callTool({
             name: "web-links-search",
