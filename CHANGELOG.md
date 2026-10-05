@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.4
+
+`ai-search` tools enum is now only `web` and `twitter` (youtube removed).
+
 ## 0.1.3
 
 Tool copy no longer states unsourced speed or latency.

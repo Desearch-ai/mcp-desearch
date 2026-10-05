@@ -1,6 +1,6 @@
 {
   "name": "desearch",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "AI search, X search and web search for AI agents, plus page extraction and X data tools. Bring your own Desearch API key.",
   "mcpServers": {
     "desearch": {

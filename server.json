@@ -3,7 +3,7 @@
   "name": "io.github.Desearch-ai/mcp-desearch",
   "title": "Desearch",
   "description": "AI search, X search, web search, page extraction, and X trends.",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "websiteUrl": "https://www.desearch.ai/docs/guide/sdk/mcp",
   "repository": {
     "url": "https://github.com/Desearch-ai/mcp-desearch",
@@ -15,7 +15,7 @@
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "desearch-mcp-server",
-      "version": "0.1.3",
+      "version": "0.1.4",
       "transport": {
         "type": "stdio"
       },
