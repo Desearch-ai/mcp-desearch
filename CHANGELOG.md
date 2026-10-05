@@ -2,7 +2,7 @@
 
 ## 0.1.4
 
-`ai-search` tools enum is now only `web` and `twitter` (youtube removed).
+`ai-search` tools enum drops `youtube`. Allowed ids are `web`, `twitter`, `arxiv`, `wikipedia`, `hackernews`, and `reddit`.
 
 ## 0.1.3
 

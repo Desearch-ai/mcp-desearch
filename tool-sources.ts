@@ -3,25 +3,34 @@ import { z } from "zod";
 /**
  * Short source ids for ai-search and web-links-search.
  *
- * Wire values match live OpenAPI ToolEnum / WebToolEnum
- * (https://api.desearch.ai/openapi.json). Display labels such as "Web Search"
- * are the previous ai-search schema. They are accepted here and rewritten to
- * the short id before the Desearch call.
+ * Display labels such as "Web Search" are the previous ai-search schema.
+ * They are accepted here and rewritten to the short id before the Desearch call.
+ * "Youtube Search" is not rewritten; `youtube` is not an ai-search tool id.
  *
- * - `ToolEnum` (`POST /desearch/ai/search`): `web` and `twitter` only.
- *   `AI_SEARCH_TOOLS` is that set. Other sites are not tool ids; reach them
- *   with `web` plus `include_domains`.
- * - `WebToolEnum` (`POST /desearch/ai/search/links/web`): `web` only.
- *   `WEB_LINK_TOOLS` is `["web"]`. `"Web Search"` still rewrites to `web`.
+ * - `AI_SEARCH_TOOLS` (`POST /desearch/ai/search`): `web`, `twitter`, `arxiv`,
+ *   `wikipedia`, `hackernews`, `reddit`. Same order as before, without `youtube`.
+ * - `WEB_LINK_TOOLS` (`POST /desearch/ai/search/links/web`): `web` only.
+ *   `"Web Search"` still rewrites to `web`.
  */
-export const AI_SEARCH_TOOLS = ["web", "twitter"] as const;
+export const AI_SEARCH_TOOLS = [
+    "web",
+    "twitter",
+    "arxiv",
+    "wikipedia",
+    "hackernews",
+    "reddit",
+] as const;
 
 export const WEB_LINK_TOOLS = ["web"] as const;
 
-/** Previous ai-search labels that still match ToolEnum. Not advertised in the JSON Schema enum. */
+/** Previous ai-search labels. Not advertised in the JSON Schema enum. */
 export const LEGACY_DISPLAY_TO_ID: Readonly<Record<string, string>> = {
     "Web Search": "web",
     "Twitter Search": "twitter",
+    "ArXiv Search": "arxiv",
+    "Wikipedia Search": "wikipedia",
+    "Hacker News Search": "hackernews",
+    "Reddit Search": "reddit",
 };
 
 export function canonicalToolId(value: string): string {

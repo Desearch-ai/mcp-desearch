@@ -277,7 +277,7 @@ export function createDesearchMcpServer(apiKey: string, client?: DesearchClient)
                 .optional()
                 .default(["web", "twitter"])
                 .describe(
-                    "Source ids sent to POST /desearch/ai/search. Only 'web' and 'twitter' are accepted. Legacy labels 'Web Search' and 'Twitter Search' are rewritten to those ids. Example: ['web', 'twitter']."
+                    "Source ids sent to POST /desearch/ai/search. Short ids: 'web', 'twitter', 'arxiv', 'wikipedia', 'hackernews', 'reddit'. Legacy labels such as 'Web Search', 'ArXiv Search', 'Wikipedia Search', 'Hacker News Search', and 'Reddit Search' are rewritten to those ids. Example: ['web', 'twitter']."
                 ),
             date_filter: z
                 .enum([

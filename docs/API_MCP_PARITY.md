@@ -19,7 +19,7 @@ Phase 4 covers the remaining public `desearch-js` 1.5 methods. Every method in t
 
 `ai-search` and `web-links-search` use short ids in `tool-sources.ts`. The JSON Schema `enum` lists those ids (`web`, not `Web Search`). `canonicalToolId` rewrites the old display labels that still match the API before the handler calls desearch-js, so a client that still sends `"Web Search"` does not get `-32602`, and the API body uses the short id.
 
-`ai-search` `tools` is exactly `web` and `twitter`, matching live OpenAPI `ToolEnum`. The default when `tools` is omitted is `["web", "twitter"]`. `"Web Search"` and `"Twitter Search"` are still rewritten to those ids. Other sites are not tool ids; reach them with `web` plus `include_domains`.
+`ai-search` `tools` is `web`, `twitter`, `arxiv`, `wikipedia`, `hackernews`, and `reddit` (`AI_SEARCH_TOOLS` in `tool-sources.ts`, main order with `youtube` removed). The default when `tools` is omitted is `["web", "twitter"]`. Legacy labels `"Web Search"`, `"Twitter Search"`, `"ArXiv Search"`, `"Wikipedia Search"`, `"Hacker News Search"`, and `"Reddit Search"` are rewritten to those ids. `youtube` and `"Youtube Search"` are not accepted.
 
 `web-links-search` accepts only `web` (default `["web"]`). Live `WebToolEnum` is `web` only; any other id 422s on `POST /desearch/ai/search/links/web` (`supported tools are Web Search`), so those ids are not in the MCP enum. `twitter` is valid only on `ai-search`. `"Web Search"` is still rewritten to `web` on this tool.
 
@@ -27,7 +27,7 @@ Phase 4 covers the remaining public `desearch-js` 1.5 methods. Every method in t
 
 | SDK method (1.5.0) | HTTP endpoint | MCP tool | Phase | Notes |
 | --- | --- | --- | --- | --- |
-| `aiSearch` | `POST /desearch/ai/search` | `ai-search` | done | `tools` is exactly `web` and `twitter` (`AI_SEARCH_TOOLS` in `tool-sources.ts`). The JSON Schema enum advertises those two ids. `"Web Search"` and `"Twitter Search"` are rewritten to the short id before `aiSearch`. Default when `tools` is omitted: `["web", "twitter"]`. The handler still sends `model` (`NOVA` \| `ORBIT`) and `streaming: false`. `aiSearch` forwards that body and forces `streaming: false`. Live OpenAPI `ToolEnum` is `web` and `twitter` only. Other sites are not enum values; reach them with `web` plus `include_domains`. |
+| `aiSearch` | `POST /desearch/ai/search` | `ai-search` | done | `tools` is `web`, `twitter`, `arxiv`, `wikipedia`, `hackernews`, and `reddit` (`AI_SEARCH_TOOLS` in `tool-sources.ts`). The JSON Schema enum advertises those ids. `youtube` is not in the enum. Legacy labels `"Web Search"`, `"Twitter Search"`, `"ArXiv Search"`, `"Wikipedia Search"`, `"Hacker News Search"`, and `"Reddit Search"` are rewritten to the short id before `aiSearch`. `"Youtube Search"` is not rewritten. Default when `tools` is omitted: `["web", "twitter"]`. The handler still sends `model` (`NOVA` \| `ORBIT`) and `streaming: false`. `aiSearch` forwards that body and forces `streaming: false`. |
 | `xSearch` | `GET /twitter` | `x-search` | done + Phase 3 filters | Base arguments stay `query` and `count` (default 20). The handler still sends `sort: "Top"` and does not expose `sort`. Phase 3 adds optional filters and omits any that the caller leaves unset: `user`, `start_date`, `end_date` (YYYY-MM-DD), `lang`, `verified`, `blue_verified`, `is_quote`, `is_video`, `is_image`, `min_retweets`, `min_replies`, `min_likes`. Engagement thresholds accept an integer or a string, matching `XSearchParams`. |
 | `webSearch` | `GET /web` | `web-search` | done (Phase 2) | Args match `WebSearchParams`: `query` (required), `start` (optional page offset). See the `num` note below. |
 | `aiWebLinksSearch` | `POST /desearch/ai/search/links/web` | `web-links-search` | done (Phase 2) | `prompt`, optional `count` (10–200), and `tools` defaulting to `["web"]`. The JSON Schema enum is `web` only. `"Web Search"` is rewritten to `web` before the call. The live route 422s any other id (`supported tools are Web Search`), so the MCP enum does not offer them. X is not a tool on this endpoint. |
@@ -53,7 +53,7 @@ When the API includes links, the handler returns that JSON unchanged. `/links/we
 
 `/links/web` can return only those billing fields for some prompts. `ai-search` with `result_type: ONLY_LINKS` does the same today on `POST /desearch/ai/search`. Both are API bugs being fixed in desearch-public-api. `presentSearchBody` leaves a body unchanged when a link list is non-empty. A cost-only body and an empty link list both get `message: "no links in response"` plus the original fields, including billing. That note does not say the query returned results and does not name web search versus AI search.
 
-`ai-search` sends only `web` and `twitter`. `"Web Search"` and `"Twitter Search"` are rewritten before `aiSearch`. No other MCP tool takes that `tools` list. `x-links-search` has no `tools` argument.
+`ai-search` sends the short ids from `tool-sources.ts` (`web`, `twitter`, `arxiv`, `wikipedia`, `hackernews`, `reddit`). A legacy display label for those ids is rewritten before `aiSearch`. `youtube` is not sent. No other MCP tool takes that multi-source `tools` list. `x-links-search` has no `tools` argument.
 
 ## Renames: desearch-js 1.0.1 → 1.5.0
 

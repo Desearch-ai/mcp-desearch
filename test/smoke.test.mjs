@@ -115,7 +115,14 @@ test("stdio initializes and lists tools", async () => {
         );
         assertToolMetadata(listed.tools);
         const aiSearch = listed.tools.find((tool) => tool.name === "ai-search");
-        assert.deepEqual(aiSearch.inputSchema.properties.tools.items.enum, ["web", "twitter"]);
+        assert.deepEqual(aiSearch.inputSchema.properties.tools.items.enum, [
+            "web",
+            "twitter",
+            "arxiv",
+            "wikipedia",
+            "hackernews",
+            "reddit",
+        ]);
         assert.equal(
             JSON.stringify(aiSearch.inputSchema).toLowerCase().includes("youtube"),
             false
