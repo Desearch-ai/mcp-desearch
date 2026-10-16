@@ -2,14 +2,17 @@
     "name": "desearch-mcp-server",
     "version": "0.1.4",
     "mcpName": "io.github.Desearch-ai/mcp-desearch",
-    "description": "AI search, X search and web search for AI agents, plus page extraction and X data tools. Bring your own Desearch API key.",
+    "description": "AI search (web, Reddit, Hacker News, arXiv, Wikipedia, and Twitter), X (Twitter) search, web search, page extraction, and X data tools for AI agents.",
     "license": "MIT",
-    "homepage": "https://www.desearch.ai/docs/guide/sdk/mcp",
+    "homepage": "https://desearch.ai",
     "type": "module",
     "author": "Desearch AI",
     "repository": {
         "type": "git",
         "url": "git+https://github.com/Desearch-ai/mcp-desearch.git"
+    },
+    "bugs": {
+        "url": "https://github.com/Desearch-ai/mcp-desearch/issues"
     },
     "bin": {
         "desearch-mcp-server": "./build/index.js"
@@ -19,13 +22,25 @@
         "CHANGELOG.md"
     ],
     "keywords": [
-        "desearch",
         "mcp",
-        "model context protocol",
-        "ai",
-        "twitter",
-        "websearch",
-        "claude"
+        "mcp-server",
+        "model-context-protocol",
+        "desearch",
+        "ai-search",
+        "web-search",
+        "x-search",
+        "twitter-search",
+        "search-api",
+        "bittensor",
+        "subnet-22",
+        "ai-agents",
+        "llm",
+        "claude",
+        "cursor",
+        "reddit",
+        "hackernews",
+        "arxiv",
+        "wikipedia"
     ],
     "scripts": {
         "build": "tsc && node -e \"require('fs').chmodSync('build/index.js', '755')\"",
