@@ -2,6 +2,54 @@
 
 [![npm version](https://badge.fury.io/js/desearch-mcp-server.svg)](https://www.npmjs.com/package/desearch-mcp-server)
 
+If Desearch is useful, a [star](https://github.com/Desearch-ai/mcp-desearch) helps others find it.
+
+Remote: `https://mcp.desearch.ai/mcp` with header `Authorization: Bearer <DESEARCH_API_KEY>`.
+
+Local: `npx -y desearch-mcp-server` with env `DESEARCH_API_KEY`.
+
+[Get a key](https://console.desearch.ai/api-keys).
+
+## Find Desearch on
+
+- [Official MCP Registry](https://registry.modelcontextprotocol.io/v0/servers?search=io.github.Desearch-ai/mcp-desearch)
+- [Smithery](https://smithery.ai/servers/desearch/desearch)
+- [Glama](https://glama.ai/mcp/servers/Desearch-ai/mcp-desearch)
+- [VoltAgent official MCP servers](https://github.com/VoltAgent/official-mcp-servers#search-and-research)
+- [Gemini CLI extensions](https://geminicli.com/extensions/)
+- [Raycast MCP Registry](https://www.raycast.com/raycast/model-context-protocol-registry)
+
+## Demo
+
+Prompt: Search the web for latest news on AI.
+
+`web-search` takes `query` (required) and `start` (optional pagination offset: 0, 10, 20, ...).
+
+```json
+{
+    "name": "web-search",
+    "arguments": {
+        "query": "latest news on AI"
+    }
+}
+```
+
+Example output:
+
+```json
+{
+    "data": [
+        {
+            "title": "Example result",
+            "link": "https://example.com/page",
+            "snippet": "Short preview text."
+        }
+    ]
+}
+```
+
+The tool returns that JSON as pretty-printed text: `{ "content": [{ "type": "text", "text": "<json above>" }] }`.
+
 AI search, X search and web search for AI agents, plus page extraction and X data tools. Bring your own Desearch API key.
 
 ## Tools
