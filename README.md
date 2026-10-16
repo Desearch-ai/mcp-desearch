@@ -1,8 +1,9 @@
 # Desearch MCP Server
 
 [![npm version](https://badge.fury.io/js/desearch-mcp-server.svg)](https://www.npmjs.com/package/desearch-mcp-server)
+[![GitHub stars](https://img.shields.io/github/stars/Desearch-ai/mcp-desearch?style=social)](https://github.com/Desearch-ai/mcp-desearch/stargazers)
 
-If Desearch is useful, a [star](https://github.com/Desearch-ai/mcp-desearch) helps others find it.
+If Desearch is useful, a [star](https://github.com/Desearch-ai/mcp-desearch/stargazers) helps others find it.
 
 Remote: `https://mcp.desearch.ai/mcp` with header `Authorization: Bearer <DESEARCH_API_KEY>`.
 
