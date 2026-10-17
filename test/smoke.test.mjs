@@ -27,6 +27,8 @@ const MCP_HEADERS = {
 const TOOL_NAMES = [
     "ai-search",
     "extract",
+    "fetch",
+    "search",
     "web-crawl",
     "web-links-search",
     "web-search",
@@ -44,6 +46,8 @@ const TOOL_NAMES = [
 
 const TOOL_TITLES = {
     "ai-search": "AI Search",
+    fetch: "Fetch Page",
+    search: "Search",
     "x-search": "X Search",
     "web-search": "Web Search",
     "web-links-search": "Web Links Search",
@@ -63,7 +67,7 @@ const TOOL_TITLES = {
 const UNSOURCED_SPEED = /real-?time|nova is|orbit is|\b10s\b|\b30s\b/i;
 
 function assertToolMetadata(tools) {
-    assert.equal(tools.length, 15);
+    assert.equal(tools.length, 17);
     for (const tool of tools) {
         assert.equal(tool.title, TOOL_TITLES[tool.name], tool.name);
         assert.equal(tool.annotations?.title, TOOL_TITLES[tool.name], tool.name);
@@ -158,6 +162,8 @@ test("stdio initializes and lists tools", async () => {
         }
 
         const requiredByTool = {
+            search: ["query"],
+            fetch: ["id"],
             "x-links-search": ["prompt"],
             "x-posts-by-urls": ["urls"],
             "x-post-by-id": ["id"],
@@ -238,7 +244,12 @@ test("streamable HTTP initialize and tools/list with Bearer and x-api-key", asyn
                 }),
             });
             assert.equal(missing.status, 401);
-            assert.equal(missing.headers.get("www-authenticate"), null);
+            assert.match(
+                missing.headers.get("www-authenticate") ?? "",
+                new RegExp(
+                    `resource_metadata="http://127\\.0\\.0\\.1:${server.port}/\\.well-known/oauth-protected-resource/mcp"`
+                )
+            );
             const missingBody = await missing.text();
             assert.equal(missingBody.includes("server-secret"), false);
             assert.equal(missingBody.includes("super-secret"), false);
@@ -374,10 +385,16 @@ test("keyless discovery lists tools and tools/call stays unauthorized", async ()
             params: { name: "web-search", arguments: { query: "should-not-run" } },
         });
         assert.equal(called.status, 401);
-        assert.equal(called.headers.get("www-authenticate"), null);
+        const calledChallenge = called.headers.get("www-authenticate") ?? "";
+        assert.match(calledChallenge, /resource_metadata=/);
+        assert.equal(calledChallenge.includes("error="), false);
         const calledBody = await called.json();
-        assert.equal(calledBody.error.code, -32001);
-        assert.match(calledBody.error.message, /Desearch API key/);
+        assert.equal(calledBody.result.isError, true);
+        assert.match(calledBody.result.content[0].text, /Desearch API key/);
+        const toolChallenge = calledBody.result._meta["mcp/www_authenticate"][0];
+        assert.match(toolChallenge, /resource_metadata=/);
+        assert.match(toolChallenge, /error="insufficient_scope"/);
+        assert.match(toolChallenge, /error_description="You need to login to continue"/);
 
         const mixed = await post([
             { jsonrpc: "2.0", id: 1, method: "tools/list" },
@@ -478,7 +495,7 @@ test("Vercel function entries initialize over the rewritten paths", async () => 
         })
     );
     assert.equal(denied.status, 401);
-    assert.equal(denied.headers.get("www-authenticate"), null);
+    assert.match(denied.headers.get("www-authenticate") ?? "", /resource_metadata=/);
 
     const initialized = await mcpHandler.fetch(
         new Request("https://example.vercel.app/api/mcp", {

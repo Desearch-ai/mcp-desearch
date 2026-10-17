@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.5
+
+Remote MCP OAuth 2.1, alongside the existing API key header.
+
+- Protected resource metadata, authorization server metadata, dynamic client registration, authorization code with PKCE S256, and rotating refresh tokens.
+- The sign-in page asks for a Desearch API key and checks it before issuing a code. Access tokens are opaque. The key is encrypted at rest and is not placed in the token.
+- A raw Desearch API key in `Authorization` or `x-api-key` still works. `tools/list` without a key still returns tools. `tools/call` without a key returns 401 with `WWW-Authenticate`.
+- `search` and `fetch` are a query-then-read pair. `search` takes `query` and returns titles and links. `fetch` takes a URL and returns the page text.
+- Production (`NODE_ENV=production` or `VERCEL`) requires `OAUTH_ISSUER` and `OAUTH_STORE=redis`. The issuer is not taken from forwarded host headers. Access tokens must match this server's resource. A bad or expired token challenge includes `error="invalid_token"`. `tools/call` auth failures keep HTTP 401 and also return `_meta["mcp/www_authenticate"]`. `OAUTH_REQUIRE_AUTH_ON_INITIALIZE=true` makes keyless `initialize` return 401. Refresh rotation is atomic, authorization-code replay revokes issued tokens, and the sign-in form rejects a cross-site `Origin` or `Referer`.
+
 ## 0.1.4
 
 `ai-search` tools enum drops `youtube`. Allowed ids are `web`, `twitter`, `arxiv`, `wikipedia`, `hackernews`, and `reddit`.

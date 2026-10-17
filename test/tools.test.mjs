@@ -334,6 +334,8 @@ test("phase 4 extract, web-crawl, and x-trends call the matching desearch-js met
             [
                 "ai-search",
                 "extract",
+                "fetch",
+                "search",
                 "web-crawl",
                 "web-links-search",
                 "web-search",
@@ -445,6 +447,8 @@ test("phase 4 extract, web-crawl, and x-trends call the matching desearch-js met
 test("every listed tool has a title and readOnlyHint", async () => {
     const expected = {
         "ai-search": "AI Search",
+        search: "Search",
+        fetch: "Fetch Page",
         "x-search": "X Search",
         "web-search": "Web Search",
         "web-links-search": "Web Links Search",
@@ -462,13 +466,71 @@ test("every listed tool has a title and readOnlyHint", async () => {
     };
     await withFakeClient({}, async (client) => {
         const listed = await client.listTools();
-        assert.equal(listed.tools.length, 15);
+        assert.equal(listed.tools.length, 17);
         for (const tool of listed.tools) {
             assert.equal(tool.title, expected[tool.name], tool.name);
             assert.equal(tool.annotations?.title, expected[tool.name], tool.name);
             assert.equal(tool.annotations?.readOnlyHint, true, tool.name);
         }
     });
+});
+
+test("search and fetch map web results into the page lookup shape", async () => {
+    const calls = [];
+    const fake = {
+        async webSearch(payload) {
+            calls.push(["webSearch", payload]);
+            return {
+                data: [
+                    { title: "Docs", link: "https://desearch.ai/docs", snippet: "sdk" },
+                    { title: "Skip", link: "not a url" },
+                    { title: "Docs again", link: "https://desearch.ai/docs", snippet: "dup" },
+                ],
+            };
+        },
+        async extract(payload) {
+            calls.push(["extract", payload]);
+            return "Page text";
+        },
+    };
+    await withFakeClient(fake, async (client) => {
+        const listed = await client.listTools();
+        const search = listed.tools.find((tool) => tool.name === "search");
+        const fetchTool = listed.tools.find((tool) => tool.name === "fetch");
+        assert.deepEqual(search.inputSchema.required, ["query"]);
+        assert.equal(search.outputSchema.properties.results.type, "array");
+        assert.deepEqual(fetchTool.inputSchema.required, ["id"]);
+        assert.equal(fetchTool.outputSchema.required.includes("text"), true);
+
+        const found = await client.callTool({
+            name: "search",
+            arguments: { query: "desearch sdk" },
+        });
+        assert.equal(found.isError, undefined);
+        assert.deepEqual(found.structuredContent, {
+            results: [{ id: "https://desearch.ai/docs", title: "Docs", url: "https://desearch.ai/docs" }],
+        });
+        assert.equal(JSON.parse(textOf(found)).results[0].url, "https://desearch.ai/docs");
+
+        const page = await client.callTool({
+            name: "fetch",
+            arguments: { id: "https://desearch.ai/docs" },
+        });
+        assert.equal(page.structuredContent.text, "Page text");
+        assert.equal(page.structuredContent.url, "https://desearch.ai/docs");
+        assert.equal(page.structuredContent.metadata.source, "desearch");
+
+        const rejected = await client.callTool({
+            name: "fetch",
+            arguments: { id: "docs-1" },
+        });
+        assert.equal(rejected.isError, true);
+        assert.match(textOf(rejected), /http or https URL/);
+    });
+    assert.deepEqual(calls, [
+        ["webSearch", { query: "desearch sdk" }],
+        ["extract", { url: "https://desearch.ai/docs", format: "text" }],
+    ]);
 });
 
 test("an empty API key does not call Desearch", async () => {

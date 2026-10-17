@@ -1,6 +1,6 @@
 {
     "name": "desearch-mcp-server",
-    "version": "0.1.4",
+    "version": "0.1.5",
     "mcpName": "io.github.Desearch-ai/mcp-desearch",
     "description": "AI search (web, Reddit, Hacker News, arXiv, Wikipedia, and Twitter), X (Twitter) search, web search, page extraction, and X data tools for AI agents.",
     "license": "MIT",
@@ -53,6 +53,7 @@
     "dependencies": {
         "@modelcontextprotocol/sdk": "^1.30.1",
         "desearch-js": "^1.5.0",
+        "redis": "^5.12.1",
         "undici": "^7.29.1",
         "zod": "^3.24.4"
     },
