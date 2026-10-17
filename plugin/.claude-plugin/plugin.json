@@ -1,8 +1,8 @@
 {
   "name": "desearch",
   "displayName": "Desearch",
-  "version": "0.1.4",
-  "description": "AI search, X search, web search, page extraction, and X trends.",
+  "version": "0.2.0",
+  "description": "AI search, X search, web search, page extraction, X trends, and People Search.",
   "author": {
     "name": "Desearch AI",
     "url": "https://www.desearch.ai"
@@ -10,5 +10,5 @@
   "homepage": "https://www.desearch.ai/docs/guide/sdk/mcp",
   "repository": "https://github.com/Desearch-ai/mcp-desearch",
   "license": "MIT",
-  "keywords": ["desearch", "search", "mcp"]
+  "keywords": ["desearch", "search", "mcp", "people-search"]
 }

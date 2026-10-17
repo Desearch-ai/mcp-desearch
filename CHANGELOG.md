@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.2.0
+
+People Search tools. Release this version only after People Search is live on `api.desearch.ai`; until then the new tools return the API's HTTP error.
+
+People Search finds X profiles, YouTube creators, LinkedIn members, or TikTok creators who match a plain-language description. desearch-js 1.5 has no People Search methods, so `people.ts` calls the `/desearch/people/*` routes directly with the same key header.
+
+| Tool | Route | Billed |
+| --- | --- | --- |
+| `people-search` | `POST /desearch/people/search/{x,youtube,linkedin,tiktok}` | Yes. Reserves `count` people at the platform's per-person price and settles to the people delivered (minimum per search; nothing when it finds no one). |
+| `people-search-status` | `GET /desearch/people/tasks/{id}` and `GET /desearch/people/tasks/{id}/results` | No |
+| `people-search-control` | `POST /desearch/people/tasks/{id}/pause`, `/resume`, `/cancel` | No |
+| `people-search-tasks` | `GET /desearch/people/tasks` | No |
+| `people-profiles` | `GET /desearch/people/profiles` | No |
+
+- `people-search` takes each platform's filters as top-level arguments and rejects a filter that does not apply to the chosen platform before the billed call. `idempotency_key` is sent as `Idempotency-Key`, so a retry returns the first task instead of starting a second search.
+- `people-search-status` returns compact people (name, handle, url, platform, audience, location, score, why they matched, contacts, links) and a `next_cursor` that returns only people found since the previous call.
+- Every people tool returns a `next` line that says what to call next.
+- People tools reject unknown arguments, so a misspelled or nested filter is not dropped from a billed search.
+- The `/export` CSV and JSON Lines routes are not tools.
+
+### Tool annotations
+
+The 15 existing tools keep `readOnlyHint: true`, `destructiveHint: false`, `openWorldHint: true`. So do `people-search-status`, `people-search-tasks`, and `people-profiles`.
+
+- `people-search`: `readOnlyHint: false`, `destructiveHint: false`, `idempotentHint: false`. It creates a billed task.
+- `people-search-control`: `readOnlyHint: false`, `destructiveHint: true` (cancel cannot be undone), `idempotentHint: true`.
+
 ## 0.1.4
 
 `ai-search` tools enum drops `youtube`. Allowed ids are `web`, `twitter`, `arxiv`, `wikipedia`, `hackernews`, and `reddit`.
