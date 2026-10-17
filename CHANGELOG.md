@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.5
+
+Remote MCP OAuth 2.1, alongside the existing API key header.
+
+- Protected resource metadata, authorization server metadata, dynamic client registration, authorization code with PKCE S256, and rotating refresh tokens.
+- The sign-in page asks for a Desearch API key and checks it before issuing a code. Access tokens are opaque. The key is encrypted at rest and is not placed in the token.
+- A raw Desearch API key in `Authorization` or `x-api-key` still works. `tools/list` without a key still returns tools. `tools/call` without a key returns 401 with `WWW-Authenticate`.
+- `search` and `fetch` are a query-then-read pair. `search` takes `query` and returns titles and links. `fetch` takes a URL and returns the page text.
+
 ## 0.1.4
 
 `ai-search` tools enum drops `youtube`. Allowed ids are `web`, `twitter`, `arxiv`, `wikipedia`, `hackernews`, and `reddit`.

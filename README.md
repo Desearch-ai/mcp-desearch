@@ -59,6 +59,8 @@ The Desearch MCP server includes the following tools:
 
 -   **AI Search** (`ai-search`): Performs AI Twitter and web searches with relevant links and summary. `tools` uses short source ids (`web`, `twitter`, `arxiv`, `wikipedia`, `hackernews`, `reddit`). Older labels such as `Web Search`, `ArXiv Search`, `Wikipedia Search`, `Hacker News Search`, and `Reddit Search` are still accepted and sent as the short id. `youtube` is not accepted. Default is `["web", "twitter"]`.
 -   **X Search** (`x-search`): Tweet search on X. Arguments: `query` (required), `count` (optional, default 20). Sort stays Top. Optional filters: `user`, `start_date`, `end_date` (YYYY-MM-DD), `lang`, `verified`, `blue_verified`, `is_quote`, `is_video`, `is_image`, `min_retweets`, `min_replies`, `min_likes`.
+-   **Search** (`search`): Web search that returns `{ results: [{ id, title, url }] }`. Argument: `query` (required). `id` is the result URL.
+-   **Fetch Page** (`fetch`): Read a public page as text. Argument: `id` (required, an `http` or `https` URL from `search`).
 -   **Web Search** (`web-search`): SERP-style web search. Arguments: `query` (required), `start` (optional pagination offset).
 -   **Web Links Search** (`web-links-search`): Web link search. Arguments: `prompt` (required), `tools` (optional, only `web`, default `["web"]`; `Web Search` is accepted and rewritten to `web`), `count` (optional, 10–200). The links/web API rejects other sources, so they are not in the enum.
 -   **Extract** (`extract`): Read a public URL as text or HTML. Preferred over crawl. Arguments: `url` (required), `format` (optional, `html` or `text`), `js` (optional), `wait` (optional milliseconds).
@@ -303,8 +305,9 @@ Remote requests do not use that environment variable. Discovery does not need a 
 
 - `Authorization: Bearer <DESEARCH_API_KEY>` (preferred)
 - `x-api-key: <DESEARCH_API_KEY>`
+- `Authorization: Bearer <oauth access token>` after the OAuth sign-in below
 
-A bare `Authorization: <DESEARCH_API_KEY>` value is also accepted. The key is not read from the query string. There is no shared server secret and no `WWW-Authenticate` challenge: the hosted process forwards the per-request key to the Desearch API only when a call needs it.
+A bare `Authorization: <DESEARCH_API_KEY>` value is also accepted. The key is not read from the query string. There is no shared server secret. A protected call without a valid key or access token returns 401 with a `WWW-Authenticate` header pointing at `/.well-known/oauth-protected-resource/mcp`. The hosted process forwards the per-request Desearch API key to the Desearch API only when a call needs it. An OAuth access token is opaque: the server looks up the key stored for that token and does not put the raw key in the token.
 
 The MCP endpoint is `POST /mcp`. Responses are JSON (stateless Streamable HTTP). `GET` and `DELETE` on `/mcp` return `405` because the server does not keep a session or push server-to-client messages. `GET /`, `GET /health`, and `GET /api/health` are unauthenticated health checks.
 
@@ -327,9 +330,47 @@ Cursor, or any remote MCP client:
 }
 ```
 
+### OAuth sign-in
+
+Clients that follow the MCP authorization spec (2025-06-18) can sign in instead of sending a key on every request. Discovery documents:
+
+- `GET /.well-known/oauth-protected-resource`
+- `GET /.well-known/oauth-protected-resource/mcp`
+- `GET /.well-known/oauth-authorization-server`
+- `GET /.well-known/openid-configuration` (same authorization server document)
+
+`POST /register` is dynamic client registration. `GET /authorize` is the Desearch page where the user pastes an API key. `POST /token` exchanges the authorization code and rotates refresh tokens. PKCE S256 is required. Public clients use `token_endpoint_auth_method` `none`.
+
+Allowed callback URLs:
+
+- `https://claude.ai/api/mcp/auth_callback`
+- `https://claude.com/api/mcp/auth_callback`
+- `https://chatgpt.com/connector_platform_oauth_redirect`
+- `https://chatgpt.com/connector/oauth/{callback_id}`
+- Loopback `http://localhost`, `http://127.0.0.1`, and `http://[::1]` on any port (host and path must match the registered callback)
+
+The connector URL is `https://mcp.desearch.ai/mcp`. On the sign-in page, paste a key from [console.desearch.ai/api-keys](https://console.desearch.ai/api-keys). Leave a client id blank when the client can register itself.
+
+Environment variables for the host:
+
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `OAUTH_ISSUER` | Production | Canonical origin with no trailing slash, for example `https://mcp.desearch.ai`. When unset, the request host is used. |
+| `OAUTH_RESOURCE` | No | Canonical MCP URL. Default is `{OAUTH_ISSUER}/mcp`. |
+| `OAUTH_STORE` | Production | `memory` (default) or `redis`. Memory is not shared across processes. |
+| `REDIS_URL` | When `OAUTH_STORE=redis` | Redis connection string (`redis://` or `rediss://`). |
+| `OAUTH_ENCRYPTION_KEY` | When `OAUTH_STORE=redis` | 32-byte key, base64 or hex. Generate with `openssl rand -base64 32`. Encrypts stored API keys. |
+| `OAUTH_ACCESS_TTL_SEC` | No | Access token lifetime. Default 3600. Range 60 to 86400. |
+| `OAUTH_REFRESH_TTL_SEC` | No | Refresh token lifetime. Default 30 days. Range 300 to 90 days. |
+| `OAUTH_CODE_TTL_SEC` | No | Authorization code lifetime. Default 300. Range 30 to 600. |
+| `OAUTH_CLIENT_TTL_SEC` | No | Dynamic client lifetime. Default 2 years. |
+| `DESEARCH_API_BASE` | No | Key check host. Default `https://api.desearch.ai`. |
+
+The key check calls `GET /twitter/trends?woeid=1&count=1`. A real key is authenticated and then rejected as invalid input, so the check does not run a full trends query. `401` and `403` reject the key.
+
 ### Use with Claude (custom connector)
 
-Desearch is not in the Claude Connectors Directory yet. You can add the hosted server as a custom connector with your Desearch API key.
+Desearch is not in the Claude Connectors Directory yet. You can add the hosted server as a custom connector with your Desearch API key, or with OAuth sign-in.
 
 Sources: [Custom remote MCP connectors](https://claude.com/docs/connectors/custom/remote-mcp) and [connector authentication](https://claude.com/docs/connectors/building/authentication). Request-header authentication is a beta feature in Claude.
 
@@ -343,6 +384,8 @@ Sources: [Custom remote MCP connectors](https://claude.com/docs/connectors/custo
 6. Select **Add**.
 
 The header value is stored once and shared by everyone in the organization who uses the connector.
+
+OAuth alternative: choose sign-in instead of a request header, leave the OAuth client id empty so the client can register itself, and paste a Desearch API key on the Desearch page. The callback URL for hosted Claude apps is `https://claude.ai/api/mcp/auth_callback`. Claude Code uses a loopback callback, which this server accepts on any port.
 
 **Claude Code**
 
@@ -400,7 +443,9 @@ docker run --rm -e MCP_TRANSPORT=http -p 3000:3000 desearch-mcp
 
 ### Deploy on Vercel
 
-Vercel fits this server because the handler is stateless and answers each JSON-RPC call in one response. `vercel.json` builds the project, serves `POST /mcp`, and sets the function duration to 60 seconds. Hobby plans cap function duration lower than that, so AI Search tool calls need a plan that allows at least 60 seconds. `initialize` and `tools/list` are short either way.
+Vercel fits the MCP handler because each JSON-RPC call is one response. `vercel.json` builds the project, serves `POST /mcp`, and sets the function duration to 60 seconds. Hobby plans cap function duration lower than that, so AI Search tool calls need a plan that allows at least 60 seconds. `initialize` and `tools/list` are short either way.
+
+OAuth codes and tokens need shared storage. On Vercel set `OAUTH_STORE=redis`, `REDIS_URL`, `OAUTH_ENCRYPTION_KEY`, and `OAUTH_ISSUER=https://mcp.desearch.ai`. Without Redis, tokens stay in the memory of one function instance and sign-in will not survive the next request.
 
 No server-side Desearch API key is required in the Vercel project. After deploy, the endpoint is:
 

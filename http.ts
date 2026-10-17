@@ -1,13 +1,18 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
+import { handleOAuthHttp, resolveRequestCredential } from "./oauth/http.js";
+import { wwwAuthenticate } from "./oauth/metadata.js";
+import { extractDesearchApiKey } from "./request-key.js";
 import { createDesearchMcpServer, SERVER_NAME, SERVER_VERSION } from "./server.js";
+
+export { extractDesearchApiKey };
 
 const CORS_HEADERS: Record<string, string> = {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
     "Access-Control-Allow-Headers":
         "Content-Type, Accept, Authorization, x-api-key, Mcp-Session-Id, Mcp-Protocol-Version, Last-Event-ID",
-    "Access-Control-Expose-Headers": "Mcp-Session-Id",
+    "Access-Control-Expose-Headers": "Mcp-Session-Id, WWW-Authenticate",
     "Access-Control-Max-Age": "86400",
 };
 
@@ -32,13 +37,6 @@ export interface RunningHttpServer {
 }
 
 /**
- * Desearch API key from the remote client.
- * Prefer `Authorization: Bearer <key>` (what MCP clients send). `x-api-key` is
- * accepted as well. A bare `Authorization: <key>` value is accepted so the same
- * string used as `DESEARCH_API_KEY` for stdio can be sent without a scheme.
- * Query strings are ignored so keys do not land in access logs.
- */
-/**
  * Copy a request onto another path. Used by the Vercel functions, which see
  * the rewritten URL (`/api/mcp`) rather than the public path (`/mcp`).
  */
@@ -55,26 +53,6 @@ export function requestWithPathname(request: Request, pathname: string): Request
         init.duplex = "half";
     }
     return new Request(url, init);
-}
-
-export function extractDesearchApiKey(request: Request): string | undefined {
-    const authorization = request.headers.get("authorization")?.trim();
-    if (authorization) {
-        const bearer = /^Bearer\s+(\S+)$/i.exec(authorization);
-        if (bearer?.[1]) {
-            return bearer[1];
-        }
-        if (!/^Bearer\b/i.test(authorization) && !/\s/.test(authorization)) {
-            return authorization;
-        }
-    }
-
-    const headerKey = request.headers.get("x-api-key")?.trim();
-    if (headerKey) {
-        return headerKey;
-    }
-
-    return undefined;
 }
 
 function normalizePath(pathname: string): string {
@@ -127,7 +105,7 @@ function healthResponse(): Response {
             version: SERVER_VERSION,
             transport: "streamable-http",
             endpoint: "/mcp",
-            auth: "initialize and tools/list are public. tools/call requires Authorization: Bearer <DESEARCH_API_KEY> or x-api-key.",
+            auth: "initialize and tools/list are public. tools/call requires Authorization: Bearer <DESEARCH_API_KEY>, x-api-key, or an OAuth access token.",
         }),
         {
             status: 200,
@@ -136,13 +114,12 @@ function healthResponse(): Response {
     );
 }
 
-function unauthorized(): Response {
-    // No OAuth challenge. Desearch auth is a per-user API key, and a
-    // WWW-Authenticate discovery hint makes some MCP clients start an OAuth flow.
+function unauthorized(request: Request): Response {
     return jsonRpcError(
         401,
         -32001,
-        "Unauthorized. Send your Desearch API key in the Authorization: Bearer <key> header or the x-api-key header."
+        "Unauthorized. Send your Desearch API key in the Authorization: Bearer <key> header or the x-api-key header.",
+        { "WWW-Authenticate": wwwAuthenticate(request) }
     );
 }
 
@@ -219,6 +196,11 @@ export async function handleMcpHttpRequest(request: Request): Promise<Response> 
 
     const pathname = normalizePath(new URL(request.url).pathname);
 
+    const oauthResponse = await handleOAuthHttp(request);
+    if (oauthResponse) {
+        return withCors(oauthResponse);
+    }
+
     if (isHealthPath(pathname)) {
         if (request.method === "GET") {
             return withCors(healthResponse());
@@ -235,9 +217,14 @@ export async function handleMcpHttpRequest(request: Request): Promise<Response> 
         );
     }
 
+    const credential = await resolveRequestCredential(request);
+    if (credential.kind === "unavailable") {
+        return withCors(jsonRpcError(500, -32603, "Authorization storage is unavailable."));
+    }
+
     if (request.method === "GET" || request.method === "DELETE") {
-        if (!extractDesearchApiKey(request)) {
-            return withCors(unauthorized());
+        if (credential.kind !== "key") {
+            return withCors(unauthorized(request));
         }
         return withCors(jsonRpcError(405, -32000, "Method not allowed. This server is stateless; use POST.", { Allow: "POST" }));
     }
@@ -246,11 +233,15 @@ export async function handleMcpHttpRequest(request: Request): Promise<Response> 
         return withCors(jsonRpcError(405, -32000, "Method not allowed.", { Allow: "POST" }));
     }
 
-    let apiKey = extractDesearchApiKey(request);
-    if (!apiKey) {
+    let apiKey: string;
+    if (credential.kind === "key") {
+        apiKey = credential.apiKey;
+    } else if (credential.kind === "unauthorized") {
+        return withCors(unauthorized(request));
+    } else {
         const raw = await request.text();
         if (!isKeylessDiscovery(raw)) {
-            return withCors(unauthorized());
+            return withCors(unauthorized(request));
         }
         request = requestWithJsonBody(request, raw);
         apiKey = "";
