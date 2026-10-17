@@ -54,7 +54,7 @@ export async function resolveRequestCredential(request: Request): Promise<Reques
         return { kind: "unauthorized" };
     }
     try {
-        const apiKey = await lookupAccessApiKey(presented);
+        const apiKey = await lookupAccessApiKey(presented, request);
         if (!apiKey) {
             return { kind: "unauthorized" };
         }

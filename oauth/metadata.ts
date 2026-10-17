@@ -1,16 +1,27 @@
+import { isProductionHost, OAuthConfigError } from "./errors.js";
+
 export const SUPPORTED_SCOPES = ["mcp", "offline_access"] as const;
 
+export interface WwwChallenge {
+    error: string;
+    error_description: string;
+}
+
+/**
+ * Public origin of this authorization server.
+ * Production refuses to run without `OAUTH_ISSUER`. Forwarded host headers are
+ * never consulted, so a client cannot choose the issuer or the resource.
+ */
 export function publicOrigin(request: Request): string {
     const configured = process.env.OAUTH_ISSUER?.trim().replace(/\/+$/, "");
     if (configured) {
         return configured;
     }
+    if (isProductionHost()) {
+        throw new OAuthConfigError("OAUTH_ISSUER is required in production");
+    }
     const url = new URL(request.url);
-    const forwardedProto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
-    const forwardedHost = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
-    const proto = forwardedProto || url.protocol.replace(/:$/, "");
-    const host = forwardedHost || request.headers.get("host") || url.host;
-    return `${proto}://${host}`;
+    return `${url.protocol}//${url.host}`;
 }
 
 export function canonicalResource(request: Request): string {
@@ -53,8 +64,13 @@ export function authorizationServerMetadata(request: Request): Record<string, un
     };
 }
 
-export function wwwAuthenticate(request: Request): string {
-    return `Bearer realm="Desearch", resource_metadata="${resourceMetadataUrl(request)}", scope="mcp"`;
+export function wwwAuthenticate(request: Request, challenge?: WwwChallenge): string {
+    const base = `Bearer realm="Desearch", resource_metadata="${resourceMetadataUrl(request)}", scope="mcp"`;
+    if (!challenge) {
+        return base;
+    }
+    const description = challenge.error_description.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+    return `${base}, error="${challenge.error}", error_description="${description}"`;
 }
 
 export function resourcesMatch(left: string, right: string): boolean {

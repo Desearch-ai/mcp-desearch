@@ -355,9 +355,9 @@ Environment variables for the host:
 
 | Variable | Required | Purpose |
 | --- | --- | --- |
-| `OAUTH_ISSUER` | Production | Canonical origin with no trailing slash, for example `https://mcp.desearch.ai`. When unset, the request host is used. |
-| `OAUTH_RESOURCE` | No | Canonical MCP URL. Default is `{OAUTH_ISSUER}/mcp`. |
-| `OAUTH_STORE` | Production | `memory` (default) or `redis`. Memory is not shared across processes. |
+| `OAUTH_ISSUER` | Production | Canonical origin with no trailing slash, for example `https://mcp.desearch.ai`. Required when `NODE_ENV=production` or `VERCEL` is set. The process refuses OAuth and bearer challenges if it is unset. The issuer is never taken from `X-Forwarded-Host`. Locally, the request URL is used. |
+| `OAUTH_RESOURCE` | No | Canonical MCP URL. Default is `{OAUTH_ISSUER}/mcp`. Access tokens are rejected when their stored audience does not match this resource. |
+| `OAUTH_STORE` | Production | `memory` (local default) or `redis`. Production (`NODE_ENV=production` or `VERCEL`) refuses to start unless this is `redis`. |
 | `REDIS_URL` | When `OAUTH_STORE=redis` | Redis connection string (`redis://` or `rediss://`). |
 | `OAUTH_ENCRYPTION_KEY` | When `OAUTH_STORE=redis` | 32-byte key, base64 or hex. Generate with `openssl rand -base64 32`. Encrypts stored API keys. |
 | `OAUTH_ACCESS_TTL_SEC` | No | Access token lifetime. Default 3600. Range 60 to 86400. |
@@ -365,6 +365,7 @@ Environment variables for the host:
 | `OAUTH_CODE_TTL_SEC` | No | Authorization code lifetime. Default 300. Range 30 to 600. |
 | `OAUTH_CLIENT_TTL_SEC` | No | Dynamic client lifetime. Default 2 years. |
 | `DESEARCH_API_BASE` | No | Key check host. Default `https://api.desearch.ai`. |
+| `OAUTH_REQUIRE_AUTH_ON_INITIALIZE` | No | Set to `true` to require a key or access token on `initialize`. Default is off, so keyless `initialize` stays public. `tools/list` stays public either way. |
 
 The key check calls `GET /twitter/trends?woeid=1&count=1`. A real key is authenticated and then rejected as invalid input, so the check does not run a full trends query. `401` and `403` reject the key.
 
@@ -445,7 +446,7 @@ docker run --rm -e MCP_TRANSPORT=http -p 3000:3000 desearch-mcp
 
 Vercel fits the MCP handler because each JSON-RPC call is one response. `vercel.json` builds the project, serves `POST /mcp`, and sets the function duration to 60 seconds. Hobby plans cap function duration lower than that, so AI Search tool calls need a plan that allows at least 60 seconds. `initialize` and `tools/list` are short either way.
 
-OAuth codes and tokens need shared storage. On Vercel set `OAUTH_STORE=redis`, `REDIS_URL`, `OAUTH_ENCRYPTION_KEY`, and `OAUTH_ISSUER=https://mcp.desearch.ai`. Without Redis, tokens stay in the memory of one function instance and sign-in will not survive the next request.
+OAuth codes and tokens need shared storage. On Vercel set `OAUTH_STORE=redis`, `REDIS_URL`, `OAUTH_ENCRYPTION_KEY`, and `OAUTH_ISSUER=https://mcp.desearch.ai`. The server refuses OAuth when `OAUTH_ISSUER` is unset or `OAUTH_STORE` is not `redis`, because Vercel sets `VERCEL` on every function. `OAUTH_REQUIRE_AUTH_ON_INITIALIZE=true` is optional. Leave it unset unless a client treats public `initialize` as a reason to skip sign-in.
 
 No server-side Desearch API key is required in the Vercel project. After deploy, the endpoint is:
 

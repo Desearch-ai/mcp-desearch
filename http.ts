@@ -1,7 +1,8 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
+import { OAuthConfigError } from "./oauth/errors.js";
 import { handleOAuthHttp, resolveRequestCredential } from "./oauth/http.js";
-import { wwwAuthenticate } from "./oauth/metadata.js";
+import { wwwAuthenticate, type WwwChallenge } from "./oauth/metadata.js";
 import { extractDesearchApiKey } from "./request-key.js";
 import { createDesearchMcpServer, SERVER_NAME, SERVER_VERSION } from "./server.js";
 
@@ -114,13 +115,98 @@ function healthResponse(): Response {
     );
 }
 
-function unauthorized(request: Request): Response {
-    return jsonRpcError(
-        401,
-        -32001,
-        "Unauthorized. Send your Desearch API key in the Authorization: Bearer <key> header or the x-api-key header.",
-        { "WWW-Authenticate": wwwAuthenticate(request) }
-    );
+const INVALID_TOKEN_CHALLENGE: WwwChallenge = {
+    error: "invalid_token",
+    error_description: "The access token is invalid or expired.",
+};
+
+const LOGIN_CHALLENGE: WwwChallenge = {
+    error: "insufficient_scope",
+    error_description: "You need to login to continue",
+};
+
+const UNAUTHORIZED_MESSAGE =
+    "Unauthorized. Send your Desearch API key in the Authorization: Bearer <key> header or the x-api-key header.";
+
+function challengeHeader(request: Request, challenge?: WwwChallenge): string | Response {
+    try {
+        return wwwAuthenticate(request, challenge);
+    } catch (error) {
+        if (error instanceof OAuthConfigError) {
+            return jsonRpcError(500, -32603, "Authorization storage is unavailable.");
+        }
+        throw error;
+    }
+}
+
+function unauthorized(request: Request, invalidToken = false): Response {
+    const header = challengeHeader(request, invalidToken ? INVALID_TOKEN_CHALLENGE : undefined);
+    if (header instanceof Response) {
+        return header;
+    }
+    return jsonRpcError(401, -32001, UNAUTHORIZED_MESSAGE, { "WWW-Authenticate": header });
+}
+
+interface ToolsCallMessage {
+    id?: unknown;
+}
+
+function readToolsCalls(raw: string): { batched: boolean; calls: ToolsCallMessage[] } | null {
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(raw);
+    } catch {
+        return null;
+    }
+    const batched = Array.isArray(parsed);
+    const messages: unknown[] = batched ? (parsed as unknown[]) : [parsed];
+    if (messages.length === 0) {
+        return null;
+    }
+    const calls: ToolsCallMessage[] = [];
+    for (const message of messages) {
+        if (typeof message !== "object" || message === null) {
+            return null;
+        }
+        if ((message as { method?: unknown }).method !== "tools/call") {
+            return null;
+        }
+        calls.push(message as ToolsCallMessage);
+    }
+    return { batched, calls };
+}
+
+function authFailure(request: Request, raw: string, invalidToken: boolean): Response {
+    const header = challengeHeader(request, invalidToken ? INVALID_TOKEN_CHALLENGE : undefined);
+    if (header instanceof Response) {
+        return header;
+    }
+    const metaHeader = invalidToken ? header : challengeHeader(request, LOGIN_CHALLENGE);
+    if (metaHeader instanceof Response) {
+        return metaHeader;
+    }
+    const tools = readToolsCalls(raw);
+    if (!tools) {
+        return jsonRpcError(401, -32001, UNAUTHORIZED_MESSAGE, { "WWW-Authenticate": header });
+    }
+    const results = tools.calls.map((call) => ({
+        jsonrpc: "2.0",
+        id: call.id ?? null,
+        result: {
+            content: [{ type: "text", text: UNAUTHORIZED_MESSAGE }],
+            isError: true,
+            _meta: {
+                "mcp/www_authenticate": [`'${metaHeader}'`],
+            },
+        },
+    }));
+    return new Response(JSON.stringify(tools.batched ? results : results[0]), {
+        status: 401,
+        headers: {
+            "Content-Type": "application/json",
+            "WWW-Authenticate": header,
+        },
+    });
 }
 
 /**
@@ -138,6 +224,17 @@ const KEYLESS_METHODS = new Set([
     "resources/templates/list",
 ]);
 
+function authRequiredOnInitialize(): boolean {
+    return /^(1|true|yes)$/i.test((process.env.OAUTH_REQUIRE_AUTH_ON_INITIALIZE ?? "").trim());
+}
+
+function isKeylessMethod(method: string): boolean {
+    if (method === "initialize" && authRequiredOnInitialize()) {
+        return false;
+    }
+    return KEYLESS_METHODS.has(method);
+}
+
 function isKeylessDiscovery(raw: string): boolean {
     let parsed: unknown;
     try {
@@ -153,7 +250,7 @@ function isKeylessDiscovery(raw: string): boolean {
                 return false;
             }
             const method = (message as { method?: unknown }).method;
-            return typeof method === "string" && KEYLESS_METHODS.has(method);
+            return typeof method === "string" && isKeylessMethod(method);
         })
     );
 }
@@ -224,7 +321,7 @@ export async function handleMcpHttpRequest(request: Request): Promise<Response> 
 
     if (request.method === "GET" || request.method === "DELETE") {
         if (credential.kind !== "key") {
-            return withCors(unauthorized(request));
+            return withCors(unauthorized(request, credential.kind === "unauthorized"));
         }
         return withCors(jsonRpcError(405, -32000, "Method not allowed. This server is stateless; use POST.", { Allow: "POST" }));
     }
@@ -237,11 +334,12 @@ export async function handleMcpHttpRequest(request: Request): Promise<Response> 
     if (credential.kind === "key") {
         apiKey = credential.apiKey;
     } else if (credential.kind === "unauthorized") {
-        return withCors(unauthorized(request));
+        const raw = await request.text();
+        return withCors(authFailure(request, raw, true));
     } else {
         const raw = await request.text();
         if (!isKeylessDiscovery(raw)) {
-            return withCors(unauthorized(request));
+            return withCors(authFailure(request, raw, false));
         }
         request = requestWithJsonBody(request, raw);
         apiKey = "";

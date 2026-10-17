@@ -496,10 +496,336 @@ test("vercel function entries serve both protected resource documents", async ()
         assert.deepEqual(body.authorization_servers, ["https://mcp.desearch.ai"]);
 
         const nested = await protectedResourceMcp.fetch(
-            new Request("https://example.vercel.app/api/oauth-protected-resource-mcp")
+            new Request("https://example.vercel.app/api/oauth-protected-resource-mcp", {
+                headers: { "x-forwarded-host": "evil.example", "x-forwarded-proto": "http" },
+            })
         );
-        assert.equal((await nested.json()).resource, "https://mcp.desearch.ai/mcp");
+        const nestedBody = await nested.json();
+        assert.equal(nestedBody.resource, "https://mcp.desearch.ai/mcp");
+        assert.equal(JSON.stringify(nestedBody).includes("evil.example"), false);
     } finally {
         restoreEnv("OAUTH_ISSUER", previousIssuer);
     }
+});
+
+test("issuer ignores X-Forwarded-Host", async () => {
+    await withServer(async (server) => {
+        const origin = `http://127.0.0.1:${server.port}`;
+        const response = await fetch(`${origin}/.well-known/oauth-authorization-server`, {
+            headers: { "x-forwarded-host": "evil.example", "x-forwarded-proto": "https" },
+        });
+        assert.equal(response.status, 200);
+        const metadata = await response.json();
+        assert.equal(metadata.issuer, origin);
+        assert.equal(metadata.authorization_endpoint, `${origin}/authorize`);
+        assert.equal(JSON.stringify(metadata).includes("evil.example"), false);
+
+        const resourceDoc = await fetch(`${origin}/.well-known/oauth-protected-resource/mcp`, {
+            headers: { "x-forwarded-host": "evil.example" },
+        });
+        const resource = await resourceDoc.json();
+        assert.equal(resource.resource, `${origin}/mcp`);
+        assert.equal(JSON.stringify(resource).includes("evil.example"), false);
+    });
+});
+
+test("production refuses a missing issuer and the in-memory store", async () => {
+    const previousNode = process.env.NODE_ENV;
+    const previousVercel = process.env.VERCEL;
+    const previousIssuer = process.env.OAUTH_ISSUER;
+    const previousResource = process.env.OAUTH_RESOURCE;
+    const previousStore = process.env.OAUTH_STORE;
+    if (process.env.NODE_ENV !== "production") {
+        resetOAuthForTests();
+    }
+    delete process.env.OAUTH_ISSUER;
+    delete process.env.OAUTH_RESOURCE;
+    delete process.env.VERCEL;
+    process.env.NODE_ENV = "production";
+    process.env.OAUTH_STORE = "memory";
+    const server = await startHttpServer({ host: "127.0.0.1", port: 0 });
+    try {
+        await assert.rejects(() => getOAuthStore(), /OAUTH_STORE must be redis/);
+        const metadata = await fetch(
+            `http://127.0.0.1:${server.port}/.well-known/oauth-authorization-server`,
+            { headers: { "x-forwarded-host": "evil.example", "x-forwarded-proto": "https" } }
+        );
+        assert.equal(metadata.status, 500);
+        assert.equal((await metadata.text()).includes("evil.example"), false);
+
+        const denied = await fetch(`http://127.0.0.1:${server.port}/mcp`, {
+            method: "POST",
+            headers: { ...MCP_HEADERS, "x-forwarded-host": "evil.example" },
+            body: JSON.stringify({
+                jsonrpc: "2.0",
+                id: 1,
+                method: "tools/call",
+                params: { name: "search", arguments: { query: "x" } },
+            }),
+        });
+        assert.equal(denied.status, 500);
+        assert.equal((await denied.text()).includes("evil.example"), false);
+
+        delete process.env.NODE_ENV;
+        process.env.VERCEL = "1";
+        await assert.rejects(() => getOAuthStore(), /OAUTH_STORE must be redis/);
+        const vercelMetadata = await fetch(
+            `http://127.0.0.1:${server.port}/.well-known/oauth-protected-resource`,
+            { headers: { "x-forwarded-host": "evil.example" } }
+        );
+        assert.equal(vercelMetadata.status, 500);
+        assert.equal((await vercelMetadata.text()).includes("evil.example"), false);
+
+        process.env.OAUTH_ISSUER = "https://mcp.desearch.ai";
+        const configured = await fetch(
+            `http://127.0.0.1:${server.port}/.well-known/oauth-authorization-server`,
+            { headers: { "x-forwarded-host": "evil.example", "x-forwarded-proto": "http" } }
+        );
+        assert.equal(configured.status, 200);
+        const configuredBody = await configured.json();
+        assert.equal(configuredBody.issuer, "https://mcp.desearch.ai");
+        assert.equal(JSON.stringify(configuredBody).includes("evil.example"), false);
+        await assert.rejects(() => getOAuthStore(), /OAUTH_STORE must be redis/);
+    } finally {
+        await server.close();
+        restoreEnv("NODE_ENV", previousNode);
+        restoreEnv("VERCEL", previousVercel);
+        restoreEnv("OAUTH_ISSUER", previousIssuer);
+        restoreEnv("OAUTH_RESOURCE", previousResource);
+        restoreEnv("OAUTH_STORE", previousStore);
+        if (process.env.NODE_ENV !== "production") {
+            resetOAuthForTests();
+        }
+    }
+});
+
+test("a bad access token and a token for another resource are invalid_token", async () => {
+    await withServer(async (server) => {
+        const origin = `http://127.0.0.1:${server.port}`;
+        const issued = await authorizeAndToken(server.port, "https://claude.ai/api/mcp/auth_callback");
+        const callBody = JSON.stringify({
+            jsonrpc: "2.0",
+            id: 9,
+            method: "tools/call",
+            params: { name: "search", arguments: { query: "x" } },
+        });
+        const bad = await fetch(`${origin}/mcp`, {
+            method: "POST",
+            headers: { ...MCP_HEADERS, authorization: "Bearer dsoat_not-a-real-token" },
+            body: callBody,
+        });
+        assert.equal(bad.status, 401);
+        const badHeader = bad.headers.get("www-authenticate") ?? "";
+        assert.match(badHeader, /error="invalid_token"/);
+        assert.match(badHeader, /error_description="The access token is invalid or expired\."/);
+        const badBody = await bad.json();
+        assert.equal(badBody.result.isError, true);
+        assert.match(badBody.result._meta["mcp/www_authenticate"][0], /error="invalid_token"/);
+
+        process.env.OAUTH_RESOURCE = "https://other.example/mcp";
+        const wrongAudience = await fetch(`${origin}/mcp`, {
+            method: "POST",
+            headers: { ...MCP_HEADERS, authorization: `Bearer ${issued.body.access_token}` },
+            body: callBody,
+        });
+        assert.equal(wrongAudience.status, 401);
+        assert.match(wrongAudience.headers.get("www-authenticate") ?? "", /error="invalid_token"/);
+        const wrongBody = await wrongAudience.json();
+        assert.match(wrongBody.result._meta["mcp/www_authenticate"][0], /error="invalid_token"/);
+        delete process.env.OAUTH_RESOURCE;
+
+        const restored = await fetch(`${origin}/mcp`, {
+            method: "POST",
+            headers: { ...MCP_HEADERS, authorization: `Bearer ${issued.body.access_token}` },
+            body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list" }),
+        });
+        assert.equal(restored.status, 200);
+    });
+});
+
+test("keyless tools/call returns the ChatGPT tool error and keeps HTTP 401", async () => {
+    await withServer(async (server) => {
+        const origin = `http://127.0.0.1:${server.port}`;
+        const response = await fetch(`${origin}/mcp`, {
+            method: "POST",
+            headers: MCP_HEADERS,
+            body: JSON.stringify({
+                jsonrpc: "2.0",
+                id: 4,
+                method: "tools/call",
+                params: { name: "search", arguments: { query: "should-not-run" } },
+            }),
+        });
+        assert.equal(response.status, 401);
+        const header = response.headers.get("www-authenticate") ?? "";
+        assert.match(header, /resource_metadata=/);
+        assert.equal(header.includes("error="), false);
+        const body = await response.json();
+        assert.equal(body.error, undefined);
+        assert.equal(body.result.isError, true);
+        assert.equal(body.id, 4);
+        const challenge = body.result._meta["mcp/www_authenticate"][0];
+        assert.match(challenge, /error="insufficient_scope"/);
+        assert.match(challenge, /error_description="You need to login to continue"/);
+        assert.match(challenge, new RegExp(`resource_metadata="${origin}/\\.well-known/oauth-protected-resource/mcp"`));
+    });
+});
+
+test("strict mode requires auth on initialize and leaves tools/list public", async () => {
+    await withServer(async (server) => {
+        const origin = `http://127.0.0.1:${server.port}`;
+        const initialize = {
+            jsonrpc: "2.0",
+            id: 1,
+            method: "initialize",
+            params: {
+                protocolVersion: "2025-03-26",
+                capabilities: {},
+                clientInfo: { name: "strict", version: "0.0.1" },
+            },
+        };
+        const open = await fetch(`${origin}/mcp`, {
+            method: "POST",
+            headers: MCP_HEADERS,
+            body: JSON.stringify(initialize),
+        });
+        assert.equal(open.status, 200);
+        assert.equal(open.headers.get("www-authenticate"), null);
+
+        process.env.OAUTH_REQUIRE_AUTH_ON_INITIALIZE = "true";
+        try {
+            const closed = await fetch(`${origin}/mcp`, {
+                method: "POST",
+                headers: MCP_HEADERS,
+                body: JSON.stringify(initialize),
+            });
+            assert.equal(closed.status, 401);
+            assert.match(
+                closed.headers.get("www-authenticate") ?? "",
+                new RegExp(`resource_metadata="${origin}/\\.well-known/oauth-protected-resource/mcp"`)
+            );
+            const tools = await fetch(`${origin}/mcp`, {
+                method: "POST",
+                headers: MCP_HEADERS,
+                body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list" }),
+            });
+            assert.equal(tools.status, 200);
+        } finally {
+            delete process.env.OAUTH_REQUIRE_AUTH_ON_INITIALIZE;
+        }
+
+        const openAgain = await fetch(`${origin}/mcp`, {
+            method: "POST",
+            headers: MCP_HEADERS,
+            body: JSON.stringify(initialize),
+        });
+        assert.equal(openAgain.status, 200);
+    });
+});
+
+test("authorize POST rejects a cross-site Origin or Referer", async () => {
+    await withServer(async (server) => {
+        const origin = `http://127.0.0.1:${server.port}`;
+        const redirectUri = "https://chatgpt.com/connector_platform_oauth_redirect";
+        const client = await register(server.port, redirectUri);
+        const { challenge } = pkce();
+        const fields = {
+            response_type: "code",
+            client_id: client.client_id,
+            redirect_uri: redirectUri,
+            code_challenge: challenge,
+            code_challenge_method: "S256",
+            state: "csrf-state",
+            resource: `${origin}/mcp`,
+            api_key: API_KEY,
+            decision: "allow",
+        };
+        const post = (headers) =>
+            fetch(`${origin}/authorize`, {
+                method: "POST",
+                redirect: "manual",
+                headers: { "content-type": "application/x-www-form-urlencoded", ...headers },
+                body: new URLSearchParams(fields),
+            });
+
+        const crossSite = await post({ origin: "https://evil.example", "sec-fetch-site": "cross-site" });
+        assert.equal(crossSite.status, 400);
+        assert.equal(crossSite.headers.get("location"), null);
+        assert.equal((await crossSite.text()).includes(API_KEY), false);
+
+        const evilOrigin = await post({ origin: "https://evil.example" });
+        assert.equal(evilOrigin.status, 400);
+        assert.equal(evilOrigin.headers.get("location"), null);
+
+        const evilReferer = await post({ referer: "https://evil.example/phish" });
+        assert.equal(evilReferer.status, 400);
+        assert.equal(evilReferer.headers.get("location"), null);
+
+        const sameOrigin = await post({ origin });
+        assert.equal(sameOrigin.status, 302);
+        const location = new URL(sameOrigin.headers.get("location"));
+        assert.equal(location.searchParams.get("state"), "csrf-state");
+        assert.ok(location.searchParams.get("code"));
+    });
+});
+
+test("replaying an authorization code revokes tokens already issued", async () => {
+    await withServer(async (server) => {
+        const origin = `http://127.0.0.1:${server.port}`;
+        const redirectUri = "https://claude.com/api/mcp/auth_callback";
+        const issued = await authorizeAndToken(server.port, redirectUri);
+        const replay = await fetch(`${origin}/token`, {
+            method: "POST",
+            headers: { "content-type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({
+                grant_type: "authorization_code",
+                code: issued.code,
+                redirect_uri: redirectUri,
+                client_id: issued.client.client_id,
+                code_verifier: issued.verifier,
+                resource: issued.resource,
+            }),
+        });
+        assert.equal(replay.status, 400);
+        assert.equal((await replay.json()).error, "invalid_grant");
+
+        const revoked = await fetch(`${origin}/mcp`, {
+            method: "POST",
+            headers: { ...MCP_HEADERS, authorization: `Bearer ${issued.body.access_token}` },
+            body: JSON.stringify({
+                jsonrpc: "2.0",
+                id: 6,
+                method: "tools/call",
+                params: { name: "search", arguments: { query: "x" } },
+            }),
+        });
+        assert.equal(revoked.status, 401);
+        assert.match(revoked.headers.get("www-authenticate") ?? "", /error="invalid_token"/);
+    });
+});
+
+test("concurrent refresh of one token cannot both succeed", async () => {
+    await withServer(async (server) => {
+        const issued = await authorizeAndToken(server.port, "https://claude.ai/api/mcp/auth_callback");
+        const store = await getOAuthStore();
+        const options = {
+            clientId: issued.client.client_id,
+            canonicalResource: issued.resource,
+            presentedResource: null,
+        };
+        const [first, second] = await Promise.all([
+            store.rotateRefresh(issued.body.refresh_token, options),
+            store.rotateRefresh(issued.body.refresh_token, options),
+        ]);
+        const winners = [first, second].filter((result) => result.ok);
+        assert.ok(winners.length <= 1);
+        for (const winner of winners) {
+            assert.equal(await store.getAccess(winner.accessToken), null);
+            const follow = await store.rotateRefresh(winner.refreshToken, options);
+            assert.equal(follow.ok, false);
+        }
+        assert.equal(await store.getAccess(issued.body.access_token), null);
+        const again = await store.rotateRefresh(issued.body.refresh_token, options);
+        assert.equal(again.ok, false);
+    });
 });

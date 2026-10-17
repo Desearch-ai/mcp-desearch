@@ -6,7 +6,6 @@ import {
     challengesMatch,
     randomToken,
     s256Challenge,
-    sha256,
 } from "./crypto.js";
 import {
     canonicalResource,
@@ -260,7 +259,38 @@ export async function showAuthorize(request: Request): Promise<Response> {
     return htmlResponse(200, authorizePage(context.fields));
 }
 
+function authorizePostForbidden(request: Request): Response | null {
+    const fetchSite = request.headers.get("sec-fetch-site")?.trim().toLowerCase();
+    if (fetchSite === "cross-site") {
+        return htmlResponse(400, messagePage("Connect Desearch", "This sign-in form was sent from another site."));
+    }
+    const expected = publicOrigin(request);
+    const origin = request.headers.get("origin")?.trim();
+    if (origin) {
+        if (origin.replace(/\/+$/, "") !== expected) {
+            return htmlResponse(400, messagePage("Connect Desearch", "This sign-in form was sent from another site."));
+        }
+        return null;
+    }
+    const referer = request.headers.get("referer")?.trim();
+    if (!referer) {
+        return null;
+    }
+    try {
+        if (new URL(referer).origin !== expected) {
+            return htmlResponse(400, messagePage("Connect Desearch", "This sign-in form was sent from another site."));
+        }
+    } catch {
+        return htmlResponse(400, messagePage("Connect Desearch", "This sign-in form was sent from another site."));
+    }
+    return null;
+}
+
 export async function submitAuthorize(request: Request): Promise<Response> {
+    const forbidden = authorizePostForbidden(request);
+    if (forbidden) {
+        return forbidden;
+    }
     let form: URLSearchParams;
     try {
         form = await readFormBody(request);
@@ -326,12 +356,19 @@ async function issueTokens(
     resource: string,
     scope: string,
     apiKeyCiphertext: string,
-    familyId?: string
+    familyId?: string,
+    issuedCode?: string
 ): Promise<Response> {
     const store = await getOAuthStore();
+    const family = familyId ?? randomToken("", 16);
+    if (issuedCode) {
+        const committed = await store.commitIssuedCode(issuedCode, family);
+        if (!committed) {
+            return oauthError(400, "invalid_grant", "The authorization code is invalid or was already used.");
+        }
+    }
     const accessToken = randomToken(ACCESS_TOKEN_PREFIX, 32);
     const refreshToken = randomToken(REFRESH_TOKEN_PREFIX, 32);
-    const family = familyId ?? randomToken("", 16);
     const accessExpires = Date.now() + accessTtlSec() * 1000;
     const refreshExpires = Date.now() + refreshTtlSec() * 1000;
     await store.saveAccess(accessToken, {
@@ -350,6 +387,10 @@ async function issueTokens(
         expiresAt: refreshExpires,
         familyId: family,
     });
+    if (await store.isFamilyRevoked(family)) {
+        await store.revokeFamily(family);
+        return oauthError(400, "invalid_grant", "The authorization code is invalid or was already used.");
+    }
     return tokenResponse(accessToken, refreshToken, scope, accessTtlSec());
 }
 
@@ -387,10 +428,11 @@ async function exchangeCode(request: Request, form: URLSearchParams): Promise<Re
         return oauthError(400, "invalid_grant", "code_verifier is not valid.");
     }
     const store = await getOAuthStore();
-    const pending = await store.consumeCode(code);
-    if (!pending || pending.clientId !== clientId || pending.redirectUri !== redirectUri) {
+    const consumed = await store.consumeCode(code);
+    if (!consumed.ok || consumed.record.clientId !== clientId || consumed.record.redirectUri !== redirectUri) {
         return oauthError(400, "invalid_grant", "The authorization code is invalid or was already used.");
     }
+    const pending = consumed.record;
     if (resource && !resourcesMatch(resource, pending.resource)) {
         return oauthError(400, "invalid_target", "The resource does not match the authorization request.");
     }
@@ -401,7 +443,7 @@ async function exchangeCode(request: Request, form: URLSearchParams): Promise<Re
     if (!challengesMatch(expected, pending.codeChallenge)) {
         return oauthError(400, "invalid_grant", "PKCE verification failed.");
     }
-    return issueTokens(pending.clientId, pending.resource, pending.scope, pending.apiKeyCiphertext);
+    return issueTokens(pending.clientId, pending.resource, pending.scope, pending.apiKeyCiphertext, undefined, code);
 }
 
 async function exchangeRefresh(request: Request, form: URLSearchParams): Promise<Response> {
@@ -412,44 +454,24 @@ async function exchangeRefresh(request: Request, form: URLSearchParams): Promise
         return oauthError(400, "invalid_request", "refresh_token and client_id are required.");
     }
     const store = await getOAuthStore();
-    const rotated = await store.rotateRefresh(refreshToken);
-    if (!rotated.ok || rotated.record.clientId !== clientId) {
-        return oauthError(400, "invalid_grant", "The refresh token is invalid or was already used.");
-    }
-    if (resource && !resourcesMatch(resource, rotated.record.resource)) {
-        return oauthError(400, "invalid_target", "The resource does not match the refresh token.");
-    }
-    if (!resourcesMatch(rotated.record.resource, canonicalResource(request))) {
-        return oauthError(400, "invalid_target", "The refresh token was issued for a different resource.");
-    }
-    const replacement = randomToken(REFRESH_TOKEN_PREFIX, 32);
-    await store.markRefreshReplaced(refreshToken, sha256(replacement), rotated.record.expiresAt);
-    const accessToken = randomToken(ACCESS_TOKEN_PREFIX, 32);
-    const accessExpires = Date.now() + accessTtlSec() * 1000;
-    const refreshExpires = Date.now() + refreshTtlSec() * 1000;
-    await store.saveAccess(accessToken, {
-        clientId: rotated.record.clientId,
-        resource: rotated.record.resource,
-        scope: rotated.record.scope,
-        apiKeyCiphertext: rotated.record.apiKeyCiphertext,
-        expiresAt: accessExpires,
-        familyId: rotated.record.familyId,
+    const rotated = await store.rotateRefresh(refreshToken, {
+        clientId,
+        canonicalResource: canonicalResource(request),
+        presentedResource: resource,
     });
-    await store.saveRefresh(replacement, {
-        clientId: rotated.record.clientId,
-        resource: rotated.record.resource,
-        scope: rotated.record.scope,
-        apiKeyCiphertext: rotated.record.apiKeyCiphertext,
-        expiresAt: refreshExpires,
-        familyId: rotated.record.familyId,
-    });
-    return tokenResponse(accessToken, replacement, rotated.record.scope, accessTtlSec());
+    if (!rotated.ok) {
+        return oauthError(400, rotated.error, rotated.description);
+    }
+    return tokenResponse(rotated.accessToken, rotated.refreshToken, rotated.scope, rotated.expiresIn);
 }
 
-export async function lookupAccessApiKey(token: string): Promise<string | null> {
+export async function lookupAccessApiKey(token: string, request: Request): Promise<string | null> {
     const store = await getOAuthStore();
     const record = await store.getAccess(token);
     if (!record) {
+        return null;
+    }
+    if (!resourcesMatch(record.resource, canonicalResource(request))) {
         return null;
     }
     return store.readApiKey(record.apiKeyCiphertext);

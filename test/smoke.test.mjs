@@ -385,10 +385,16 @@ test("keyless discovery lists tools and tools/call stays unauthorized", async ()
             params: { name: "web-search", arguments: { query: "should-not-run" } },
         });
         assert.equal(called.status, 401);
-        assert.match(called.headers.get("www-authenticate") ?? "", /resource_metadata=/);
+        const calledChallenge = called.headers.get("www-authenticate") ?? "";
+        assert.match(calledChallenge, /resource_metadata=/);
+        assert.equal(calledChallenge.includes("error="), false);
         const calledBody = await called.json();
-        assert.equal(calledBody.error.code, -32001);
-        assert.match(calledBody.error.message, /Desearch API key/);
+        assert.equal(calledBody.result.isError, true);
+        assert.match(calledBody.result.content[0].text, /Desearch API key/);
+        const toolChallenge = calledBody.result._meta["mcp/www_authenticate"][0];
+        assert.match(toolChallenge, /resource_metadata=/);
+        assert.match(toolChallenge, /error="insufficient_scope"/);
+        assert.match(toolChallenge, /error_description="You need to login to continue"/);
 
         const mixed = await post([
             { jsonrpc: "2.0", id: 1, method: "tools/list" },
