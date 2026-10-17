@@ -9,6 +9,14 @@ import {
     WEB_LINK_TOOLS,
     canonicalToolId,
 } from "../build/tool-sources.js";
+import {
+    PEOPLE_CONTROL_ACTIONS,
+    PEOPLE_FILTER_CHANNELS,
+    PEOPLE_PLATFORMS,
+    PEOPLE_PROFILE_SORTS,
+    PEOPLE_SEARCH_FILTERS,
+    PEOPLE_TASK_STATUSES,
+} from "../build/people.js";
 
 function textOf(result) {
     assert.equal(result.content[0].type, "text");
@@ -168,4 +176,63 @@ test("ai-search and web-links-search schemas use short ids and validate both way
         ["aiWebLinksSearch", ["web"]],
         ["aiWebLinksSearch", ["web"]],
     ]);
+});
+
+// Values from desearch-public-api: model/people.py (TaskStatus, platforms),
+// utils/people_filters.py (FILTER_CHANNELS), routers/people.py (PROFILE_SORTS, control routes).
+const PEOPLE_PLATFORM_ENUM = ["x", "youtube", "linkedin", "tiktok"];
+const PEOPLE_STATUS_ENUM = [
+    "queued",
+    "running",
+    "pausing",
+    "paused",
+    "cancelling",
+    "completed",
+    "partial",
+    "failed",
+    "cancelled",
+    "expired",
+];
+const PEOPLE_CHANNEL_ENUM = ["email", "website", "x", "linkedin", "instagram", "youtube", "tiktok"];
+
+test("people tools advertise the People Search API enums", async () => {
+    assert.deepEqual([...PEOPLE_PLATFORMS], PEOPLE_PLATFORM_ENUM);
+    assert.deepEqual([...PEOPLE_TASK_STATUSES], PEOPLE_STATUS_ENUM);
+    assert.deepEqual([...PEOPLE_FILTER_CHANNELS], PEOPLE_CHANNEL_ENUM);
+    assert.deepEqual([...PEOPLE_PROFILE_SORTS], ["score", "recent", "audience"]);
+    assert.deepEqual([...PEOPLE_CONTROL_ACTIONS], ["pause", "resume", "cancel"]);
+    assert.deepEqual(Object.keys(PEOPLE_SEARCH_FILTERS), PEOPLE_PLATFORM_ENUM);
+
+    await withFakeClient({}, async (client) => {
+        const { tools } = await client.listTools();
+        const byName = Object.fromEntries(tools.map((tool) => [tool.name, tool.inputSchema.properties]));
+
+        assert.deepEqual(byName["people-search"].platform.enum, PEOPLE_PLATFORM_ENUM);
+        assert.deepEqual(byName["people-profiles"].platform.enum, PEOPLE_PLATFORM_ENUM);
+        assert.deepEqual(byName["people-search-tasks"].platform.enum, PEOPLE_PLATFORM_ENUM);
+        assert.deepEqual(byName["people-search-tasks"].status.items.enum, PEOPLE_STATUS_ENUM);
+        assert.deepEqual(byName["people-profiles"].has.items.enum, PEOPLE_CHANNEL_ENUM);
+        assert.deepEqual(byName["people-profiles"].sort.enum, ["score", "recent", "audience"]);
+        assert.deepEqual(byName["people-search-control"].action.enum, ["pause", "resume", "cancel"]);
+
+        // Every platform filter is an argument, and every filter argument belongs to a platform.
+        const filterArgs = new Set(Object.values(PEOPLE_SEARCH_FILTERS).flat());
+        for (const name of filterArgs) {
+            assert.equal(typeof byName["people-search"][name], "object", name);
+        }
+        const common = ["platform", "query", "count", "min_score", "exclude", "idempotency_key"];
+        assert.deepEqual(
+            Object.keys(byName["people-search"]).filter((name) => !common.includes(name)).sort(),
+            [...filterArgs].sort()
+        );
+
+        for (const platform of ["instagram", "twitter", "X"]) {
+            const rejected = await client.callTool({
+                name: "people-search",
+                arguments: { platform, query: "skincare creators" },
+            });
+            assert.equal(rejected.isError, true, platform);
+            assert.match(rejected.content[0].text, /Input validation error/, platform);
+        }
+    });
 });

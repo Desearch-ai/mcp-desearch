@@ -1,13 +1,13 @@
 ---
 name: desearch
-description: Choose which Desearch MCP tool to call. Use when the task needs AI search, web search, a page as text or HTML, X posts, or X trends.
+description: Choose which Desearch MCP tool to call. Use when the task needs AI search, web search, a page as text or HTML, X posts, X trends, or finding people and creators on X, YouTube, LinkedIn, or TikTok.
 ---
 
 # Desearch
 
 Pick one Desearch tool from this list. Do not call a tool that is not registered.
 
-Set `DESEARCH_API_KEY` before the server starts. The plugin launches `npx -y desearch-mcp-server` and passes that variable through. These tools send read requests. They do not post, follow, delete, or change an account.
+Set `DESEARCH_API_KEY` before the server starts. The plugin launches `npx -y desearch-mcp-server` and passes that variable through. The search and X tools send read requests. They do not post, follow, delete, or change an account. `people-search` starts a billed background search, and `people-search-control` pauses, resumes, or cancels one.
 
 ## Which tool
 
@@ -26,7 +26,14 @@ Set `DESEARCH_API_KEY` before the server starts. The plugin launches `npx -y des
 - **X Post Replies** (`x-post-replies`): Replies to one post. Arguments: `post_id` (required), `count` (optional, 1 to 100), `query` (optional).
 - **X Post Retweeters** (`x-post-retweeters`): Users who retweeted a post. Arguments: `id` (required), `cursor` (optional).
 - **X Trends** (`x-trends`): Trends for a location WOEID. Arguments: `woeid` (required), `count` (optional, 30 to 100).
+- **People Search** (`people-search`): Start a billed background search for people who match a plain-language description. It reserves `count` people at the platform's per-person price and bills only the people it delivers; a search that finds no one is free. Arguments: `platform` (required: `x`, `youtube`, `linkedin`, `tiktok`), `query` (required), `count` (optional, 5 to 200), `min_score` (optional, 0 to 100), `exclude` (optional handles), `idempotency_key` (optional; reuse it on a retry so the search is not started twice). Filters by platform: x `min_followers`, `max_followers`, `verified_only`, `countries`, `keywords`, `exclude_keywords`; youtube `min_subscribers`, `max_subscribers`, `countries`, `require_contact`, `keywords`, `exclude_keywords`; linkedin `min_followers`, `max_followers`, `countries`, `keywords`, `exclude_keywords`; tiktok `min_followers`, `max_followers`, `require_contact`, `keywords`, `exclude_keywords`.
+- **People Search Status** (`people-search-status`): Status, progress, cost, and a page of people for one task. Searches usually take 1 to 5 minutes. Arguments: `task_id` (required), `cursor` (optional, the previous `next_cursor`, to get only new people), `limit` (optional, 1 to 100, default 25), `include_people` (optional).
+- **Control People Search** (`people-search-control`): Pause, resume, or cancel a task. Arguments: `task_id` (required), `action` (required: `pause`, `resume`, `cancel`). Cancel cannot be undone.
+- **List People Search Tasks** (`people-search-tasks`): Your searches, newest first. Arguments: `platform`, `status` (list), `limit`, `cursor`, all optional.
+- **List People Found** (`people-profiles`): Everyone your searches found on one platform. Arguments: `platform` (required), `q`, `sort` (`score`, `recent`, `audience`), `limit`, `cursor`, `has` (list of `email`, `website`, `x`, `linkedin`, `instagram`, `youtube`, `tiktok`), `min_audience`, `max_audience`, `min_score`, `location`, `verified`.
+
+Before `people-search`, check `people-profiles` when the user may already have searched for these people. Start a new search only when the user asks to find people.
 
 ## When not to use these tools
 
-Skip Desearch when the task is only about files in the current project, or when the text you need is already in the conversation. These tools do not browse a logged-in site, post to X, or change Desearch account settings.
+Skip Desearch when the task is only about files in the current project, or when the text you need is already in the conversation. These tools do not browse a logged-in site, post to X, contact the people they find, or change Desearch account settings.

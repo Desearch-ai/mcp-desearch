@@ -334,6 +334,11 @@ test("phase 4 extract, web-crawl, and x-trends call the matching desearch-js met
             [
                 "ai-search",
                 "extract",
+                "people-profiles",
+                "people-search",
+                "people-search-control",
+                "people-search-status",
+                "people-search-tasks",
                 "web-crawl",
                 "web-links-search",
                 "web-search",
@@ -442,7 +447,7 @@ test("phase 4 extract, web-crawl, and x-trends call the matching desearch-js met
     ]);
 });
 
-test("every listed tool has a title and readOnlyHint", async () => {
+test("every listed tool has a title and annotations", async () => {
     const expected = {
         "ai-search": "AI Search",
         "x-search": "X Search",
@@ -459,14 +464,28 @@ test("every listed tool has a title and readOnlyHint", async () => {
         extract: "Extract Page Content",
         "web-crawl": "Crawl Web Page (Legacy)",
         "x-trends": "Get X Trends",
+        "people-search": "People Search",
+        "people-search-status": "Get People Search Status",
+        "people-search-control": "Control People Search",
+        "people-search-tasks": "List People Search Tasks",
+        "people-profiles": "List People Found",
+    };
+    // people-search starts a billed task; people-search-control can cancel one.
+    const writes = {
+        "people-search": { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+        "people-search-control": { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
     };
     await withFakeClient({}, async (client) => {
         const listed = await client.listTools();
-        assert.equal(listed.tools.length, 15);
+        assert.equal(listed.tools.length, 20);
         for (const tool of listed.tools) {
             assert.equal(tool.title, expected[tool.name], tool.name);
             assert.equal(tool.annotations?.title, expected[tool.name], tool.name);
-            assert.equal(tool.annotations?.readOnlyHint, true, tool.name);
+            const hints = writes[tool.name] ?? { readOnlyHint: true, destructiveHint: false };
+            for (const [hint, value] of Object.entries(hints)) {
+                assert.equal(tool.annotations?.[hint], value, `${tool.name} ${hint}`);
+            }
+            assert.equal(tool.annotations?.openWorldHint, true, tool.name);
         }
     });
 });
@@ -484,7 +503,7 @@ test("an empty API key does not call Desearch", async () => {
             },
         }
     );
-    const server = createDesearchMcpServer("", fake);
+    const server = createDesearchMcpServer("", fake, fake);
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     const client = new Client({ name: "tools", version: "0.0.1" });
     try {
@@ -495,6 +514,12 @@ test("an empty API key does not call Desearch", async () => {
         });
         assert.equal(result.isError, true);
         assert.match(textOf(result), /API key required/);
+        const people = await client.callTool({
+            name: "people-search",
+            arguments: { platform: "tiktok", query: "should-not-run" },
+        });
+        assert.equal(people.isError, true);
+        assert.match(textOf(people), /API key required/);
         assert.equal(called, false);
     } finally {
         await client.close();

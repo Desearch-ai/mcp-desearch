@@ -27,6 +27,11 @@ const MCP_HEADERS = {
 const TOOL_NAMES = [
     "ai-search",
     "extract",
+    "people-profiles",
+    "people-search",
+    "people-search-control",
+    "people-search-status",
+    "people-search-tasks",
     "web-crawl",
     "web-links-search",
     "web-search",
@@ -58,17 +63,30 @@ const TOOL_TITLES = {
     extract: "Extract Page Content",
     "web-crawl": "Crawl Web Page (Legacy)",
     "x-trends": "Get X Trends",
+    "people-search": "People Search",
+    "people-search-status": "Get People Search Status",
+    "people-search-control": "Control People Search",
+    "people-search-tasks": "List People Search Tasks",
+    "people-profiles": "List People Found",
+};
+
+// Tools that change state. Every other tool is read-only.
+const WRITE_ANNOTATIONS = {
+    "people-search": { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+    "people-search-control": { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
 };
 
 const UNSOURCED_SPEED = /real-?time|nova is|orbit is|\b10s\b|\b30s\b/i;
 
 function assertToolMetadata(tools) {
-    assert.equal(tools.length, 15);
+    assert.equal(tools.length, 20);
     for (const tool of tools) {
         assert.equal(tool.title, TOOL_TITLES[tool.name], tool.name);
         assert.equal(tool.annotations?.title, TOOL_TITLES[tool.name], tool.name);
-        assert.equal(tool.annotations?.readOnlyHint, true, tool.name);
-        assert.equal(tool.annotations?.destructiveHint, false, tool.name);
+        const hints = WRITE_ANNOTATIONS[tool.name] ?? { readOnlyHint: true, destructiveHint: false };
+        for (const [hint, value] of Object.entries(hints)) {
+            assert.equal(tool.annotations?.[hint], value, `${tool.name} ${hint}`);
+        }
         assert.equal(tool.annotations?.openWorldHint, true, tool.name);
         const blob = JSON.stringify(tool);
         const hit = blob.match(UNSOURCED_SPEED);
@@ -169,6 +187,10 @@ test("stdio initializes and lists tools", async () => {
             extract: ["url"],
             "web-crawl": ["url"],
             "x-trends": ["woeid"],
+            "people-search": ["platform", "query"],
+            "people-search-status": ["task_id"],
+            "people-search-control": ["task_id", "action"],
+            "people-profiles": ["platform"],
         };
         for (const [name, required] of Object.entries(requiredByTool)) {
             const tool = listed.tools.find((entry) => entry.name === name);
@@ -188,6 +210,20 @@ test("stdio initializes and lists tools", async () => {
         assert.equal(typeof trends.inputSchema.properties.count, "object");
         assert.equal(trends.inputSchema.properties.count.minimum, 30);
         assert.equal(trends.inputSchema.properties.count.maximum, 100);
+
+        const peopleTasks = listed.tools.find((entry) => entry.name === "people-search-tasks");
+        assert.equal(peopleTasks.inputSchema.required, undefined);
+        const peopleSearch = listed.tools.find((entry) => entry.name === "people-search");
+        assert.match(peopleSearch.description, /[Bb]illed/);
+        assert.match(peopleSearch.description, /people-search-status/);
+        assert.deepEqual(peopleSearch.inputSchema.properties.platform.enum, ["x", "youtube", "linkedin", "tiktok"]);
+        assert.equal(peopleSearch.inputSchema.properties.count.minimum, 5);
+        assert.equal(peopleSearch.inputSchema.properties.count.maximum, 200);
+        assert.equal(peopleSearch.inputSchema.additionalProperties, false);
+        assert.equal(JSON.stringify(peopleSearch.inputSchema).includes("$ref"), false);
+        const peopleStatus = listed.tools.find((entry) => entry.name === "people-search-status");
+        assert.equal(peopleStatus.inputSchema.properties.task_id.format, "uuid");
+        assert.equal(peopleStatus.inputSchema.properties.limit.default, 25);
     });
 });
 
