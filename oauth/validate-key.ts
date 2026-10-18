@@ -26,8 +26,10 @@ export function setApiKeyCheckerForTests(checker: ((apiKey: string) => Promise<K
  * Confirm the key with Desearch before an authorization code is issued.
  * `GET /twitter/trends?woeid=1&count=1` asks for fewer trends than the route
  * allows, so a real key is authenticated and then rejected as invalid input
- * (HTTP 422) instead of running a full trends query. Invalid keys return 401
- * or 403 before that check. 402 means the key is recognized and out of credits.
+ * (HTTP 422) instead of running a full trends query. Only 422 counts as valid.
+ * Invalid keys return 401 or 403. Any other status, including 2xx, is an error:
+ * the trends route may have changed, and treating success as "valid" would
+ * accept a key the check never authenticated.
  */
 export async function validateDesearchApiKey(
     apiKey: string,
@@ -58,15 +60,10 @@ export async function validateDesearchApiKey(
         if (response.status === 401 || response.status === 403) {
             return { ok: false, message: INVALID_MESSAGE };
         }
-        if (response.status === 422 || response.status === 402 || (response.status >= 200 && response.status < 300)) {
+        if (response.status === 422) {
             return { ok: true };
         }
-        if (response.status === 429) {
-            return {
-                ok: false,
-                message: "Desearch rate limited the key check. Wait a moment and try again.",
-            };
-        }
+        console.warn(`Desearch API key check returned unexpected HTTP ${response.status}`);
         return { ok: false, message: UNAVAILABLE_MESSAGE };
     } catch {
         return { ok: false, message: UNAVAILABLE_MESSAGE };

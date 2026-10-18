@@ -869,9 +869,10 @@ export function createDesearchMcpServer(apiKey: string, client?: DesearchClient)
         resourceTemplates: [],
     }));
 
-    // The installed SDK tool schema has no securitySchemes field, so the list
-    // handler adds it after the SDK builds the tool list. Connector hosts use
-    // it to see that tool calls need OAuth.
+    // The installed SDK tool schema has no securitySchemes field. The list
+    // handler adds it after the SDK builds the tool list, and copies the same
+    // value into `_meta` so clients that drop unknown top-level fields still
+    // see it. Connector hosts use it to see that tool calls need OAuth.
     publishToolSecurity(server);
 
     return server;
@@ -896,7 +897,15 @@ function publishToolSecurity(server: McpServer): void {
         const result = await previous(request, extra);
         if (Array.isArray(result?.tools)) {
             for (const tool of result.tools) {
-                tool.securitySchemes = [{ type: "oauth2", scopes: ["mcp"] }];
+                const securitySchemes = [{ type: "oauth2", scopes: ["mcp"] }];
+                tool.securitySchemes = securitySchemes;
+                const existing = tool._meta;
+                const meta =
+                    existing !== null && typeof existing === "object" && !Array.isArray(existing)
+                        ? { ...(existing as Record<string, unknown>) }
+                        : {};
+                meta.securitySchemes = [{ type: "oauth2", scopes: ["mcp"] }];
+                tool._meta = meta;
             }
         }
         return result;

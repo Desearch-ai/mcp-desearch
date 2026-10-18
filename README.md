@@ -363,11 +363,17 @@ Environment variables for the host:
 | `OAUTH_ACCESS_TTL_SEC` | No | Access token lifetime. Default 3600. Range 60 to 86400. |
 | `OAUTH_REFRESH_TTL_SEC` | No | Refresh token lifetime. Default 30 days. Range 300 to 90 days. |
 | `OAUTH_CODE_TTL_SEC` | No | Authorization code lifetime. Default 300. Range 30 to 600. |
-| `OAUTH_CLIENT_TTL_SEC` | No | Dynamic client lifetime. Default 2 years. |
+| `OAUTH_CLIENT_TTL_SEC` | No | Dynamic client lifetime. Default 90 days. Range 3600 to 5 years. |
+| `OAUTH_REGISTER_RATE_LIMIT` | No | Registration attempts per IP per window. Default 10. Range 1 to 10000. |
+| `OAUTH_REGISTER_RATE_WINDOW_SEC` | No | Registration rate-limit window in seconds. Default 3600 (1 hour). Range 1 to 86400. |
+| `OAUTH_AUTHORIZE_RATE_LIMIT` | No | Sign-in key checks per IP per window. Default 20. Range 1 to 10000. |
+| `OAUTH_AUTHORIZE_RATE_WINDOW_SEC` | No | Sign-in key-check window in seconds. Default 600 (10 minutes). Range 1 to 86400. |
 | `DESEARCH_API_BASE` | No | Key check host. Default `https://api.desearch.ai`. |
 | `OAUTH_REQUIRE_AUTH_ON_INITIALIZE` | No | Set to `true` to require a key or access token on `initialize`. Default is off, so keyless `initialize` stays public. `tools/list` stays public either way. |
 
-The key check calls `GET /twitter/trends?woeid=1&count=1`. A real key is authenticated and then rejected as invalid input, so the check does not run a full trends query. `401` and `403` reject the key.
+The key check calls `GET /twitter/trends?woeid=1&count=1`. A real key is authenticated and then rejected as invalid input (HTTP 422), so the check does not run a full trends query. Only 422 counts as a valid key. `401` and `403` reject the key. Any other status, including a 2xx, is a verification error and is not treated as valid.
+
+`POST /register` allows 10 requests an hour per IP. The sign-in key check allows 20 requests every 10 minutes per IP. A request past the limit returns 429 with `Retry-After`. On Vercel the address is the first `X-Forwarded-For` hop. The sign-in form accepts a same-origin `Origin` or `Referer`, and rejects a POST that sends none of `Origin`, `Referer`, and `Sec-Fetch-Site`.
 
 ### Use with Claude (custom connector)
 

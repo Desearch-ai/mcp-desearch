@@ -9,7 +9,16 @@ import {
     setApiKeyCheckerForTests,
     validateDesearchApiKey,
 } from "../build/oauth/http.js";
-import { getOAuthStore } from "../build/oauth/store.js";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { clientIp } from "../build/oauth/client-ip.js";
+import {
+    clientTtlSec,
+    getOAuthStore,
+    KvOAuthStore,
+    memoryStoreForTests,
+    redisKvForTests,
+} from "../build/oauth/store.js";
 
 const API_KEY = "dt_test_key_do_not_leak";
 const MCP_HEADERS = {
@@ -102,7 +111,10 @@ async function authorizeAndToken(port, redirectUri) {
     const submitted = await fetch(`http://127.0.0.1:${port}/authorize`, {
         method: "POST",
         redirect: "manual",
-        headers: { "content-type": "application/x-www-form-urlencoded" },
+        headers: {
+            "content-type": "application/x-www-form-urlencoded",
+            origin: `http://127.0.0.1:${port}`,
+        },
         body: new URLSearchParams({
             response_type: "code",
             client_id: client.client_id,
@@ -254,8 +266,12 @@ test("authorization code PKCE issues an opaque token that calls the server", asy
         const names = tools.result.tools.map((tool) => tool.name);
         assert.equal(names.includes("search"), true);
         assert.equal(names.includes("fetch"), true);
-        const search = tools.result.tools.find((tool) => tool.name === "search");
-        assert.deepEqual(search.securitySchemes, [{ type: "oauth2", scopes: ["mcp"] }]);
+        const expectedSchemes = [{ type: "oauth2", scopes: ["mcp"] }];
+        assert.ok(tools.result.tools.length >= 17);
+        for (const tool of tools.result.tools) {
+            assert.deepEqual(tool.securitySchemes, expectedSchemes, tool.name);
+            assert.deepEqual(tool._meta.securitySchemes, expectedSchemes, tool.name);
+        }
 
         const rawKey = await fetch(`${origin}/mcp`, {
             method: "POST",
@@ -301,7 +317,10 @@ test("wrong PKCE verifier is invalid_grant and the code cannot be retried", asyn
         const submitted = await fetch(`http://127.0.0.1:${server.port}/authorize`, {
             method: "POST",
             redirect: "manual",
-            headers: { "content-type": "application/x-www-form-urlencoded" },
+            headers: {
+                "content-type": "application/x-www-form-urlencoded",
+                origin: `http://127.0.0.1:${server.port}`,
+            },
             body: new URLSearchParams({
                 response_type: "code",
                 client_id: client.client_id,
@@ -416,7 +435,10 @@ test("an invalid API key does not issue a code or echo the key", async () => {
         const submitted = await fetch(`http://127.0.0.1:${server.port}/authorize`, {
             method: "POST",
             redirect: "manual",
-            headers: { "content-type": "application/x-www-form-urlencoded" },
+            headers: {
+                "content-type": "application/x-www-form-urlencoded",
+                origin: `http://127.0.0.1:${server.port}`,
+            },
             body: new URLSearchParams({
                 response_type: "code",
                 client_id: client.client_id,
@@ -437,30 +459,59 @@ test("an invalid API key does not issue a code or echo the key", async () => {
     });
 });
 
-test("key validation treats 422 and 402 as a real key and 401 or 403 as a rejection", async () => {
+test("key validation accepts only HTTP 422", async () => {
     const previous = process.env.DESEARCH_API_BASE;
     process.env.DESEARCH_API_BASE = "https://api.desearch.ai";
+    const warnings = [];
+    const originalWarn = console.warn;
+    console.warn = (message) => {
+        warnings.push(String(message));
+    };
     try {
         const calls = [];
+        const statuses = new Map([
+            ["dt_ok", 422],
+            ["dt_nope", 401],
+            ["fake-forbid", 403],
+            ["dt_paid", 402],
+            ["dt_http200", 200],
+            ["dt_down", 500],
+            ["dt_limit", 429],
+        ]);
         const fakeFetch = async (url, init) => {
-            calls.push({ url: String(url), authorization: init.headers.Authorization });
-            const status = init.headers.Authorization.endsWith("ok")
-                ? 422
-                : init.headers.Authorization.endsWith("empty")
-                  ? 402
-                  : init.headers.Authorization.endsWith("forbid")
-                    ? 403
-                    : 401;
-            return new Response("{}", { status });
+            const authorization = init.headers.Authorization;
+            calls.push({ url: String(url), authorization });
+            const status = statuses.get(authorization);
+            return new Response(JSON.stringify({ echo: authorization }), { status });
         };
         assert.equal((await validateDesearchApiKey("dt_ok", fakeFetch)).ok, true);
-        assert.equal((await validateDesearchApiKey("dsr_empty", fakeFetch)).ok, true);
-        assert.equal((await validateDesearchApiKey("dt_nope", fakeFetch)).ok, false);
-        assert.equal((await validateDesearchApiKey("fake-forbid", fakeFetch)).ok, false);
-        assert.equal(calls.length, 4);
+        const rejected = await validateDesearchApiKey("dt_nope", fakeFetch);
+        assert.equal(rejected.ok, false);
+        assert.match(rejected.message, /rejected/);
+        const forbidden = await validateDesearchApiKey("fake-forbid", fakeFetch);
+        assert.equal(forbidden.ok, false);
+        assert.match(forbidden.message, /rejected/);
+        for (const key of ["dt_paid", "dt_http200", "dt_down", "dt_limit"]) {
+            const result = await validateDesearchApiKey(key, fakeFetch);
+            assert.equal(result.ok, false, key);
+            assert.match(result.message, /Could not verify/);
+            assert.equal(result.message.includes(key), false);
+        }
+        assert.equal(calls.length, 7);
         assert.match(calls[0].url, /\/twitter\/trends\?woeid=1&count=1$/);
         assert.equal(calls[0].authorization, "dt_ok");
+        assert.equal(warnings.length, 4);
+        const logged = warnings.join("\n");
+        assert.match(logged, /HTTP 402/);
+        assert.match(logged, /HTTP 200/);
+        assert.match(logged, /HTTP 500/);
+        assert.match(logged, /HTTP 429/);
+        for (const key of statuses.keys()) {
+            assert.equal(logged.includes(key), false, key);
+        }
+        assert.equal(logged.includes("echo"), false);
     } finally {
+        console.warn = originalWarn;
         restoreEnv("DESEARCH_API_BASE", previous);
     }
 });
@@ -761,11 +812,27 @@ test("authorize POST rejects a cross-site Origin or Referer", async () => {
         assert.equal(evilReferer.status, 400);
         assert.equal(evilReferer.headers.get("location"), null);
 
+        const missing = await fetch(`${origin}/authorize`, {
+            method: "POST",
+            redirect: "manual",
+            headers: { "content-type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams(fields),
+        });
+        assert.equal(missing.status, 403);
+        assert.equal(missing.headers.get("location"), null);
+        assert.equal((await missing.text()).includes(API_KEY), false);
+
         const sameOrigin = await post({ origin });
         assert.equal(sameOrigin.status, 302);
         const location = new URL(sameOrigin.headers.get("location"));
         assert.equal(location.searchParams.get("state"), "csrf-state");
         assert.ok(location.searchParams.get("code"));
+
+        const sameReferer = await post({ referer: `${origin}/authorize` });
+        assert.equal(sameReferer.status, 302);
+
+        const sameFetchSite = await post({ "sec-fetch-site": "same-origin" });
+        assert.equal(sameFetchSite.status, 302);
     });
 });
 
@@ -828,4 +895,269 @@ test("concurrent refresh of one token cannot both succeed", async () => {
         const again = await store.rotateRefresh(issued.body.refresh_token, options);
         assert.equal(again.ok, false);
     });
+});
+
+test("every tools/list entry carries oauth securitySchemes", async () => {
+    await withServer(async (server) => {
+        const origin = `http://127.0.0.1:${server.port}`;
+        const expected = [{ type: "oauth2", scopes: ["mcp"] }];
+        const listed = await fetch(`${origin}/mcp`, {
+            method: "POST",
+            headers: MCP_HEADERS,
+            body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list" }),
+        });
+        assert.equal(listed.status, 200);
+        const tools = (await listed.json()).result.tools;
+        assert.ok(tools.length >= 17);
+        for (const tool of tools) {
+            assert.deepEqual(tool.securitySchemes, expected, tool.name);
+            assert.deepEqual(tool._meta.securitySchemes, expected, tool.name);
+        }
+
+        const transport = new StreamableHTTPClientTransport(new URL(`${origin}/mcp`));
+        const client = new Client({ name: "security-schemes", version: "0.0.1" });
+        try {
+            await client.connect(transport);
+            const viaSdk = await client.listTools();
+            assert.equal(viaSdk.tools.length, tools.length);
+            for (const tool of viaSdk.tools) {
+                assert.deepEqual(tool._meta.securitySchemes, expected, tool.name);
+            }
+        } finally {
+            await client.close();
+        }
+    });
+});
+
+test("register and authorize key checks return 429 after the per-IP limit", async () => {
+    const previous = {
+        registerLimit: process.env.OAUTH_REGISTER_RATE_LIMIT,
+        registerWindow: process.env.OAUTH_REGISTER_RATE_WINDOW_SEC,
+        authorizeLimit: process.env.OAUTH_AUTHORIZE_RATE_LIMIT,
+        authorizeWindow: process.env.OAUTH_AUTHORIZE_RATE_WINDOW_SEC,
+    };
+    process.env.OAUTH_REGISTER_RATE_LIMIT = "2";
+    process.env.OAUTH_REGISTER_RATE_WINDOW_SEC = "3600";
+    process.env.OAUTH_AUTHORIZE_RATE_LIMIT = "2";
+    process.env.OAUTH_AUTHORIZE_RATE_WINDOW_SEC = "600";
+    try {
+        await withServer(async (server) => {
+            const origin = `http://127.0.0.1:${server.port}`;
+            const redirectUri = "https://claude.ai/api/mcp/auth_callback";
+            const postRegister = (headers = {}) =>
+                fetch(`${origin}/register`, {
+                    method: "POST",
+                    headers: { "content-type": "application/json", ...headers },
+                    body: JSON.stringify({ redirect_uris: [redirectUri], client_name: "limit" }),
+                });
+            const first = await postRegister();
+            assert.equal(first.status, 201);
+            const client = await first.json();
+            assert.equal((await postRegister()).status, 201);
+            const limited = await postRegister({ "x-forwarded-for": "203.0.113.50, 10.0.0.4" });
+            assert.equal(limited.status, 429);
+            const retryAfter = Number(limited.headers.get("retry-after"));
+            assert.equal(Number.isInteger(retryAfter), true);
+            assert.ok(retryAfter >= 1 && retryAfter <= 3600);
+            const payload = await limited.json();
+            assert.equal(payload.error, "temporarily_unavailable");
+            assert.equal(JSON.stringify(payload).includes("203.0.113.50"), false);
+
+            let checks = 0;
+            setApiKeyCheckerForTests(async (apiKey) => {
+                checks += 1;
+                assert.equal(apiKey, API_KEY);
+                return { ok: true };
+            });
+            const { challenge } = pkce();
+            const fields = {
+                response_type: "code",
+                client_id: client.client_id,
+                redirect_uri: redirectUri,
+                code_challenge: challenge,
+                code_challenge_method: "S256",
+                state: "rate-state",
+                resource: `${origin}/mcp`,
+                api_key: API_KEY,
+                decision: "allow",
+            };
+            const postAuthorize = (headers = {}) =>
+                fetch(`${origin}/authorize`, {
+                    method: "POST",
+                    redirect: "manual",
+                    headers: {
+                        "content-type": "application/x-www-form-urlencoded",
+                        origin,
+                        ...headers,
+                    },
+                    body: new URLSearchParams(fields),
+                });
+            assert.equal((await postAuthorize()).status, 302);
+            assert.equal((await postAuthorize()).status, 302);
+            const slowed = await postAuthorize({ "x-forwarded-for": "198.51.100.20" });
+            assert.equal(slowed.status, 429);
+            const authorizeRetry = Number(slowed.headers.get("retry-after"));
+            assert.equal(Number.isInteger(authorizeRetry), true);
+            assert.ok(authorizeRetry >= 1 && authorizeRetry <= 600);
+            const html = await slowed.text();
+            assert.match(html, /Too many sign-in attempts/);
+            assert.equal(html.includes(API_KEY), false);
+            assert.equal(checks, 2);
+        });
+    } finally {
+        restoreEnv("OAUTH_REGISTER_RATE_LIMIT", previous.registerLimit);
+        restoreEnv("OAUTH_REGISTER_RATE_WINDOW_SEC", previous.registerWindow);
+        restoreEnv("OAUTH_AUTHORIZE_RATE_LIMIT", previous.authorizeLimit);
+        restoreEnv("OAUTH_AUTHORIZE_RATE_WINDOW_SEC", previous.authorizeWindow);
+    }
+});
+
+test("dynamic clients expire after 90 days", async () => {
+    const previous = process.env.OAUTH_CLIENT_TTL_SEC;
+    delete process.env.OAUTH_CLIENT_TTL_SEC;
+    try {
+        assert.equal(clientTtlSec(), 90 * 24 * 60 * 60);
+        const writes = [];
+        const store = new KvOAuthStore({
+            async set(key, value, ttlSec) {
+                writes.push({ key, value, ttlSec });
+            },
+            async get() {
+                return null;
+            },
+            async getDel() {
+                return null;
+            },
+            async del() {},
+            async consumeAuthCode() {
+                return { status: "missing" };
+            },
+            async commitAuthCode() {
+                return "committed";
+            },
+            async claimRefresh() {
+                return { status: "invalid" };
+            },
+            async increment() {
+                return 1;
+            },
+        });
+        await store.saveClient({
+            clientId: "dsocid_ttl",
+            clientName: "ttl",
+            redirectUris: ["http://127.0.0.1:9/callback"],
+            tokenEndpointAuthMethod: "none",
+            createdAt: 1,
+        });
+        assert.equal(writes.length, 1);
+        assert.equal(writes[0].ttlSec, 90 * 24 * 60 * 60);
+        assert.equal(writes[0].key.includes("dsocid_ttl"), true);
+        assert.notEqual(writes[0].ttlSec, 60 * 60 * 24 * 365 * 2);
+
+        process.env.OAUTH_CLIENT_TTL_SEC = "7200";
+        assert.equal(clientTtlSec(), 7200);
+    } finally {
+        restoreEnv("OAUTH_CLIENT_TTL_SEC", previous);
+    }
+});
+
+test("vercel rate limits use the first x-forwarded-for hop", async () => {
+    const previousVercel = process.env.VERCEL;
+    process.env.VERCEL = "1";
+    try {
+        const store = memoryStoreForTests();
+        const first = clientIp(
+            new Request("https://mcp.desearch.ai/register", {
+                headers: { "x-forwarded-for": "203.0.113.4, 10.0.0.2" },
+            })
+        );
+        const second = clientIp(
+            new Request("https://mcp.desearch.ai/register", {
+                headers: { "x-forwarded-for": "198.51.100.7, 10.0.0.2" },
+            })
+        );
+        const ignoresDirect = clientIp(
+            new Request("https://mcp.desearch.ai/register", {
+                headers: {
+                    "x-forwarded-for": "203.0.113.4",
+                    "x-desearch-remote-address": "198.51.100.9",
+                },
+            })
+        );
+        assert.equal(first, "203.0.113.4");
+        assert.equal(second, "198.51.100.7");
+        assert.equal(ignoresDirect, "203.0.113.4");
+        assert.equal((await store.consumeRateLimit("register", first, 1, 3600)).allowed, true);
+        const blocked = await store.consumeRateLimit("register", first, 1, 3600);
+        assert.equal(blocked.allowed, false);
+        assert.ok(blocked.retryAfterSec >= 1 && blocked.retryAfterSec <= 3600);
+        assert.equal((await store.consumeRateLimit("register", second, 1, 3600)).allowed, true);
+
+        delete process.env.VERCEL;
+        assert.equal(
+            clientIp(
+                new Request("https://mcp.desearch.ai/register", {
+                    headers: { "x-forwarded-for": "203.0.113.4" },
+                })
+            ),
+            "unknown"
+        );
+        assert.equal(
+            clientIp(
+                new Request("https://mcp.desearch.ai/register", {
+                    headers: {
+                        "x-forwarded-for": "203.0.113.4",
+                        "x-desearch-remote-address": "127.0.0.1",
+                    },
+                })
+            ),
+            "127.0.0.1"
+        );
+    } finally {
+        restoreEnv("VERCEL", previousVercel);
+    }
+});
+
+test("redis rate limit counter uses the store increment", async () => {
+    const counts = new Map();
+    const expires = new Map();
+    const kv = redisKvForTests({
+        async get() {
+            return null;
+        },
+        async getDel() {
+            return null;
+        },
+        async set() {},
+        async del() {},
+        async eval(script, options) {
+            assert.match(script, /INCR/);
+            assert.match(script, /EXPIRE/);
+            const key = options.keys[0];
+            const ttl = Number(options.arguments[0]);
+            const next = (counts.get(key) ?? 0) + 1;
+            counts.set(key, next);
+            if (next === 1) {
+                expires.set(key, ttl);
+            }
+            return next;
+        },
+        async consumeAuthCode() {
+            return { status: "missing" };
+        },
+        async commitAuthCode() {
+            return "committed";
+        },
+        async claimRefresh() {
+            return { status: "invalid" };
+        },
+    });
+    const store = new KvOAuthStore(kv);
+    const first = await store.consumeRateLimit("register", "203.0.113.4", 1, 3600);
+    const second = await store.consumeRateLimit("register", "203.0.113.4", 1, 3600);
+    assert.equal(first.allowed, true);
+    assert.equal(second.allowed, false);
+    assert.ok(second.retryAfterSec >= 1 && second.retryAfterSec <= 3600);
+    assert.deepEqual([...expires.values()], [3600]);
+    assert.equal(counts.size, 1);
 });

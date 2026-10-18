@@ -89,14 +89,16 @@ export interface Kv {
     consumeAuthCode(codeKey: string, tombstoneKey: string, now: number, tombTtlSec: number): Promise<ConsumeCodeResult>;
     commitAuthCode(tombstoneKey: string, familyId: string, tombTtlSec: number): Promise<"committed" | "replayed">;
     claimRefresh(input: ClaimRefreshInput): Promise<ClaimRefreshResult>;
+    /** Fixed-window counter. The count starts at 1 and the TTL is set on the first hit. */
+    increment(key: string, ttlSec: number): Promise<number>;
 }
 
 const PREFIX = "desearch:oauth:";
 const FAMILY_PREFIX = PREFIX + "family:";
 const REVOKED_PREFIX = PREFIX + "family-revoked:";
 
-function clientTtlSec(): number {
-    return positiveInt(process.env.OAUTH_CLIENT_TTL_SEC, 60 * 60 * 24 * 365 * 2, 3600, 60 * 60 * 24 * 365 * 5);
+export function clientTtlSec(): number {
+    return positiveInt(process.env.OAUTH_CLIENT_TTL_SEC, 60 * 60 * 24 * 90, 3600, 60 * 60 * 24 * 365 * 5);
 }
 
 export function accessTtlSec(): number {
@@ -120,6 +122,25 @@ export class KvOAuthStore {
 
     async getClient(clientId: string): Promise<ClientRecord | null> {
         return readJson<ClientRecord>(await this.kv.get(PREFIX + "client:" + clientId));
+    }
+
+    /**
+     * Per-subject fixed window. `bucket` separates registration from key checks.
+     * The subject is hashed so the stored key is not the raw address.
+     */
+    async consumeRateLimit(
+        bucket: string,
+        subject: string,
+        limit: number,
+        windowSec: number
+    ): Promise<{ allowed: boolean; retryAfterSec: number }> {
+        const now = Date.now();
+        const windowMs = windowSec * 1000;
+        const windowId = Math.floor(now / windowMs);
+        const retryAfterSec = Math.max(1, Math.ceil(((windowId + 1) * windowMs - now) / 1000));
+        const key = `${PREFIX}rl:${bucket}:${sha256(subject)}:${windowId}`;
+        const count = await this.kv.increment(key, windowSec);
+        return { allowed: count <= limit, retryAfterSec };
     }
 
     async saveCode(code: string, record: CodeRecord): Promise<void> {
@@ -355,6 +376,18 @@ class MemoryKv implements Kv {
         this.rows.delete(key);
     }
 
+    async increment(key: string, ttlSec: number): Promise<number> {
+        const now = Date.now();
+        const row = this.rows.get(key);
+        if (!row || row.expiresAt <= now) {
+            this.rows.set(key, { value: "1", expiresAt: now + ttlSec * 1000 });
+            return 1;
+        }
+        const next = (Number(row.value) || 0) + 1;
+        row.value = String(next);
+        return next;
+    }
+
     async consumeAuthCode(
         codeKey: string,
         tombstoneKey: string,
@@ -511,6 +544,19 @@ redis.call('SET', KEYS[2], 'pending', 'EX', ttl)
 return cjson.encode({ status = 'ok', record = raw })
 `;
 
+const INCREMENT_SCRIPT = `
+local n = redis.call('INCR', KEYS[1])
+if n == 1 then
+  redis.call('EXPIRE', KEYS[1], tonumber(ARGV[1]))
+else
+  local ttl = redis.call('TTL', KEYS[1])
+  if ttl < 0 then
+    redis.call('EXPIRE', KEYS[1], tonumber(ARGV[1]))
+  end
+end
+return n
+`;
+
 const COMMIT_CODE_SCRIPT = `
 local tomb = redis.call('GET', KEYS[1])
 if tomb == 'replayed' then
@@ -600,6 +646,18 @@ class RedisKv implements Kv {
 
     async del(key: string): Promise<void> {
         await this.client.del(key);
+    }
+
+    async increment(key: string, ttlSec: number): Promise<number> {
+        const reply = await this.client.eval(INCREMENT_SCRIPT, {
+            keys: [key],
+            arguments: [String(ttlSec)],
+        });
+        const count = typeof reply === "number" ? reply : Number(redisText(reply));
+        if (!Number.isSafeInteger(count) || count < 1) {
+            throw new Error("Unexpected Redis rate limit reply");
+        }
+        return count;
     }
 
     async consumeAuthCode(
@@ -735,4 +793,18 @@ export function resetOAuthForTests(): void {
         throw new Error("OAuth store reset is disabled");
     }
     delete globalStore.__desearchOAuthStore;
+}
+
+export function memoryStoreForTests(): KvOAuthStore {
+    if (process.env.NODE_ENV === "production") {
+        throw new Error("OAuth store reset is disabled");
+    }
+    return new KvOAuthStore(new MemoryKv());
+}
+
+export function redisKvForTests(client: RedisLike): Kv {
+    if (process.env.NODE_ENV === "production") {
+        throw new Error("OAuth store reset is disabled");
+    }
+    return new RedisKv(client);
 }

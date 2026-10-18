@@ -1,5 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
+import { DIRECT_CLIENT_IP_HEADER } from "./oauth/client-ip.js";
 import { OAuthConfigError } from "./oauth/errors.js";
 import { handleOAuthHttp, resolveRequestCredential } from "./oauth/http.js";
 import { wwwAuthenticate, type WwwChallenge } from "./oauth/metadata.js";
@@ -387,7 +388,7 @@ async function toWebRequest(req: IncomingMessage): Promise<Request> {
     const url = `http://${host}${req.url ?? "/"}`;
     const headers = new Headers();
     for (const [key, value] of Object.entries(req.headers)) {
-        if (value === undefined || HOP_BY_HOP.has(key.toLowerCase())) {
+        if (value === undefined || HOP_BY_HOP.has(key.toLowerCase()) || key.toLowerCase() === DIRECT_CLIENT_IP_HEADER) {
             continue;
         }
         if (Array.isArray(value)) {
@@ -397,6 +398,10 @@ async function toWebRequest(req: IncomingMessage): Promise<Request> {
         } else {
             headers.set(key, value);
         }
+    }
+    const remote = req.socket?.remoteAddress;
+    if (remote) {
+        headers.set(DIRECT_CLIENT_IP_HEADER, remote);
     }
 
     const method = req.method ?? "GET";

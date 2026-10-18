@@ -14,6 +14,7 @@ import {
     resourcesMatch,
 } from "./metadata.js";
 import { authorizePage, messagePage, type AuthorizePageFields } from "./page.js";
+import { authorizeKeyRateLimitConfig, registerRateLimitConfig, takeIpRateLimit } from "./rate-limit.js";
 import { isAllowedRedirectUri, redirectsMatch } from "./redirects.js";
 import {
     accessTtlSec,
@@ -46,6 +47,19 @@ export function oauthError(status: number, error: string, description: string): 
             "Cache-Control": "no-store",
         },
     });
+}
+
+function withRetryAfter(response: Response, retryAfterSec: number): Response {
+    const headers = new Headers(response.headers);
+    headers.set("Retry-After", String(retryAfterSec));
+    return new Response(response.body, { status: response.status, headers });
+}
+
+function tooManyJson(retryAfterSec: number, description: string): Response {
+    return withRetryAfter(
+        oauthError(429, "temporarily_unavailable", description),
+        retryAfterSec
+    );
 }
 
 function redirectBack(redirectUri: string, issuer: string, params: Record<string, string>): Response {
@@ -91,6 +105,19 @@ function clientName(value: unknown): string {
 }
 
 export async function registerClient(request: Request): Promise<Response> {
+    const registerLimit = registerRateLimitConfig();
+    const registration = await takeIpRateLimit(
+        request,
+        "register",
+        registerLimit.limit,
+        registerLimit.windowSec
+    );
+    if (!registration.allowed) {
+        return tooManyJson(
+            registration.retryAfterSec,
+            "Too many registration attempts from this address. Try again later."
+        );
+    }
     const contentType = request.headers.get("content-type") ?? "";
     if (!contentType.toLowerCase().includes("application/json")) {
         return oauthError(400, "invalid_client_metadata", "Dynamic client registration requires application/json.");
@@ -260,7 +287,7 @@ export async function showAuthorize(request: Request): Promise<Response> {
 }
 
 function authorizePostForbidden(request: Request): Response | null {
-    const fetchSite = request.headers.get("sec-fetch-site")?.trim().toLowerCase();
+    const fetchSite = request.headers.get("sec-fetch-site")?.trim().toLowerCase() ?? "";
     if (fetchSite === "cross-site") {
         return htmlResponse(400, messagePage("Connect Desearch", "This sign-in form was sent from another site."));
     }
@@ -272,16 +299,19 @@ function authorizePostForbidden(request: Request): Response | null {
         }
         return null;
     }
-    const referer = request.headers.get("referer")?.trim();
-    if (!referer) {
-        return null;
-    }
-    try {
-        if (new URL(referer).origin !== expected) {
+    const referer = request.headers.get("referer")?.trim() ?? "";
+    if (referer) {
+        try {
+            if (new URL(referer).origin !== expected) {
+                return htmlResponse(400, messagePage("Connect Desearch", "This sign-in form was sent from another site."));
+            }
+        } catch {
             return htmlResponse(400, messagePage("Connect Desearch", "This sign-in form was sent from another site."));
         }
-    } catch {
-        return htmlResponse(400, messagePage("Connect Desearch", "This sign-in form was sent from another site."));
+        return null;
+    }
+    if (!fetchSite) {
+        return htmlResponse(403, messagePage("Connect Desearch", "This sign-in form did not come from this site."));
     }
     return null;
 }
@@ -309,6 +339,20 @@ export async function submitAuthorize(request: Request): Promise<Response> {
             error_description: "The sign-in was cancelled.",
             state: fields.state,
         });
+    }
+    const keyLimit = authorizeKeyRateLimitConfig();
+    const keyAttempts = await takeIpRateLimit(request, "authorize-key", keyLimit.limit, keyLimit.windowSec);
+    if (!keyAttempts.allowed) {
+        return withRetryAfter(
+            htmlResponse(
+                429,
+                messagePage(
+                    "Connect Desearch",
+                    "Too many sign-in attempts from this address. Try again in a moment."
+                )
+            ),
+            keyAttempts.retryAfterSec
+        );
     }
     const apiKey = (form.get("api_key") ?? "").trim();
     const checked = await checkDesearchApiKey(apiKey);
