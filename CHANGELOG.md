@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.3
+
+The sign-in form works in a browser.
+
+The page used `no-referrer`, so a browser posted `Origin: null` and no `Referer`. The server treated that as a cross-site submit even when `Sec-Fetch-Site` was `same-origin`. The form also omitted `response_type`, so the post redirected with `unsupported_response_type`. `Content-Security-Policy: form-action 'self'` can block the redirect to the client callback.
+
+The form now includes hidden `response_type=code` plus `client_id`, `redirect_uri`, `state`, `code_challenge`, `code_challenge_method`, `scope`, and `resource`. The referrer policy is `same-origin`. A post with `Sec-Fetch-Site: same-origin` is accepted when `Origin` is missing or `null`. `cross-site` and `same-site` posts, and foreign origins, are still rejected. A post with no origin signal is still rejected. The page `form-action` allows the validated callback origin.
+
 ## 0.2.2
 
 OAuth discovery and sign-in answer on the rewritten `/api/*` paths as well as the public paths.
