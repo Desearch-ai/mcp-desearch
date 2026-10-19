@@ -25,7 +25,7 @@ import {
 import { AI_SEARCH_TOOLS, WEB_LINK_TOOLS, toolIdSchema } from "./tool-sources.js";
 
 export const SERVER_NAME = "Desearch";
-export const SERVER_VERSION = "0.2.3";
+export const SERVER_VERSION = "0.2.4";
 
 interface XSearchPayload {
     query: string;
@@ -102,12 +102,13 @@ const READ_ONLY_OPEN_WORLD: ToolAnnotations = {
 };
 
 /**
- * `people-search` creates a billed background task. Calling it again starts
- * (and reserves) another search unless the same idempotency_key is sent.
+ * `people-search` starts a paid job billed to the user's Desearch balance.
+ * Spending that balance is irreversible, so destructiveHint is true.
+ * Calling it again starts (and reserves) another search unless the same idempotency_key is sent.
  */
 const BILLED_TASK: ToolAnnotations = {
     readOnlyHint: false,
-    destructiveHint: false,
+    destructiveHint: true,
     idempotentHint: false,
     openWorldHint: true,
 };
@@ -426,7 +427,7 @@ export function createDesearchMcpServer(
         },
         {
             instructions:
-                "Search the public web and X with Desearch. Use search for titles and links, then fetch with a result URL to read the page. Other tools cover AI search, X posts, and page extraction. People Search finds people and creators on X, YouTube, LinkedIn, and TikTok: people-search starts a billed search, people-search-status reads progress, and people-search-control can pause, resume, or cancel it. Calls need a Desearch API key.",
+                "Search the public web and X with Desearch. Use search for titles and links, then fetch with a result URL to read the page. Other tools cover AI search, X posts, and page extraction. People Search finds people and creators on X, YouTube, LinkedIn, and TikTok: people-search starts a paid job billed to the user's Desearch balance, people-search-status reads progress, and people-search-control can pause, resume, or cancel it. Calls need a Desearch API key.",
         }
     );
 
@@ -941,7 +942,7 @@ export function createDesearchMcpServer(
         apiKey,
         "people-search",
         "People Search",
-        "Start a People Search: find people on X, YouTube, LinkedIn, or TikTok who match a plain-language description. Each person comes back with a fit score, why they matched, their audience, and public contacts and links. Billed and asynchronous: this call reserves count times the platform's per-person price (reserved_cost_usd) and returns a task_id at once. When the search ends you pay only for the people it delivered (a per-search minimum applies when it finds anyone; a search that finds no one is free) and the rest of the reservation is returned. The search runs in the background, usually for 1 to 5 minutes: poll people-search-status with the task_id to read progress and the people found so far, and use people-search-control to pause, resume, or cancel it. Do not start the same search twice; send idempotency_key so a retry returns the first task instead of charging again. Filters depend on the platform. " +
+        "Start a paid job billed to the user's Desearch balance: find people on X, YouTube, LinkedIn, or TikTok who match a plain-language description. Each person comes back with a fit score, why they matched, their audience, and public contacts and links. This call reserves count times the platform's per-person price (reserved_cost_usd) and returns a task_id at once. When the search ends you pay only for the people it delivered (a per-search minimum applies when it finds anyone; a search that finds no one is free) and the rest of the reservation is returned. The search runs in the background, usually for 1 to 5 minutes: poll people-search-status with the task_id to read progress and the people found so far, and use people-search-control to pause, resume, or cancel it. Do not start the same search twice; send idempotency_key so a retry returns the first task instead of charging again. Filters depend on the platform. " +
             platformFilterList() +
             ".",
         strictArgs({

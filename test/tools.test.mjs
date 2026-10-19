@@ -474,9 +474,9 @@ test("every listed tool has a title and annotations", async () => {
         "people-search-tasks": "List People Search Tasks",
         "people-profiles": "List People Found",
     };
-    // people-search starts a billed task; people-search-control can cancel one.
+    // people-search spends the user's balance; people-search-control can cancel a search.
     const writes = {
-        "people-search": { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+        "people-search": { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
         "people-search-control": { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
     };
     await withFakeClient({}, async (client) => {
