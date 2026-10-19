@@ -32,6 +32,29 @@ function pkce() {
     return { verifier, challenge };
 }
 
+function decodeHtmlAttribute(value) {
+    return value
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .replace(/&amp;/g, "&");
+}
+
+function hiddenFormFields(html) {
+    const fields = {};
+    for (const tag of html.match(/<input\b[^>]*>/gi) ?? []) {
+        const attrs = {};
+        for (const match of tag.matchAll(/([\w:-]+)="([^"]*)"/g)) {
+            attrs[match[1]] = decodeHtmlAttribute(match[2]);
+        }
+        if (attrs.type === "hidden" && attrs.name) {
+            fields[attrs.name] = attrs.value ?? "";
+        }
+    }
+    return fields;
+}
+
 function restoreEnv(name, previous) {
     if (previous === undefined) {
         delete process.env[name];
@@ -891,6 +914,21 @@ test("authorize POST rejects a cross-site Origin or Referer", async () => {
         assert.equal(missing.headers.get("location"), null);
         assert.equal((await missing.text()).includes(API_KEY), false);
 
+        const sameSite = await post({ "sec-fetch-site": "same-site" });
+        assert.equal(sameSite.status, 400);
+        assert.equal(sameSite.headers.get("location"), null);
+
+        const foreignWithSameOrigin = await post({
+            origin: "https://evil.example",
+            "sec-fetch-site": "same-origin",
+        });
+        assert.equal(foreignWithSameOrigin.status, 400);
+        assert.equal(foreignWithSameOrigin.headers.get("location"), null);
+
+        const nullOriginAlone = await post({ origin: "null" });
+        assert.equal(nullOriginAlone.status, 403);
+        assert.equal(nullOriginAlone.headers.get("location"), null);
+
         const sameOrigin = await post({ origin });
         assert.equal(sameOrigin.status, 302);
         const location = new URL(sameOrigin.headers.get("location"));
@@ -902,6 +940,88 @@ test("authorize POST rejects a cross-site Origin or Referer", async () => {
 
         const sameFetchSite = await post({ "sec-fetch-site": "same-origin" });
         assert.equal(sameFetchSite.status, 302);
+
+        const nullOriginSameSite = await post({ origin: "null", "sec-fetch-site": "same-origin" });
+        assert.equal(nullOriginSameSite.status, 302);
+    });
+});
+
+test("browser authorize form posts parsed fields with Origin null", async () => {
+    await withServer(async (server) => {
+        const origin = `http://127.0.0.1:${server.port}`;
+        const redirectUri = "https://claude.ai/api/mcp/auth_callback";
+        const client = await register(server.port, redirectUri);
+        const { challenge } = pkce();
+        const state = "state&1";
+        const resource = `${origin}/mcp`;
+        const scope = "mcp offline_access";
+        const authorizeUrl = new URL(`${origin}/authorize`);
+        authorizeUrl.searchParams.set("response_type", "code");
+        authorizeUrl.searchParams.set("client_id", client.client_id);
+        authorizeUrl.searchParams.set("redirect_uri", redirectUri);
+        authorizeUrl.searchParams.set("code_challenge", challenge);
+        authorizeUrl.searchParams.set("code_challenge_method", "S256");
+        authorizeUrl.searchParams.set("state", state);
+        authorizeUrl.searchParams.set("scope", scope);
+        authorizeUrl.searchParams.set("resource", resource);
+
+        const page = await fetch(authorizeUrl);
+        assert.equal(page.status, 200);
+        assert.equal(page.headers.get("referrer-policy"), "same-origin");
+        const csp = page.headers.get("content-security-policy") ?? "";
+        assert.match(csp, /form-action 'self' https:\/\/claude\.ai(?:;|$)/);
+        const html = await page.text();
+        assert.match(html, /<meta name="referrer" content="same-origin">/);
+        assert.equal(html.includes("no-referrer"), false);
+        assert.match(html, /<form method="post" action="\/authorize"/);
+        const fields = hiddenFormFields(html);
+        assert.deepEqual(fields, {
+            response_type: "code",
+            client_id: client.client_id,
+            redirect_uri: redirectUri,
+            state,
+            code_challenge: challenge,
+            code_challenge_method: "S256",
+            resource,
+            scope,
+        });
+
+        const submitted = await fetch(`${origin}/authorize`, {
+            method: "POST",
+            redirect: "manual",
+            headers: {
+                "content-type": "application/x-www-form-urlencoded",
+                origin: "null",
+                "sec-fetch-site": "same-origin",
+            },
+            body: new URLSearchParams({
+                ...fields,
+                api_key: API_KEY,
+                decision: "allow",
+            }),
+        });
+        assert.equal(submitted.status, 302);
+        const location = new URL(submitted.headers.get("location"));
+        assert.equal(`${location.origin}${location.pathname}`, redirectUri);
+        assert.equal(location.searchParams.get("state"), state);
+        assert.equal(location.searchParams.get("iss"), origin);
+        assert.ok(location.searchParams.get("code"));
+        assert.equal(location.searchParams.get("error"), null);
+
+        const loopback = "http://127.0.0.1:4312/callback";
+        const loopClient = await register(server.port, loopback);
+        const loopUrl = new URL(`${origin}/authorize`);
+        loopUrl.searchParams.set("response_type", "code");
+        loopUrl.searchParams.set("client_id", loopClient.client_id);
+        loopUrl.searchParams.set("redirect_uri", loopback);
+        loopUrl.searchParams.set("code_challenge", challenge);
+        loopUrl.searchParams.set("code_challenge_method", "S256");
+        loopUrl.searchParams.set("state", "loop");
+        loopUrl.searchParams.set("resource", resource);
+        const loopPage = await fetch(loopUrl);
+        assert.equal(loopPage.status, 200);
+        const loopCsp = loopPage.headers.get("content-security-policy") ?? "";
+        assert.match(loopCsp, /form-action 'self' http:\/\/127\.0\.0\.1:4312(?:;|$)/);
     });
 });
 

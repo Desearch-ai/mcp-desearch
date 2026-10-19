@@ -29,14 +29,38 @@ const VERIFIER_PATTERN = /^[A-Za-z0-9\-._~]{43,128}$/;
 const HTML_HEADERS = {
     "Content-Type": "text/html; charset=utf-8",
     "Cache-Control": "no-store",
-    "Referrer-Policy": "no-referrer",
+    "Referrer-Policy": "same-origin",
     "X-Frame-Options": "DENY",
-    "Content-Security-Policy":
-        "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
 };
 
-export function htmlResponse(status: number, html: string): Response {
-    return new Response(html, { status, headers: HTML_HEADERS });
+/**
+ * `form-action 'self'` blocks the 302 that follows a form POST in Chrome, so
+ * the sign-in page also allows the validated callback origin (claude.ai,
+ * chatgpt.com, or the loopback host and port).
+ */
+function contentSecurityPolicy(redirectUri?: string): string {
+    const targets = ["'self'"];
+    if (redirectUri && isAllowedRedirectUri(redirectUri)) {
+        try {
+            const origin = new URL(redirectUri).origin;
+            if (/^https?:\/\/[A-Za-z0-9.\[\]:-]+$/.test(origin)) {
+                targets.push(origin);
+            }
+        } catch {
+            // The redirect was already rejected before a page is rendered.
+        }
+    }
+    return `default-src 'none'; style-src 'unsafe-inline'; form-action ${targets.join(" ")}; base-uri 'none'; frame-ancestors 'none'`;
+}
+
+export function htmlResponse(status: number, html: string, redirectUri?: string): Response {
+    return new Response(html, {
+        status,
+        headers: {
+            ...HTML_HEADERS,
+            "Content-Security-Policy": contentSecurityPolicy(redirectUri),
+        },
+    });
 }
 
 export function oauthError(status: number, error: string, description: string): Response {
@@ -283,17 +307,20 @@ export async function showAuthorize(request: Request): Promise<Response> {
     if (context instanceof Response) {
         return context;
     }
-    return htmlResponse(200, authorizePage(context.fields));
+    return htmlResponse(200, authorizePage(context.fields), context.fields.redirectUri);
 }
 
 function authorizePostForbidden(request: Request): Response | null {
     const fetchSite = request.headers.get("sec-fetch-site")?.trim().toLowerCase() ?? "";
-    if (fetchSite === "cross-site") {
+    if (fetchSite === "cross-site" || fetchSite === "same-site") {
         return htmlResponse(400, messagePage("Connect Desearch", "This sign-in form was sent from another site."));
     }
     const expected = publicOrigin(request);
-    const origin = request.headers.get("origin")?.trim();
-    if (origin) {
+    const origin = request.headers.get("origin")?.trim() ?? "";
+    // `no-referrer` made browsers send the literal Origin "null". Treat that
+    // as a missing origin. A same-origin Sec-Fetch-Site is enough on its own.
+    const originMissing = origin.length === 0 || origin.toLowerCase() === "null";
+    if (!originMissing) {
         if (origin.replace(/\/+$/, "") !== expected) {
             return htmlResponse(400, messagePage("Connect Desearch", "This sign-in form was sent from another site."));
         }
@@ -310,10 +337,10 @@ function authorizePostForbidden(request: Request): Response | null {
         }
         return null;
     }
-    if (!fetchSite) {
-        return htmlResponse(403, messagePage("Connect Desearch", "This sign-in form did not come from this site."));
+    if (fetchSite === "same-origin") {
+        return null;
     }
-    return null;
+    return htmlResponse(403, messagePage("Connect Desearch", "This sign-in form did not come from this site."));
 }
 
 export async function submitAuthorize(request: Request): Promise<Response> {
@@ -357,7 +384,7 @@ export async function submitAuthorize(request: Request): Promise<Response> {
     const apiKey = (form.get("api_key") ?? "").trim();
     const checked = await checkDesearchApiKey(apiKey);
     if (!checked.ok) {
-        return htmlResponse(400, authorizePage({ ...fields, error: checked.message }));
+        return htmlResponse(400, authorizePage({ ...fields, error: checked.message }), fields.redirectUri);
     }
     const code = randomToken(AUTH_CODE_PREFIX, 32);
     const store = await getOAuthStore();

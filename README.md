@@ -475,7 +475,7 @@ Environment variables for the host:
 
 The key check calls `GET /twitter/trends?woeid=1&count=1`. A real key is authenticated and then rejected as invalid input (HTTP 422), so the check does not run a full trends query. Only 422 counts as a valid key. `401` and `403` reject the key. Any other status, including a 2xx, is a verification error and is not treated as valid.
 
-`POST /register` allows 10 requests an hour per IP. The sign-in key check allows 20 requests every 10 minutes per IP. A request past the limit returns 429 with `Retry-After`. On Vercel the address is the first `X-Forwarded-For` hop. The sign-in form accepts a same-origin `Origin` or `Referer`, and rejects a POST that sends none of `Origin`, `Referer`, and `Sec-Fetch-Site`.
+`POST /register` allows 10 requests an hour per IP. The sign-in key check allows 20 requests every 10 minutes per IP. A request past the limit returns 429 with `Retry-After`. On Vercel the address is the first `X-Forwarded-For` hop. The sign-in page uses `Referrer-Policy: same-origin` and posts `response_type=code` with the other authorize fields. The form accepts a same-origin `Origin` or `Referer`, and accepts `Sec-Fetch-Site: same-origin` when `Origin` is missing or `null`. It rejects `Sec-Fetch-Site` `cross-site` and `same-site`, a foreign `Origin`, and a POST that has no origin signal.
 
 ### Use with Claude (custom connector)
 
