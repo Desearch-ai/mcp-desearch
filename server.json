@@ -3,7 +3,7 @@
   "name": "io.github.Desearch-ai/mcp-desearch",
   "title": "Desearch",
   "description": "AI search (Reddit, HN, arXiv, Wikipedia), X and web search, page extraction, X data, People Search.",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "websiteUrl": "https://www.desearch.ai/docs/guide/sdk/mcp",
   "repository": {
     "url": "https://github.com/Desearch-ai/mcp-desearch",
@@ -15,7 +15,7 @@
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "desearch-mcp-server",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "transport": {
         "type": "stdio"
       },
@@ -36,8 +36,8 @@
       "headers": [
         {
           "name": "x-api-key",
-          "description": "Desearch API key. Clients prompt for this secret and send it on every request.",
-          "isRequired": true,
+          "description": "Desearch API key. Send this header, or connect with OAuth and paste the key on the Desearch sign-in page. Discovery does not need a key.",
+          "isRequired": false,
           "isSecret": true,
           "value": "{desearch_api_key}",
           "variables": {

@@ -106,3 +106,7 @@ The MCP package previously depended on `desearch-js` ^1.0.1. It now depends on ^
 - Some SDK guides (JavaScript and Python examples) still show `num`.
 
 Expose `num` only after the current JS SDK type includes it, so the MCP schema and the SDK stay the same contract.
+
+## `search` and `fetch`
+
+`search` and `fetch` are not separate Desearch API routes. `search` calls `webSearch` (`GET /web`) and returns `{ results: [{ id, title, url }] }`, using the result link as `id`. `fetch` calls `extract` (`GET /web/extract`) with that URL and returns `{ id, title, text, url, metadata }`. Clients that look up a page by query and then read it use this pair. The other tools stay available.

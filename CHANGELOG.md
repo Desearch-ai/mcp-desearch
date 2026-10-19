@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.1
+
+Remote MCP OAuth 2.1 and per-IP rate limits, on top of the 0.2.0 People Search tools. `search` and `fetch` are included for clients that look up a page by query and then read it.
+
+- Protected resource metadata, authorization server metadata, dynamic client registration, authorization code with PKCE S256, and rotating refresh tokens. Refresh rotation is atomic. Replaying an authorization code revokes tokens already issued from that code.
+- The sign-in page asks for a Desearch API key and checks it before issuing a code. Only HTTP 422 counts as a valid key. Access tokens are opaque. The key is encrypted at rest and is not placed in the token.
+- A raw Desearch API key in `Authorization` or `x-api-key` still works. `tools/list` without a key still returns tools. `tools/call` without a key returns HTTP 401 with `WWW-Authenticate`, and the body is a tool error with `_meta["mcp/www_authenticate"]`.
+- Production (`NODE_ENV=production` or `VERCEL`) requires `OAUTH_ISSUER` and `OAUTH_STORE=redis`. The issuer is not taken from forwarded host headers. Access tokens must match this server's resource. A bad or expired token challenge includes `error="invalid_token"`. `OAUTH_REQUIRE_AUTH_ON_INITIALIZE=true` makes keyless `initialize` return 401. The sign-in form rejects a cross-site `Origin` or `Referer`, and rejects a POST that sends none of those or `Sec-Fetch-Site`.
+- `POST /register` allows 10 requests an hour per IP. The sign-in key check allows 20 requests every 10 minutes per IP. A request past the limit returns 429 with `Retry-After`.
+- `search` takes `query` and returns titles and links. `fetch` takes a URL and returns the page text.
+- Tool annotations are not all read-only. Lookup tools, including `search` and `fetch`, keep `readOnlyHint: true`, `destructiveHint: false`, and `openWorldHint: true`. `people-search` starts a billed job, so `readOnlyHint` is false and `destructiveHint` is false. `people-search-control` can cancel a search, so `readOnlyHint` is false and `destructiveHint` is true. `openWorldHint` is true on every tool.
+
 ## 0.2.0
 
 People Search tools. Release this version only after People Search is live on `api.desearch.ai`; until then the new tools return the API's HTTP error.
@@ -84,7 +96,7 @@ Node.js `>=20.18.1`. Node 22 is supported. Node 18 is not. `desearch-js` loads `
 
 ### Tool annotations
 
-`tools/list` sets MCP tool annotations on every tool:
+In 0.1.2, `tools/list` set MCP tool annotations on every tool in that release:
 
 - `readOnlyHint: true` — the tool reads Desearch, the web, or X and does not write caller state
 - `destructiveHint: false` — it does not perform a destructive update

@@ -1,13 +1,20 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
+import { DIRECT_CLIENT_IP_HEADER } from "./oauth/client-ip.js";
+import { OAuthConfigError } from "./oauth/errors.js";
+import { handleOAuthHttp, resolveRequestCredential } from "./oauth/http.js";
+import { wwwAuthenticate, type WwwChallenge } from "./oauth/metadata.js";
+import { extractDesearchApiKey } from "./request-key.js";
 import { createDesearchMcpServer, SERVER_NAME, SERVER_VERSION } from "./server.js";
+
+export { extractDesearchApiKey };
 
 const CORS_HEADERS: Record<string, string> = {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
     "Access-Control-Allow-Headers":
         "Content-Type, Accept, Authorization, x-api-key, Mcp-Session-Id, Mcp-Protocol-Version, Last-Event-ID",
-    "Access-Control-Expose-Headers": "Mcp-Session-Id",
+    "Access-Control-Expose-Headers": "Mcp-Session-Id, WWW-Authenticate",
     "Access-Control-Max-Age": "86400",
 };
 
@@ -32,13 +39,6 @@ export interface RunningHttpServer {
 }
 
 /**
- * Desearch API key from the remote client.
- * Prefer `Authorization: Bearer <key>` (what MCP clients send). `x-api-key` is
- * accepted as well. A bare `Authorization: <key>` value is accepted so the same
- * string used as `DESEARCH_API_KEY` for stdio can be sent without a scheme.
- * Query strings are ignored so keys do not land in access logs.
- */
-/**
  * Copy a request onto another path. Used by the Vercel functions, which see
  * the rewritten URL (`/api/mcp`) rather than the public path (`/mcp`).
  */
@@ -55,26 +55,6 @@ export function requestWithPathname(request: Request, pathname: string): Request
         init.duplex = "half";
     }
     return new Request(url, init);
-}
-
-export function extractDesearchApiKey(request: Request): string | undefined {
-    const authorization = request.headers.get("authorization")?.trim();
-    if (authorization) {
-        const bearer = /^Bearer\s+(\S+)$/i.exec(authorization);
-        if (bearer?.[1]) {
-            return bearer[1];
-        }
-        if (!/^Bearer\b/i.test(authorization) && !/\s/.test(authorization)) {
-            return authorization;
-        }
-    }
-
-    const headerKey = request.headers.get("x-api-key")?.trim();
-    if (headerKey) {
-        return headerKey;
-    }
-
-    return undefined;
 }
 
 function normalizePath(pathname: string): string {
@@ -127,7 +107,7 @@ function healthResponse(): Response {
             version: SERVER_VERSION,
             transport: "streamable-http",
             endpoint: "/mcp",
-            auth: "initialize and tools/list are public. tools/call requires Authorization: Bearer <DESEARCH_API_KEY> or x-api-key.",
+            auth: "initialize and tools/list are public. tools/call requires Authorization: Bearer <DESEARCH_API_KEY>, x-api-key, or an OAuth access token.",
         }),
         {
             status: 200,
@@ -136,14 +116,98 @@ function healthResponse(): Response {
     );
 }
 
-function unauthorized(): Response {
-    // No OAuth challenge. Desearch auth is a per-user API key, and a
-    // WWW-Authenticate discovery hint makes some MCP clients start an OAuth flow.
-    return jsonRpcError(
-        401,
-        -32001,
-        "Unauthorized. Send your Desearch API key in the Authorization: Bearer <key> header or the x-api-key header."
-    );
+const INVALID_TOKEN_CHALLENGE: WwwChallenge = {
+    error: "invalid_token",
+    error_description: "The access token is invalid or expired.",
+};
+
+const LOGIN_CHALLENGE: WwwChallenge = {
+    error: "insufficient_scope",
+    error_description: "You need to login to continue",
+};
+
+const UNAUTHORIZED_MESSAGE =
+    "Unauthorized. Send your Desearch API key in the Authorization: Bearer <key> header or the x-api-key header.";
+
+function challengeHeader(request: Request, challenge?: WwwChallenge): string | Response {
+    try {
+        return wwwAuthenticate(request, challenge);
+    } catch (error) {
+        if (error instanceof OAuthConfigError) {
+            return jsonRpcError(500, -32603, "Authorization storage is unavailable.");
+        }
+        throw error;
+    }
+}
+
+function unauthorized(request: Request, invalidToken = false): Response {
+    const header = challengeHeader(request, invalidToken ? INVALID_TOKEN_CHALLENGE : undefined);
+    if (header instanceof Response) {
+        return header;
+    }
+    return jsonRpcError(401, -32001, UNAUTHORIZED_MESSAGE, { "WWW-Authenticate": header });
+}
+
+interface ToolsCallMessage {
+    id?: unknown;
+}
+
+function readToolsCalls(raw: string): { batched: boolean; calls: ToolsCallMessage[] } | null {
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(raw);
+    } catch {
+        return null;
+    }
+    const batched = Array.isArray(parsed);
+    const messages: unknown[] = batched ? (parsed as unknown[]) : [parsed];
+    if (messages.length === 0) {
+        return null;
+    }
+    const calls: ToolsCallMessage[] = [];
+    for (const message of messages) {
+        if (typeof message !== "object" || message === null) {
+            return null;
+        }
+        if ((message as { method?: unknown }).method !== "tools/call") {
+            return null;
+        }
+        calls.push(message as ToolsCallMessage);
+    }
+    return { batched, calls };
+}
+
+function authFailure(request: Request, raw: string, invalidToken: boolean): Response {
+    const header = challengeHeader(request, invalidToken ? INVALID_TOKEN_CHALLENGE : undefined);
+    if (header instanceof Response) {
+        return header;
+    }
+    const metaHeader = invalidToken ? header : challengeHeader(request, LOGIN_CHALLENGE);
+    if (metaHeader instanceof Response) {
+        return metaHeader;
+    }
+    const tools = readToolsCalls(raw);
+    if (!tools) {
+        return jsonRpcError(401, -32001, UNAUTHORIZED_MESSAGE, { "WWW-Authenticate": header });
+    }
+    const results = tools.calls.map((call) => ({
+        jsonrpc: "2.0",
+        id: call.id ?? null,
+        result: {
+            content: [{ type: "text", text: UNAUTHORIZED_MESSAGE }],
+            isError: true,
+            _meta: {
+                "mcp/www_authenticate": [`'${metaHeader}'`],
+            },
+        },
+    }));
+    return new Response(JSON.stringify(tools.batched ? results : results[0]), {
+        status: 401,
+        headers: {
+            "Content-Type": "application/json",
+            "WWW-Authenticate": header,
+        },
+    });
 }
 
 /**
@@ -161,6 +225,17 @@ const KEYLESS_METHODS = new Set([
     "resources/templates/list",
 ]);
 
+function authRequiredOnInitialize(): boolean {
+    return /^(1|true|yes)$/i.test((process.env.OAUTH_REQUIRE_AUTH_ON_INITIALIZE ?? "").trim());
+}
+
+function isKeylessMethod(method: string): boolean {
+    if (method === "initialize" && authRequiredOnInitialize()) {
+        return false;
+    }
+    return KEYLESS_METHODS.has(method);
+}
+
 function isKeylessDiscovery(raw: string): boolean {
     let parsed: unknown;
     try {
@@ -176,7 +251,7 @@ function isKeylessDiscovery(raw: string): boolean {
                 return false;
             }
             const method = (message as { method?: unknown }).method;
-            return typeof method === "string" && KEYLESS_METHODS.has(method);
+            return typeof method === "string" && isKeylessMethod(method);
         })
     );
 }
@@ -219,6 +294,11 @@ export async function handleMcpHttpRequest(request: Request): Promise<Response> 
 
     const pathname = normalizePath(new URL(request.url).pathname);
 
+    const oauthResponse = await handleOAuthHttp(request);
+    if (oauthResponse) {
+        return withCors(oauthResponse);
+    }
+
     if (isHealthPath(pathname)) {
         if (request.method === "GET") {
             return withCors(healthResponse());
@@ -235,9 +315,14 @@ export async function handleMcpHttpRequest(request: Request): Promise<Response> 
         );
     }
 
+    const credential = await resolveRequestCredential(request);
+    if (credential.kind === "unavailable") {
+        return withCors(jsonRpcError(500, -32603, "Authorization storage is unavailable."));
+    }
+
     if (request.method === "GET" || request.method === "DELETE") {
-        if (!extractDesearchApiKey(request)) {
-            return withCors(unauthorized());
+        if (credential.kind !== "key") {
+            return withCors(unauthorized(request, credential.kind === "unauthorized"));
         }
         return withCors(jsonRpcError(405, -32000, "Method not allowed. This server is stateless; use POST.", { Allow: "POST" }));
     }
@@ -246,11 +331,16 @@ export async function handleMcpHttpRequest(request: Request): Promise<Response> 
         return withCors(jsonRpcError(405, -32000, "Method not allowed.", { Allow: "POST" }));
     }
 
-    let apiKey = extractDesearchApiKey(request);
-    if (!apiKey) {
+    let apiKey: string;
+    if (credential.kind === "key") {
+        apiKey = credential.apiKey;
+    } else if (credential.kind === "unauthorized") {
+        const raw = await request.text();
+        return withCors(authFailure(request, raw, true));
+    } else {
         const raw = await request.text();
         if (!isKeylessDiscovery(raw)) {
-            return withCors(unauthorized());
+            return withCors(authFailure(request, raw, false));
         }
         request = requestWithJsonBody(request, raw);
         apiKey = "";
@@ -298,7 +388,7 @@ async function toWebRequest(req: IncomingMessage): Promise<Request> {
     const url = `http://${host}${req.url ?? "/"}`;
     const headers = new Headers();
     for (const [key, value] of Object.entries(req.headers)) {
-        if (value === undefined || HOP_BY_HOP.has(key.toLowerCase())) {
+        if (value === undefined || HOP_BY_HOP.has(key.toLowerCase()) || key.toLowerCase() === DIRECT_CLIENT_IP_HEADER) {
             continue;
         }
         if (Array.isArray(value)) {
@@ -308,6 +398,10 @@ async function toWebRequest(req: IncomingMessage): Promise<Request> {
         } else {
             headers.set(key, value);
         }
+    }
+    const remote = req.socket?.remoteAddress;
+    if (remote) {
+        headers.set(DIRECT_CLIENT_IP_HEADER, remote);
     }
 
     const method = req.method ?? "GET";

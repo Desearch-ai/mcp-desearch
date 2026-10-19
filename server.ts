@@ -3,6 +3,7 @@ import {
     ListPromptsRequestSchema,
     ListResourcesRequestSchema,
     ListResourceTemplatesRequestSchema,
+    ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import DesearchImport from "desearch-js";
 import { z } from "zod";
@@ -24,7 +25,7 @@ import {
 import { AI_SEARCH_TOOLS, WEB_LINK_TOOLS, toolIdSchema } from "./tool-sources.js";
 
 export const SERVER_NAME = "Desearch";
-export const SERVER_VERSION = "0.2.0";
+export const SERVER_VERSION = "0.2.1";
 
 interface XSearchPayload {
     query: string;
@@ -75,6 +76,7 @@ const Desearch = DesearchImport as unknown as new (apiKey: string) => DesearchCl
 
 type ToolResult = {
     content: [{ type: "text"; text: string }];
+    structuredContent?: Record<string, unknown>;
     isError?: boolean;
 };
 
@@ -267,6 +269,82 @@ function ok(value: unknown): ToolResult {
     };
 }
 
+function structured(value: Record<string, unknown>): ToolResult {
+    return {
+        content: [{ type: "text", text: JSON.stringify(value) }],
+        structuredContent: value,
+    };
+}
+
+const WEB_RESULT_KEYS = ["data", "organic", "results", "search_results", "items", "search"];
+
+function firstString(record: Record<string, unknown>, keys: string[]): string {
+    for (const key of keys) {
+        const value = record[key];
+        if (typeof value === "string" && value.trim()) {
+            return value.trim();
+        }
+    }
+    return "";
+}
+
+function searchResultsFrom(value: unknown): { id: string; title: string; url: string }[] {
+    const rows: unknown[] = [];
+    if (Array.isArray(value)) {
+        rows.push(...value);
+    } else if (value && typeof value === "object") {
+        const record = value as Record<string, unknown>;
+        for (const key of WEB_RESULT_KEYS) {
+            const entry = record[key];
+            if (Array.isArray(entry)) {
+                rows.push(...entry);
+            }
+        }
+    }
+    const out: { id: string; title: string; url: string }[] = [];
+    const seen = new Set<string>();
+    for (const row of rows) {
+        if (!row || typeof row !== "object") {
+            continue;
+        }
+        const record = row as Record<string, unknown>;
+        const url = firstString(record, ["link", "url", "href"]);
+        if (!/^https?:\/\//i.test(url) || seen.has(url)) {
+            continue;
+        }
+        seen.add(url);
+        out.push({
+            id: url,
+            title: firstString(record, ["title", "name"]) || url,
+            url,
+        });
+    }
+    return out;
+}
+
+function pageText(value: unknown): string {
+    if (typeof value === "string") {
+        return value;
+    }
+    if (value && typeof value === "object") {
+        const text = firstString(value as Record<string, unknown>, ["text", "content", "markdown", "body"]);
+        if (text) {
+            return text;
+        }
+    }
+    return JSON.stringify(value ?? "");
+}
+
+function titleFromUrl(url: string): string {
+    try {
+        const parsed = new URL(url);
+        const last = parsed.pathname.split("/").filter(Boolean).pop();
+        return last ? decodeURIComponent(last) : parsed.hostname;
+    } catch {
+        return url;
+    }
+}
+
 function fail(label: string, error: unknown): ToolResult {
     return {
         content: [
@@ -287,6 +365,7 @@ function registerTool(
     description: string,
     inputSchema: Record<string, z.ZodTypeAny> | z.AnyZodObject,
     handler: ToolHandler,
+    outputSchema?: Record<string, z.ZodTypeAny>,
     annotations: ToolAnnotations = READ_ONLY_OPEN_WORLD
 ): void {
     // SDK 1.30's tool generics blow the TypeScript instantiation limit on these
@@ -297,6 +376,7 @@ function registerTool(
             title: string;
             description: string;
             inputSchema: Record<string, z.ZodTypeAny> | z.AnyZodObject;
+            outputSchema?: Record<string, z.ZodTypeAny>;
             annotations: ToolAnnotations & { title: string };
         },
         callback: ToolHandler
@@ -318,6 +398,7 @@ function registerTool(
             title,
             description,
             inputSchema,
+            ...(outputSchema ? { outputSchema } : {}),
             annotations: { ...annotations, title },
         },
         guarded
@@ -338,10 +419,16 @@ export function createDesearchMcpServer(
 ): McpServer {
     const desearch = client ?? new Desearch(apiKey);
     const people = peopleClient ?? createPeopleClient(apiKey);
-    const server = new McpServer({
-        name: SERVER_NAME,
-        version: SERVER_VERSION,
-    });
+    const server = new McpServer(
+        {
+            name: SERVER_NAME,
+            version: SERVER_VERSION,
+        },
+        {
+            instructions:
+                "Search the public web and X with Desearch. Use search for titles and links, then fetch with a result URL to read the page. Other tools cover AI search, X posts, and page extraction. People Search finds people and creators on X, YouTube, LinkedIn, and TikTok: people-search starts a billed search, people-search-status reads progress, and people-search-control can pause, resume, or cancel it. Calls need a Desearch API key.",
+        }
+    );
 
     registerTool(
         server,
@@ -788,6 +875,70 @@ export function createDesearchMcpServer(
     registerTool(
         server,
         apiKey,
+        "search",
+        "Search",
+        "Search the public web and return titles and links. Use fetch with a result URL to read the page.",
+        {
+            query: z.string().describe("Search query."),
+        },
+        async ({ query }) => {
+            try {
+                const results = searchResultsFrom(await desearch.webSearch({ query }));
+                return structured({ results });
+            } catch (error) {
+                return fail("Search error", error);
+            }
+        },
+        {
+            results: z.array(
+                z.object({
+                    id: z.string(),
+                    title: z.string(),
+                    url: z.string(),
+                })
+            ),
+        }
+    );
+
+    registerTool(
+        server,
+        apiKey,
+        "fetch",
+        "Fetch Page",
+        "Read a public page as text. Pass a URL returned by search.",
+        {
+            id: z.string().describe("URL of the page to read."),
+        },
+        async ({ id }) => {
+            if (typeof id !== "string" || !/^https?:\/\//i.test(id)) {
+                return fail("Fetch error", new Error("id must be an http or https URL from search."));
+            }
+            try {
+                const text = pageText(await desearch.extract({ url: id, format: "text" }));
+                return structured({
+                    id,
+                    title: titleFromUrl(id),
+                    text,
+                    url: id,
+                    metadata: { source: "desearch" },
+                });
+            } catch (error) {
+                return fail("Fetch error", error);
+            }
+        },
+        {
+            id: z.string(),
+            title: z.string(),
+            text: z.string(),
+            url: z.string(),
+            metadata: z.record(z.string(), z.string()).optional(),
+        }
+    );
+
+
+    registerTool(
+        server,
+        apiKey,
         "people-search",
         "People Search",
         "Start a People Search: find people on X, YouTube, LinkedIn, or TikTok who match a plain-language description. Each person comes back with a fit score, why they matched, their audience, and public contacts and links. Billed and asynchronous: this call reserves count times the platform's per-person price (reserved_cost_usd) and returns a task_id at once. When the search ends you pay only for the people it delivered (a per-search minimum applies when it finds anyone; a search that finds no one is free) and the rest of the reservation is returned. The search runs in the background, usually for 1 to 5 minutes: poll people-search-status with the task_id to read progress and the people found so far, and use people-search-control to pause, resume, or cancel it. Do not start the same search twice; send idempotency_key so a retry returns the first task instead of charging again. Filters depend on the platform. " +
@@ -884,6 +1035,7 @@ export function createDesearchMcpServer(
                 return fail("People Search error", error);
             }
         },
+        undefined,
         BILLED_TASK
     );
 
@@ -942,6 +1094,7 @@ export function createDesearchMcpServer(
                 return fail("People Search Control error", error);
             }
         },
+        undefined,
         TASK_CONTROL
     );
 
@@ -1057,5 +1210,45 @@ export function createDesearchMcpServer(
         resourceTemplates: [],
     }));
 
+    // The installed SDK tool schema has no securitySchemes field. The list
+    // handler adds it after the SDK builds the tool list, and copies the same
+    // value into `_meta` so clients that drop unknown top-level fields still
+    // see it. Connector hosts use it to see that tool calls need OAuth.
+    publishToolSecurity(server);
+
     return server;
+}
+
+function publishToolSecurity(server: McpServer): void {
+    const low = server.server as unknown as {
+        _requestHandlers: Map<
+            string,
+            (request: unknown, extra: unknown) => Promise<{ tools?: Array<Record<string, unknown>> }>
+        >;
+        setRequestHandler: (
+            schema: typeof ListToolsRequestSchema,
+            handler: (request: unknown, extra: unknown) => Promise<unknown>
+        ) => void;
+    };
+    const previous = low._requestHandlers.get("tools/list");
+    if (!previous) {
+        return;
+    }
+    low.setRequestHandler(ListToolsRequestSchema, async (request, extra) => {
+        const result = await previous(request, extra);
+        if (Array.isArray(result?.tools)) {
+            for (const tool of result.tools) {
+                const securitySchemes = [{ type: "oauth2", scopes: ["mcp"] }];
+                tool.securitySchemes = securitySchemes;
+                const existing = tool._meta;
+                const meta =
+                    existing !== null && typeof existing === "object" && !Array.isArray(existing)
+                        ? { ...(existing as Record<string, unknown>) }
+                        : {};
+                meta.securitySchemes = [{ type: "oauth2", scopes: ["mcp"] }];
+                tool._meta = meta;
+            }
+        }
+        return result;
+    });
 }
