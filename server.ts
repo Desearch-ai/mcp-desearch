@@ -10,6 +10,10 @@ import { z } from "zod";
 import {
     PEOPLE_CONTROL_ACTIONS,
     PEOPLE_FILTER_CHANNELS,
+    PEOPLE_METADATA_KEY_PATTERN,
+    PEOPLE_METADATA_MAX_FILTERS,
+    PEOPLE_METADATA_MAX_KEYS,
+    PEOPLE_METADATA_VALUE_MAX,
     PEOPLE_PLATFORMS,
     PEOPLE_PROFILE_SORTS,
     PEOPLE_SEARCH_FILTERS,
@@ -25,7 +29,7 @@ import {
 import { AI_SEARCH_TOOLS, WEB_LINK_TOOLS, toolIdSchema } from "./tool-sources.js";
 
 export const SERVER_NAME = "Desearch";
-export const SERVER_VERSION = "0.2.4";
+export const SERVER_VERSION = "0.3.0";
 
 interface XSearchPayload {
     query: string;
@@ -176,6 +180,33 @@ function strictArgs(shape: Record<string, z.ZodTypeAny>): z.AnyZodObject {
 // A new schema per field: one shared instance would serialize as a JSON Schema $ref.
 function peopleKeywordList() {
     return z.array(z.string().min(1).max(120)).max(20);
+}
+
+const peopleMetadataKey = new RegExp(PEOPLE_METADATA_KEY_PATTERN);
+
+/**
+ * `metadata` labels: string keys of a-z, 0-9, '_', '.', '-' (1-40 characters) to strings of
+ * at most 200 characters, and at most `maxKeys` pairs. Checked here so a bad label never
+ * reaches the API. The key rule and the key count are checked in a refinement rather than
+ * advertised as `propertyNames`/`maxProperties`, which some MCP clients do not accept; the
+ * description states them. A new schema per field, like peopleKeywordList.
+ */
+function peopleMetadata(maxKeys: number) {
+    return z.record(z.string(), z.string().max(PEOPLE_METADATA_VALUE_MAX)).superRefine((value, ctx) => {
+        const keys = Object.keys(value);
+        if (keys.length > maxKeys) {
+            ctx.addIssue({ code: z.ZodIssueCode.custom, message: `At most ${maxKeys} metadata keys` });
+        }
+        for (const key of keys) {
+            if (!peopleMetadataKey.test(key)) {
+                ctx.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    path: [key],
+                    message: "metadata keys are 1-40 characters of a-z, 0-9, '_', '.' or '-'",
+                });
+            }
+        }
+    });
 }
 
 function platformFilterList(): string {
@@ -985,6 +1016,11 @@ export function createDesearchMcpServer(
                 .describe(
                     "Any unique string for this search, for example a UUID. Sending the same key again returns the first task and is not charged again."
                 ),
+            metadata: peopleMetadata(PEOPLE_METADATA_MAX_KEYS)
+                .optional()
+                .describe(
+                    `Your own labels for this search, example: {"campaign": "q4-outbound"}. Up to ${PEOPLE_METADATA_MAX_KEYS} keys; keys are 1-40 characters of a-z, 0-9, '_', '.', '-'; values are strings of up to ${PEOPLE_METADATA_VALUE_MAX} characters. Returned on the task; filter people-search-tasks by it. The search does not use it.`
+                ),
             min_followers: z
                 .number()
                 .int()
@@ -1104,7 +1140,7 @@ export function createDesearchMcpServer(
         apiKey,
         "people-search-tasks",
         "List People Search Tasks",
-        "Your People Search tasks, newest first, with status, counts, and cost. Free. Use it to find a task_id, or to see which searches are still queued, running, or paused: a new search is refused while too many are active.",
+        "Your People Search tasks, newest first, with status, counts, cost, and the metadata labels set on people-search. Free. Use it to find a task_id (filter by metadata to find the searches of one campaign), or to see which searches are still queued, running, or paused: a new search is refused while too many are active.",
         strictArgs({
             platform: peoplePlatform.optional().describe("Only tasks on this platform: 'x', 'youtube', 'linkedin', or 'tiktok'."),
             status: z
@@ -1118,7 +1154,12 @@ export function createDesearchMcpServer(
                 .max(100)
                 .optional()
                 .describe("Tasks per page (1-100, API default 20)."),
-            cursor: z.string().optional().describe("next_cursor from the previous page."),
+            cursor: z.string().optional().describe("next_cursor from the previous page. Keep the same metadata filter when you page."),
+            metadata: peopleMetadata(PEOPLE_METADATA_MAX_FILTERS)
+                .optional()
+                .describe(
+                    `Only tasks whose metadata has all of these key/value pairs (exact match, up to ${PEOPLE_METADATA_MAX_FILTERS}), example: {"campaign": "q4-outbound"}.`
+                ),
         }),
         async (args) => {
             try {

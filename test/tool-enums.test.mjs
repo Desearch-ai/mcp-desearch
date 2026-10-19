@@ -220,7 +220,7 @@ test("people tools advertise the People Search API enums", async () => {
         for (const name of filterArgs) {
             assert.equal(typeof byName["people-search"][name], "object", name);
         }
-        const common = ["platform", "query", "count", "min_score", "exclude", "idempotency_key"];
+        const common = ["platform", "query", "count", "min_score", "exclude", "metadata", "idempotency_key"];
         assert.deepEqual(
             Object.keys(byName["people-search"]).filter((name) => !common.includes(name)).sort(),
             [...filterArgs].sort()

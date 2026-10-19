@@ -53,6 +53,16 @@ export const PEOPLE_FILTER_CHANNELS = [
 export const PEOPLE_PROFILE_SORTS = ["score", "recent", "audience"] as const;
 
 export const PEOPLE_CONTROL_ACTIONS = ["pause", "resume", "cancel"] as const;
+
+/**
+ * `metadata`: the caller's own labels on a search (desearch-public-api model/people.py).
+ * A search takes up to 10 keys; `GET /desearch/people/tasks` takes up to 3 as
+ * `metadata.<key>=<value>` filters.
+ */
+export const PEOPLE_METADATA_KEY_PATTERN = "^[a-z0-9_.-]{1,40}$";
+export const PEOPLE_METADATA_MAX_KEYS = 10;
+export const PEOPLE_METADATA_MAX_FILTERS = 3;
+export const PEOPLE_METADATA_VALUE_MAX = 200;
 export type PeopleControlAction = (typeof PEOPLE_CONTROL_ACTIONS)[number];
 
 /**
@@ -92,6 +102,7 @@ export interface PeopleSearchArgs {
     count?: number;
     min_score?: number;
     exclude?: string[];
+    metadata?: Record<string, string>;
     idempotency_key?: string;
     min_followers?: number;
     max_followers?: number;
@@ -242,6 +253,7 @@ export function peopleSearchBody(args: PeopleSearchArgs): Record<string, unknown
     if (args.min_score !== undefined) body.min_score = args.min_score;
     if (args.exclude !== undefined) body.exclude = args.exclude;
     if (Object.keys(filters).length > 0) body.filters = filters;
+    if (args.metadata !== undefined && Object.keys(args.metadata).length > 0) body.metadata = args.metadata;
     return body;
 }
 
@@ -328,6 +340,7 @@ export function compactTask(task: unknown, options: { progress?: boolean } = {})
         stage: t.stage,
         done: status ? PEOPLE_ENDED_STATUSES.has(status) : undefined,
         query: t.query,
+        metadata: t.metadata,
         count: t.count,
         result_count: t.result_count,
         progress: options.progress ? t.progress : undefined,
@@ -451,16 +464,25 @@ export async function controlPeopleTask(
 /** `people-search-tasks`: the caller's tasks, newest first. */
 export async function listPeopleTasks(
     client: PeopleClient,
-    args: { platform?: PeoplePlatform; status?: string[]; limit?: number; cursor?: string }
+    args: {
+        platform?: PeoplePlatform;
+        status?: string[];
+        limit?: number;
+        cursor?: string;
+        metadata?: Record<string, string>;
+    }
 ): Promise<Record<string, unknown>> {
-    const page = objectOf(
-        await client.listTasks({
-            platform: args.platform,
-            status: args.status?.length ? args.status.join(",") : undefined,
-            limit: args.limit,
-            cursor: args.cursor,
-        })
-    );
+    const params: Record<string, QueryValue> = {
+        platform: args.platform,
+        status: args.status?.length ? args.status.join(",") : undefined,
+        limit: args.limit,
+        cursor: args.cursor,
+    };
+    // The API reads metadata filters as `metadata.<key>=<value>`, one parameter per pair.
+    for (const [key, value] of Object.entries(args.metadata ?? {})) {
+        params[`metadata.${key}`] = value;
+    }
+    const page = objectOf(await client.listTasks(params));
     return {
         tasks: arrayOf(page.tasks).map((task) => compactTask(task)),
         next_cursor: stringOf(page.next_cursor) ?? null,
