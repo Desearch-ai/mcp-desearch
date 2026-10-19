@@ -76,7 +76,7 @@ const TOOL_TITLES = {
 
 // Tools that change state. Every other tool is read-only.
 const WRITE_ANNOTATIONS = {
-    "people-search": { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+    "people-search": { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
     "people-search-control": { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
 };
 
@@ -220,7 +220,7 @@ test("stdio initializes and lists tools", async () => {
         const peopleTasks = listed.tools.find((entry) => entry.name === "people-search-tasks");
         assert.equal(peopleTasks.inputSchema.required, undefined);
         const peopleSearch = listed.tools.find((entry) => entry.name === "people-search");
-        assert.match(peopleSearch.description, /[Bb]illed/);
+        assert.match(peopleSearch.description, /paid job billed to the user's Desearch balance/);
         assert.match(peopleSearch.description, /people-search-status/);
         assert.deepEqual(peopleSearch.inputSchema.properties.platform.enum, ["x", "youtube", "linkedin", "tiktok"]);
         assert.equal(peopleSearch.inputSchema.properties.count.minimum, 5);

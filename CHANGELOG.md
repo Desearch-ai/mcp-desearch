@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.4
+
+`people-search` is marked destructive because it spends the user's Desearch balance.
+
+`readOnlyHint` stays false and `openWorldHint` stays true. `destructiveHint` is now true. The tool description states that it starts a paid job billed to the user's Desearch balance. `people-search-control` stays `destructiveHint: true`. Lookup tools, including `search` and `fetch`, stay read-only.
+
 ## 0.2.3
 
 The sign-in form works in a browser.
