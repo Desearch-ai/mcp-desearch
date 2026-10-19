@@ -144,10 +144,39 @@ jobs:
           tar -xzf "$archive" mcp-publisher
           chmod +x ./mcp-publisher
 
+      # The registry checks that the npm version exists. Right after `npm publish` the npm
+      # registry can still answer 404 for a minute or so (it did for 0.2.0–0.2.4), so wait
+      # until npm serves this version before registering it.
+      - name: Wait until npm serves this version
+        if: steps.registry.outputs.skip == 'false'
+        env:
+          VERSION: ${{ steps.pkg.outputs.version }}
+        run: |
+          for i in $(seq 1 30); do
+            if [ "$(npm view "desearch-mcp-server@${VERSION}" version 2>/dev/null)" = "${VERSION}" ] \
+              && curl -sf -o /dev/null "https://registry.npmjs.org/desearch-mcp-server/${VERSION}"; then
+              echo "npm serves desearch-mcp-server@${VERSION}."
+              exit 0
+            fi
+            echo "npm does not serve ${VERSION} yet (try ${i}/30), waiting 10s..."
+            sleep 10
+          done
+          echo "desearch-mcp-server@${VERSION} is still not on npm after 5 minutes."
+          exit 1
+
       - name: Authenticate to MCP Registry
         if: steps.registry.outputs.skip == 'false'
         run: ./mcp-publisher login github-oidc
 
+      # Retried because the registry's own npm lookup can lag behind npm for a little longer.
       - name: Publish server to MCP Registry
         if: steps.registry.outputs.skip == 'false'
-        run: ./mcp-publisher publish
+        run: |
+          for i in 1 2 3 4 5; do
+            if ./mcp-publisher publish; then
+              exit 0
+            fi
+            echo "MCP Registry publish failed (try ${i}/5), retrying in 30s..."
+            sleep 30
+          done
+          exit 1
