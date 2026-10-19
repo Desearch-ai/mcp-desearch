@@ -206,6 +206,29 @@ function fail(label: string, error: unknown): ToolResult {
     };
 }
 
+/**
+ * Some MCP clients (for example CrewAI MCPServerAdapter) send every unset
+ * optional argument as null. Treat null on an optional field exactly like an
+ * omitted field so defaults still apply. Required fields are left untouched,
+ * so null there is still rejected.
+ */
+export function nullAsOmitted(schema: z.ZodTypeAny): z.ZodTypeAny {
+    if (!schema.isOptional() || schema.isNullable()) {
+        return schema;
+    }
+    return z.preprocess((value) => (value === null ? undefined : value), schema);
+}
+
+export function nullTolerantShape(
+    shape: Record<string, z.ZodTypeAny>
+): Record<string, z.ZodTypeAny> {
+    const out: Record<string, z.ZodTypeAny> = {};
+    for (const [key, field] of Object.entries(shape)) {
+        out[key] = nullAsOmitted(field);
+    }
+    return out;
+}
+
 function registerTool(
     server: McpServer,
     apiKey: string,
@@ -243,7 +266,7 @@ function registerTool(
         {
             title,
             description,
-            inputSchema,
+            inputSchema: nullTolerantShape(inputSchema),
             annotations: { ...READ_ONLY_OPEN_WORLD, title },
         },
         guarded
