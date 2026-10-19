@@ -534,6 +534,75 @@ test("redis storage without REDIS_URL fails closed", async () => {
     }
 });
 
+test("rewritten /api oauth paths alias the public endpoints", async () => {
+    await withServer(async (server) => {
+        const origin = `http://127.0.0.1:${server.port}`;
+        const documents = [
+            ["/.well-known/oauth-protected-resource", "/api/oauth-protected-resource"],
+            ["/.well-known/oauth-protected-resource/mcp", "/api/oauth-protected-resource-mcp"],
+            ["/.well-known/oauth-authorization-server", "/api/oauth-authorization-server"],
+            ["/.well-known/openid-configuration", "/api/openid-configuration"],
+        ];
+        for (const [publicPath, alias] of documents) {
+            const direct = await fetch(`${origin}${publicPath}`);
+            const rewritten = await fetch(`${origin}${alias}`);
+            assert.equal(direct.status, 200, publicPath);
+            assert.equal(rewritten.status, 200, alias);
+            const body = await rewritten.json();
+            assert.deepEqual(body, await direct.json());
+            const serialized = JSON.stringify(body);
+            assert.equal(serialized.includes("/api/oauth"), false, alias);
+            assert.equal(serialized.includes("/api/openid"), false, alias);
+        }
+
+        const metadata = await (await fetch(`${origin}/api/oauth-authorization-server`)).json();
+        assert.equal(metadata.issuer, origin);
+        assert.equal(metadata.authorization_endpoint, `${origin}/authorize`);
+        assert.equal(metadata.token_endpoint, `${origin}/token`);
+        assert.equal(metadata.registration_endpoint, `${origin}/register`);
+        const resource = await (await fetch(`${origin}/api/oauth-protected-resource`)).json();
+        assert.equal(resource.resource, `${origin}/mcp`);
+        assert.deepEqual(resource.authorization_servers, [origin]);
+
+        process.env.OAUTH_ISSUER = "https://mcp.desearch.ai";
+        try {
+            const configured = await (await fetch(`${origin}/api/oauth-authorization-server`)).json();
+            assert.equal(configured.issuer, "https://mcp.desearch.ai");
+            assert.equal(configured.authorization_endpoint, "https://mcp.desearch.ai/authorize");
+            assert.equal(configured.token_endpoint, "https://mcp.desearch.ai/token");
+            assert.equal(configured.registration_endpoint, "https://mcp.desearch.ai/register");
+            const configuredResource = await (await fetch(`${origin}/api/oauth-protected-resource-mcp`)).json();
+            assert.equal(configuredResource.resource, "https://mcp.desearch.ai/mcp");
+            assert.equal(JSON.stringify(configuredResource).includes("/api/"), false);
+        } finally {
+            delete process.env.OAUTH_ISSUER;
+        }
+
+        const registered = await fetch(`${origin}/api/oauth-register`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+                redirect_uris: ["http://127.0.0.1:4312/callback"],
+                client_name: "rewritten-path",
+            }),
+        });
+        assert.equal(registered.status, 201);
+        assert.equal(typeof (await registered.json()).client_id, "string");
+
+        const authorize = await fetch(`${origin}/api/oauth-authorize`);
+        assert.equal(authorize.status, 400);
+        assert.match(await authorize.text(), /sign-in link is missing/);
+
+        const token = await fetch(`${origin}/api/oauth-token`, {
+            method: "POST",
+            headers: { "content-type": "application/x-www-form-urlencoded" },
+            body: "",
+        });
+        assert.equal(token.status, 400);
+        assert.notEqual((await token.json()).error, undefined);
+    });
+});
+
 test("vercel function entries serve both protected resource documents", async () => {
     const previousIssuer = process.env.OAUTH_ISSUER;
     process.env.OAUTH_ISSUER = "https://mcp.desearch.ai";

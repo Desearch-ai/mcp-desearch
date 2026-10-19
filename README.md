@@ -552,7 +552,7 @@ docker run --rm -e MCP_TRANSPORT=http -p 3000:3000 desearch-mcp
 
 ### Deploy on Vercel
 
-Vercel fits the MCP handler because each JSON-RPC call is one response. `vercel.json` builds the project, serves `POST /mcp`, and sets the function duration to 60 seconds. Hobby plans cap function duration lower than that, so AI Search tool calls need a plan that allows at least 60 seconds. `initialize` and `tools/list` are short either way.
+Vercel fits the MCP handler because each JSON-RPC call is one response. `vercel.json` builds the project, serves `POST /mcp`, and sets the function duration to 60 seconds. The same file rewrites the public OAuth paths to `/api/*`. The server accepts those rewritten paths and the public paths, and the metadata documents still advertise the public paths. Hobby plans cap function duration lower than that, so AI Search tool calls need a plan that allows at least 60 seconds. `initialize` and `tools/list` are short either way.
 
 OAuth codes and tokens need shared storage. On Vercel set `OAUTH_STORE=redis`, `REDIS_URL`, `OAUTH_ENCRYPTION_KEY`, and `OAUTH_ISSUER=https://mcp.desearch.ai`. The server refuses OAuth when `OAUTH_ISSUER` is unset or `OAUTH_STORE` is not `redis`, because Vercel sets `VERCEL` on every function. `OAUTH_REQUIRE_AUTH_ON_INITIALIZE=true` is optional. Leave it unset unless a client treats public `initialize` as a reason to skip sign-in.
 
