@@ -7,10 +7,25 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import DesearchImport from "desearch-js";
 import { z } from "zod";
+import {
+    PEOPLE_CONTROL_ACTIONS,
+    PEOPLE_FILTER_CHANNELS,
+    PEOPLE_PLATFORMS,
+    PEOPLE_PROFILE_SORTS,
+    PEOPLE_SEARCH_FILTERS,
+    PEOPLE_TASK_STATUSES,
+    controlPeopleTask,
+    createPeopleClient,
+    listPeopleProfiles,
+    listPeopleTasks,
+    readPeopleStatus,
+    startPeopleSearch,
+    type PeopleClient,
+} from "./people.js";
 import { AI_SEARCH_TOOLS, WEB_LINK_TOOLS, toolIdSchema } from "./tool-sources.js";
 
 export const SERVER_NAME = "Desearch";
-export const SERVER_VERSION = "0.1.5";
+export const SERVER_VERSION = "0.2.1";
 
 interface XSearchPayload {
     query: string;
@@ -67,15 +82,44 @@ type ToolResult = {
 
 type ToolHandler = (args: any) => Promise<ToolResult>;
 
+interface ToolAnnotations {
+    readOnlyHint: boolean;
+    destructiveHint: boolean;
+    idempotentHint?: boolean;
+    openWorldHint: boolean;
+}
+
 /**
- * Every tool reads live Desearch, web, or X data and returns it. None of them
- * write caller state. Hints only: clients must not treat them as a safety check.
+ * The search and X/web tools read live Desearch, web, or X data and return it.
+ * They do not write caller state. Hints only: clients must not treat them as a safety check.
  * destructiveHint is false so a client that ignores the readOnlyHint gate does
  * not treat a search as a destructive update (the MCP default for that hint is true).
  */
-const READ_ONLY_OPEN_WORLD = {
+const READ_ONLY_OPEN_WORLD: ToolAnnotations = {
     readOnlyHint: true,
     destructiveHint: false,
+    openWorldHint: true,
+};
+
+/**
+ * `people-search` creates a billed background task. Calling it again starts
+ * (and reserves) another search unless the same idempotency_key is sent.
+ */
+const BILLED_TASK: ToolAnnotations = {
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: false,
+    openWorldHint: true,
+};
+
+/**
+ * `people-search-control` changes a task's state. `cancel` cannot be undone.
+ * Repeating the same action has no further effect (the API answers 409).
+ */
+const TASK_CONTROL: ToolAnnotations = {
+    readOnlyHint: false,
+    destructiveHint: true,
+    idempotentHint: true,
     openWorldHint: true,
 };
 
@@ -108,6 +152,35 @@ function pageContentFields(): Record<string, z.ZodTypeAny> {
             .optional()
             .describe("Post-load wait in milliseconds when JavaScript rendering is enabled."),
     };
+}
+
+const peopleTaskId = z
+    .string()
+    .uuid()
+    .describe("task_id returned by people-search, example: '3f1c2b9e-8d4a-4c1e-9b7a-2e5f6a7b8c9d'");
+
+const peoplePlatform = z
+    .enum(PEOPLE_PLATFORMS)
+    .describe("Platform: 'x', 'youtube', 'linkedin', or 'tiktok'.");
+
+/**
+ * People tools reject unknown arguments instead of dropping them. A dropped
+ * filter (for example the API's nested `filters` object) would still run, and
+ * bill, a search without it.
+ */
+function strictArgs(shape: Record<string, z.ZodTypeAny>): z.AnyZodObject {
+    return z.object(shape).strict();
+}
+
+// A new schema per field: one shared instance would serialize as a JSON Schema $ref.
+function peopleKeywordList() {
+    return z.array(z.string().min(1).max(120)).max(20);
+}
+
+function platformFilterList(): string {
+    return Object.entries(PEOPLE_SEARCH_FILTERS)
+        .map(([platform, filters]) => `${platform}: ${filters.join(", ")}`)
+        .join(". ");
 }
 
 const engagementThreshold = z
@@ -290,9 +363,10 @@ function registerTool(
     name: string,
     title: string,
     description: string,
-    inputSchema: Record<string, z.ZodTypeAny>,
+    inputSchema: Record<string, z.ZodTypeAny> | z.AnyZodObject,
     handler: ToolHandler,
-    outputSchema?: Record<string, z.ZodTypeAny>
+    outputSchema?: Record<string, z.ZodTypeAny>,
+    annotations: ToolAnnotations = READ_ONLY_OPEN_WORLD
 ): void {
     // SDK 1.30's tool generics blow the TypeScript instantiation limit on these
     // schemas. Runtime registration is the same registerTool call.
@@ -301,9 +375,9 @@ function registerTool(
         config: {
             title: string;
             description: string;
-            inputSchema: Record<string, z.ZodTypeAny>;
+            inputSchema: Record<string, z.ZodTypeAny> | z.AnyZodObject;
             outputSchema?: Record<string, z.ZodTypeAny>;
-            annotations: typeof READ_ONLY_OPEN_WORLD & { title: string };
+            annotations: ToolAnnotations & { title: string };
         },
         callback: ToolHandler
     ) => unknown;
@@ -324,8 +398,8 @@ function registerTool(
             title,
             description,
             inputSchema,
-            outputSchema,
-            annotations: { ...READ_ONLY_OPEN_WORLD, title },
+            ...(outputSchema ? { outputSchema } : {}),
+            annotations: { ...annotations, title },
         },
         guarded
     );
@@ -335,11 +409,16 @@ function registerTool(
  * One MCP server bound to a single Desearch API key.
  * Stdio uses the process env key. Remote HTTP builds a new server per request
  * so each caller spends their own key.
- * `client` is a test seam. Production callers omit it and the server builds
- * a desearch-js client from `apiKey`.
+ * `client` and `peopleClient` are test seams. Production callers omit them and the
+ * server builds a desearch-js client and a People Search client (people.ts) from `apiKey`.
  */
-export function createDesearchMcpServer(apiKey: string, client?: DesearchClient): McpServer {
+export function createDesearchMcpServer(
+    apiKey: string,
+    client?: DesearchClient,
+    peopleClient?: PeopleClient
+): McpServer {
     const desearch = client ?? new Desearch(apiKey);
+    const people = peopleClient ?? createPeopleClient(apiKey);
     const server = new McpServer(
         {
             name: SERVER_NAME,
@@ -347,7 +426,7 @@ export function createDesearchMcpServer(apiKey: string, client?: DesearchClient)
         },
         {
             instructions:
-                "Search the public web and X with Desearch. Use search for titles and links, then fetch with a result URL to read the page. Other tools cover AI search, X posts, and page extraction. Calls need a Desearch API key.",
+                "Search the public web and X with Desearch. Use search for titles and links, then fetch with a result URL to read the page. Other tools cover AI search, X posts, and page extraction. People Search finds people and creators on X, YouTube, LinkedIn, and TikTok: people-search starts a billed search, people-search-status reads progress, and people-search-control can pause, resume, or cancel it. Calls need a Desearch API key.",
         }
     );
 
@@ -853,6 +932,268 @@ export function createDesearchMcpServer(apiKey: string, client?: DesearchClient)
             text: z.string(),
             url: z.string(),
             metadata: z.record(z.string(), z.string()).optional(),
+        }
+    );
+
+
+    registerTool(
+        server,
+        apiKey,
+        "people-search",
+        "People Search",
+        "Start a People Search: find people on X, YouTube, LinkedIn, or TikTok who match a plain-language description. Each person comes back with a fit score, why they matched, their audience, and public contacts and links. Billed and asynchronous: this call reserves count times the platform's per-person price (reserved_cost_usd) and returns a task_id at once. When the search ends you pay only for the people it delivered (a per-search minimum applies when it finds anyone; a search that finds no one is free) and the rest of the reservation is returned. The search runs in the background, usually for 1 to 5 minutes: poll people-search-status with the task_id to read progress and the people found so far, and use people-search-control to pause, resume, or cancel it. Do not start the same search twice; send idempotency_key so a retry returns the first task instead of charging again. Filters depend on the platform. " +
+            platformFilterList() +
+            ".",
+        strictArgs({
+            platform: peoplePlatform.describe(
+                "Where to look: 'x' (X profiles), 'youtube' (YouTube creators), 'linkedin' (LinkedIn members), or 'tiktok' (TikTok creators)."
+            ),
+            query: z
+                .string()
+                .min(3)
+                .max(1000)
+                .describe(
+                    "Who you are looking for, in plain language, example: 'Skincare creators who review sunscreen'."
+                ),
+            count: z
+                .number()
+                .int()
+                .min(5)
+                .max(200)
+                .optional()
+                .describe(
+                    "How many qualified people to find (5-200, API default 25). The search reserves this many and bills only the people it delivers."
+                ),
+            min_score: z
+                .number()
+                .int()
+                .min(0)
+                .max(100)
+                .optional()
+                .describe("Only return people with at least this fit score (0-100)."),
+            exclude: z
+                .array(z.string().min(1))
+                .max(1000)
+                .optional()
+                .describe("Handles to leave out, for example people you already contacted."),
+            idempotency_key: z
+                .string()
+                .min(1)
+                .max(200)
+                .optional()
+                .describe(
+                    "Any unique string for this search, for example a UUID. Sending the same key again returns the first task and is not charged again."
+                ),
+            min_followers: z
+                .number()
+                .int()
+                .min(0)
+                .optional()
+                .describe("Minimum follower count. x, linkedin, tiktok."),
+            max_followers: z
+                .number()
+                .int()
+                .min(0)
+                .optional()
+                .describe("Maximum follower count. x, linkedin, tiktok."),
+            min_subscribers: z
+                .number()
+                .int()
+                .min(0)
+                .optional()
+                .describe("Minimum subscriber count. youtube only."),
+            max_subscribers: z
+                .number()
+                .int()
+                .min(0)
+                .optional()
+                .describe("Maximum subscriber count. youtube only."),
+            verified_only: z
+                .boolean()
+                .optional()
+                .describe("Only verified or X Premium accounts. x only."),
+            require_contact: z
+                .boolean()
+                .optional()
+                .describe(
+                    "Only creators with a public email (tiktok: in the bio; youtube: an email or contact link). youtube, tiktok."
+                ),
+            countries: peopleKeywordList()
+                .optional()
+                .describe("Countries to prefer, example: ['US', 'GB']. x, youtube, linkedin."),
+            keywords: peopleKeywordList()
+                .optional()
+                .describe("Words that should appear in their posts, videos, or bio. All platforms."),
+            exclude_keywords: peopleKeywordList()
+                .optional()
+                .describe("Leave out people who mention these words. All platforms."),
+        }),
+        async (args) => {
+            try {
+                return ok(await startPeopleSearch(people, args));
+            } catch (error) {
+                return fail("People Search error", error);
+            }
+        },
+        undefined,
+        BILLED_TASK
+    );
+
+    registerTool(
+        server,
+        apiKey,
+        "people-search-status",
+        "Get People Search Status",
+        "Status, progress, and cost of one People Search task, plus a page of the people found so far: name, handle, url, platform, audience, location, fit score, why they matched, contacts, and links. Free. People arrive while the search runs: pass the returned next_cursor as cursor on the next call to get only the people found since then. When done is true and has_more is false you have everyone the search found.",
+        strictArgs({
+            task_id: peopleTaskId,
+            cursor: z
+                .string()
+                .max(64)
+                .optional()
+                .describe(
+                    "next_cursor from the previous people-search-status call. Omit to start from the first person."
+                ),
+            limit: z
+                .number()
+                .int()
+                .min(1)
+                .max(100)
+                .default(25)
+                .describe("People per page (1-100, default 25)."),
+            include_people: z
+                .boolean()
+                .default(true)
+                .describe("Set false to read only the status, progress, and cost."),
+        }),
+        async (args) => {
+            try {
+                return ok(await readPeopleStatus(people, args));
+            } catch (error) {
+                return fail("People Search Status error", error);
+            }
+        }
+    );
+
+    registerTool(
+        server,
+        apiKey,
+        "people-search-control",
+        "Control People Search",
+        "Pause, resume, or cancel a People Search task. Free. pause: a queued search pauses at once; a running one finishes its current batch first (status pausing, then paused). A search paused for more than 7 days is cancelled. resume: continues a paused search where it stopped, with no new charge. cancel: stops the search for good; you pay only for the people it already delivered and the rest of the reservation is returned. People found so far stay readable for 30 days.",
+        strictArgs({
+            task_id: peopleTaskId,
+            action: z
+                .enum(PEOPLE_CONTROL_ACTIONS)
+                .describe("'pause', 'resume', or 'cancel'. cancel cannot be undone."),
+        }),
+        async (args) => {
+            try {
+                return ok(await controlPeopleTask(people, args));
+            } catch (error) {
+                return fail("People Search Control error", error);
+            }
+        },
+        undefined,
+        TASK_CONTROL
+    );
+
+    registerTool(
+        server,
+        apiKey,
+        "people-search-tasks",
+        "List People Search Tasks",
+        "Your People Search tasks, newest first, with status, counts, and cost. Free. Use it to find a task_id, or to see which searches are still queued, running, or paused: a new search is refused while too many are active.",
+        strictArgs({
+            platform: peoplePlatform.optional().describe("Only tasks on this platform: 'x', 'youtube', 'linkedin', or 'tiktok'."),
+            status: z
+                .array(z.enum(PEOPLE_TASK_STATUSES))
+                .optional()
+                .describe("Only tasks in these statuses, example: ['running', 'paused']."),
+            limit: z
+                .number()
+                .int()
+                .min(1)
+                .max(100)
+                .optional()
+                .describe("Tasks per page (1-100, API default 20)."),
+            cursor: z.string().optional().describe("next_cursor from the previous page."),
+        }),
+        async (args) => {
+            try {
+                return ok(await listPeopleTasks(people, args));
+            } catch (error) {
+                return fail("People Search Tasks error", error);
+            }
+        }
+    );
+
+    registerTool(
+        server,
+        apiKey,
+        "people-profiles",
+        "List People Found",
+        "Everyone your People Searches found on one platform, one entry per person: their best-scoring result and the search that found them (found_by). Free; it does not run a new search. Search by name, handle, bio, or location with q, filter by contact channels (has), audience, fit score, location, or verification, and sort by score, recent, or audience. People from searches that ended more than 30 days ago are left out.",
+        strictArgs({
+            platform: peoplePlatform,
+            q: z
+                .string()
+                .max(200)
+                .optional()
+                .describe("Text in the name, handle, bio, or location, example: 'skincare'."),
+            sort: z
+                .enum(PEOPLE_PROFILE_SORTS)
+                .optional()
+                .describe("'score' (API default), 'recent', or 'audience'."),
+            limit: z
+                .number()
+                .int()
+                .min(1)
+                .max(200)
+                .default(25)
+                .describe("People per page (1-200, default 25)."),
+            cursor: z.string().optional().describe("next_cursor from the previous page."),
+            has: z
+                .array(z.enum(PEOPLE_FILTER_CHANNELS))
+                .optional()
+                .describe(
+                    "Channels every person must have, example: ['email', 'instagram']. 'email' is a public email; the others are a link of that type."
+                ),
+            min_audience: z
+                .number()
+                .int()
+                .min(0)
+                .optional()
+                .describe("Minimum followers (subscribers on YouTube)."),
+            max_audience: z
+                .number()
+                .int()
+                .min(0)
+                .optional()
+                .describe("Maximum followers (subscribers on YouTube)."),
+            min_score: z
+                .number()
+                .int()
+                .min(0)
+                .max(100)
+                .optional()
+                .describe("Minimum fit score (0-100)."),
+            location: z
+                .string()
+                .max(100)
+                .optional()
+                .describe("Text in the location, example: 'united states'."),
+            verified: z
+                .boolean()
+                .optional()
+                .describe("Only verified accounts. Only X and TikTok people carry a verified flag."),
+        }),
+        async (args) => {
+            try {
+                return ok(await listPeopleProfiles(people, args));
+            } catch (error) {
+                return fail("People Profiles error", error);
+            }
         }
     );
 

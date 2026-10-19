@@ -51,11 +51,13 @@ Example output:
 
 The tool returns that JSON as pretty-printed text: `{ "content": [{ "type": "text", "text": "<json above>" }] }`.
 
-AI search, X search and web search for AI agents, plus page extraction and X data tools. Bring your own Desearch API key.
+AI search, X search and web search for AI agents, plus page extraction, X data tools, and People Search (find people and creators on X, YouTube, LinkedIn, and TikTok). Bring your own Desearch API key.
 
 ## Tools
 
-The Desearch MCP server includes the following tools:
+The Desearch MCP server includes the following tools.
+
+Lookup tools, including `search` and `fetch`, set `readOnlyHint: true`, `destructiveHint: false`, and `openWorldHint: true`. `people-search` starts a billed background job, so `readOnlyHint` is false and `destructiveHint` is false. `people-search-control` can cancel a search, so `readOnlyHint` is false and `destructiveHint` is true. `openWorldHint` is true on every tool because the call reaches a live external source.
 
 -   **AI Search** (`ai-search`): Performs AI Twitter and web searches with relevant links and summary. `tools` uses short source ids (`web`, `twitter`, `arxiv`, `wikipedia`, `hackernews`, `reddit`). Older labels such as `Web Search`, `ArXiv Search`, `Wikipedia Search`, `Hacker News Search`, and `Reddit Search` are still accepted and sent as the short id. `youtube` is not accepted. Default is `["web", "twitter"]`.
 -   **X Search** (`x-search`): Tweet search on X. Arguments: `query` (required), `count` (optional, default 20). Sort stays Top. Optional filters: `user`, `start_date`, `end_date` (YYYY-MM-DD), `lang`, `verified`, `blue_verified`, `is_quote`, `is_video`, `is_image`, `min_retweets`, `min_replies`, `min_likes`.
@@ -74,8 +76,108 @@ The Desearch MCP server includes the following tools:
 -   **X User Replies** (`x-user-replies`): Posts and replies by a user. Arguments: `user` (required), `count` (optional, 1–100), `query` (optional).
 -   **X Post Replies** (`x-post-replies`): Replies to a post. Arguments: `post_id` (required), `count` (optional, 1–100), `query` (optional).
 -   **X Trends** (`x-trends`): Trending topics for a location. Arguments: `woeid` (required), `count` (optional, 30–100).
+-   **People Search** (`people-search`): Start a search for people who match a plain-language description. **Billed.** Arguments: `platform` (required: `x`, `youtube`, `linkedin`, or `tiktok`), `query` (required, 3–1000 characters), `count` (optional, 5–200, API default 25), `min_score` (optional, 0–100), `exclude` (optional handles), `idempotency_key` (optional), and that platform's filters (below). Returns the `task_id`, status, and `reserved_cost_usd`.
+-   **People Search Status** (`people-search-status`): A task's status, progress, and cost, plus a page of the people found so far. Arguments: `task_id` (required), `cursor` (optional, `next_cursor` from the previous call), `limit` (optional, 1–100, default 25), `include_people` (optional, default `true`). Free.
+-   **Control People Search** (`people-search-control`): Pause, resume, or cancel a task. Arguments: `task_id` (required), `action` (required: `pause`, `resume`, or `cancel`). Free.
+-   **List People Search Tasks** (`people-search-tasks`): Your searches, newest first. Arguments: `platform` (optional), `status` (optional list, for example `["running", "paused"]`), `limit` (optional, 1–100), `cursor` (optional). Free.
+-   **List People Found** (`people-profiles`): Everyone your searches found on one platform, one entry per person, with the search that found them. Arguments: `platform` (required), `q` (optional text in name, handle, bio, or location), `sort` (optional: `score`, `recent`, or `audience`), `limit` (optional, 1–200, default 25), `cursor` (optional), and the filters `has` (channels every person must have: `email`, `website`, `x`, `linkedin`, `instagram`, `youtube`, `tiktok`), `min_audience`, `max_audience`, `min_score`, `location`, `verified`. Free.
 
-The full SDK method → endpoint → MCP tool map is in [docs/API_MCP_PARITY.md](docs/API_MCP_PARITY.md). Every public `desearch-js` 1.5 method is a tool. `latestTweets` was removed from the SDK (`GET /twitter/latest` in 1.0.1) and is not exposed.
+The full SDK method → endpoint → MCP tool map is in [docs/API_MCP_PARITY.md](docs/API_MCP_PARITY.md). Every public `desearch-js` 1.5 method is a tool. `latestTweets` was removed from the SDK (`GET /twitter/latest` in 1.0.1) and is not exposed. People Search is not in `desearch-js` 1.5; its tools call the `/desearch/people/*` routes directly, and the parity doc lists them too.
+
+### People Search
+
+People Search finds X profiles, YouTube creators, LinkedIn members, or TikTok creators who match a plain-language description. Each person comes back with a fit score, one line on why they matched, their audience (followers, or subscribers on YouTube), location, and the public contacts and links the search found.
+
+A search is a background task:
+
+1. `people-search` starts it and returns a `task_id` at once. It is the only billed People Search call. It reserves `count` people at the platform's per-person price (`reserved_cost_usd`). When the search ends you pay only for the people it delivered (a per-search minimum applies when it finds anyone; a search that finds no one is free), and the rest of the reservation is returned. Send the same `idempotency_key` to retry a call without starting, or paying for, a second search.
+2. The search usually runs for 1 to 5 minutes. `people-search-status` returns its status, progress, cost, and the people found so far. People arrive while it runs: pass `next_cursor` back as `cursor` to get only the new ones. When `done` is `true` and `has_more` is `false`, you have everyone it found.
+3. `people-search-control` pauses, resumes, or cancels it. A cancelled search bills only the people it already delivered.
+
+People found stay readable for 30 days after a search ends. `people-profiles` lists them per platform across all your searches, with filters such as `has: ["email"]`.
+
+Search filters depend on the platform. A filter that does not apply is rejected before the billed call.
+
+| Platform | Filters |
+| --- | --- |
+| `x` | `min_followers`, `max_followers`, `verified_only`, `countries`, `keywords`, `exclude_keywords` |
+| `youtube` | `min_subscribers`, `max_subscribers`, `countries`, `require_contact`, `keywords`, `exclude_keywords` |
+| `linkedin` | `min_followers`, `max_followers`, `countries`, `keywords`, `exclude_keywords` |
+| `tiktok` | `min_followers`, `max_followers`, `require_contact`, `keywords`, `exclude_keywords` |
+
+`require_contact` keeps only creators with a public email (on TikTok, in the bio). `keywords` and `exclude_keywords` take up to 20 words each.
+
+Prompt: find 10 TikTok skincare creators with a public email.
+
+```json
+{
+    "name": "people-search",
+    "arguments": {
+        "platform": "tiktok",
+        "query": "Skincare creators who review skincare products",
+        "count": 10,
+        "require_contact": true
+    }
+}
+```
+
+Example output:
+
+```json
+{
+    "task_id": "3f1c2b9e-8d4a-4c1e-9b7a-2e5f6a7b8c9d",
+    "platform": "tiktok",
+    "status": "queued",
+    "done": false,
+    "query": "Skincare creators who review skincare products",
+    "count": 10,
+    "result_count": 0,
+    "reserved_cost_usd": 0.5,
+    "created_at": "2026-10-17T10:00:00Z",
+    "cost_usd": 0.5,
+    "currency": "USD",
+    "next": "Searches usually take 1 to 5 minutes. Poll people-search-status with this task_id every 15 to 30 seconds; people appear while it runs."
+}
+```
+
+Then poll with `{"task_id": "3f1c2b9e-8d4a-4c1e-9b7a-2e5f6a7b8c9d"}` on `people-search-status`:
+
+```json
+{
+    "task_id": "3f1c2b9e-8d4a-4c1e-9b7a-2e5f6a7b8c9d",
+    "platform": "tiktok",
+    "status": "running",
+    "stage": "processing",
+    "done": false,
+    "query": "Skincare creators who review skincare products",
+    "count": 10,
+    "result_count": 4,
+    "progress": { "round": 1, "candidates_processed": 40, "qualified": 4 },
+    "reserved_cost_usd": 0.5,
+    "created_at": "2026-10-17T10:00:00Z",
+    "people": [
+        {
+            "id": "tiktok:example_creator",
+            "platform": "tiktok",
+            "handle": "example_creator",
+            "name": "Example Creator",
+            "url": "https://www.tiktok.com/@example_creator",
+            "audience": 48200,
+            "location": "United States",
+            "score": 88,
+            "why": "Reviews sunscreens and moisturizers every week.",
+            "contacts": [{ "type": "email", "value": "creator@example.com" }],
+            "links": [{ "type": "instagram", "url": "https://instagram.com/example_creator" }],
+            "evidence_url": "https://www.tiktok.com/@example_creator/video/1"
+        }
+    ],
+    "next_cursor": "4",
+    "has_more": false,
+    "next": "Still searching. Wait 15 to 30 seconds, then call people-search-status again with cursor \"4\" to get only the people found since this call."
+}
+```
+
+The output above is shortened to one person. CSV and JSON Lines downloads (`/export` routes) are not MCP tools; call the API directly for a file.
 
 ## Prerequisites 📋
 

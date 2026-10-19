@@ -1,8 +1,8 @@
 {
     "name": "desearch-mcp-server",
-    "version": "0.1.5",
+    "version": "0.2.1",
     "mcpName": "io.github.Desearch-ai/mcp-desearch",
-    "description": "AI search (web, Reddit, Hacker News, arXiv, Wikipedia, and Twitter), X (Twitter) search, web search, page extraction, and X data tools for AI agents.",
+    "description": "AI search (web, Reddit, Hacker News, arXiv, Wikipedia, and Twitter), X (Twitter) search, web search, page extraction, X data, and People Search (find people and creators on X, YouTube, LinkedIn, and TikTok) tools for AI agents.",
     "license": "MIT",
     "homepage": "https://desearch.ai",
     "type": "module",
@@ -40,7 +40,14 @@
         "reddit",
         "hackernews",
         "arxiv",
-        "wikipedia"
+        "wikipedia",
+        "people-search",
+        "creator-search",
+        "influencer-search",
+        "lead-generation",
+        "youtube",
+        "tiktok",
+        "linkedin"
     ],
     "scripts": {
         "build": "tsc && node -e \"require('fs').chmodSync('build/index.js', '755')\"",

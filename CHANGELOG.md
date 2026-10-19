@@ -1,14 +1,43 @@
 # Changelog
 
-## 0.1.5
+## 0.2.1
 
-Remote MCP OAuth 2.1, alongside the existing API key header.
+Remote MCP OAuth 2.1 and per-IP rate limits, on top of the 0.2.0 People Search tools. `search` and `fetch` are included for clients that look up a page by query and then read it.
 
-- Protected resource metadata, authorization server metadata, dynamic client registration, authorization code with PKCE S256, and rotating refresh tokens.
-- The sign-in page asks for a Desearch API key and checks it before issuing a code. Access tokens are opaque. The key is encrypted at rest and is not placed in the token.
-- A raw Desearch API key in `Authorization` or `x-api-key` still works. `tools/list` without a key still returns tools. `tools/call` without a key returns 401 with `WWW-Authenticate`.
-- `search` and `fetch` are a query-then-read pair. `search` takes `query` and returns titles and links. `fetch` takes a URL and returns the page text.
-- Production (`NODE_ENV=production` or `VERCEL`) requires `OAUTH_ISSUER` and `OAUTH_STORE=redis`. The issuer is not taken from forwarded host headers. Access tokens must match this server's resource. A bad or expired token challenge includes `error="invalid_token"`. `tools/call` auth failures keep HTTP 401 and also return `_meta["mcp/www_authenticate"]`. `OAUTH_REQUIRE_AUTH_ON_INITIALIZE=true` makes keyless `initialize` return 401. Refresh rotation is atomic, authorization-code replay revokes issued tokens, and the sign-in form rejects a cross-site `Origin` or `Referer`.
+- Protected resource metadata, authorization server metadata, dynamic client registration, authorization code with PKCE S256, and rotating refresh tokens. Refresh rotation is atomic. Replaying an authorization code revokes tokens already issued from that code.
+- The sign-in page asks for a Desearch API key and checks it before issuing a code. Only HTTP 422 counts as a valid key. Access tokens are opaque. The key is encrypted at rest and is not placed in the token.
+- A raw Desearch API key in `Authorization` or `x-api-key` still works. `tools/list` without a key still returns tools. `tools/call` without a key returns HTTP 401 with `WWW-Authenticate`, and the body is a tool error with `_meta["mcp/www_authenticate"]`.
+- Production (`NODE_ENV=production` or `VERCEL`) requires `OAUTH_ISSUER` and `OAUTH_STORE=redis`. The issuer is not taken from forwarded host headers. Access tokens must match this server's resource. A bad or expired token challenge includes `error="invalid_token"`. `OAUTH_REQUIRE_AUTH_ON_INITIALIZE=true` makes keyless `initialize` return 401. The sign-in form rejects a cross-site `Origin` or `Referer`, and rejects a POST that sends none of those or `Sec-Fetch-Site`.
+- `POST /register` allows 10 requests an hour per IP. The sign-in key check allows 20 requests every 10 minutes per IP. A request past the limit returns 429 with `Retry-After`.
+- `search` takes `query` and returns titles and links. `fetch` takes a URL and returns the page text.
+- Tool annotations are not all read-only. Lookup tools, including `search` and `fetch`, keep `readOnlyHint: true`, `destructiveHint: false`, and `openWorldHint: true`. `people-search` starts a billed job, so `readOnlyHint` is false and `destructiveHint` is false. `people-search-control` can cancel a search, so `readOnlyHint` is false and `destructiveHint` is true. `openWorldHint` is true on every tool.
+
+## 0.2.0
+
+People Search tools. Release this version only after People Search is live on `api.desearch.ai`; until then the new tools return the API's HTTP error.
+
+People Search finds X profiles, YouTube creators, LinkedIn members, or TikTok creators who match a plain-language description. desearch-js 1.5 has no People Search methods, so `people.ts` calls the `/desearch/people/*` routes directly with the same key header.
+
+| Tool | Route | Billed |
+| --- | --- | --- |
+| `people-search` | `POST /desearch/people/search/{x,youtube,linkedin,tiktok}` | Yes. Reserves `count` people at the platform's per-person price and settles to the people delivered (minimum per search; nothing when it finds no one). |
+| `people-search-status` | `GET /desearch/people/tasks/{id}` and `GET /desearch/people/tasks/{id}/results` | No |
+| `people-search-control` | `POST /desearch/people/tasks/{id}/pause`, `/resume`, `/cancel` | No |
+| `people-search-tasks` | `GET /desearch/people/tasks` | No |
+| `people-profiles` | `GET /desearch/people/profiles` | No |
+
+- `people-search` takes each platform's filters as top-level arguments and rejects a filter that does not apply to the chosen platform before the billed call. `idempotency_key` is sent as `Idempotency-Key`, so a retry returns the first task instead of starting a second search.
+- `people-search-status` returns compact people (name, handle, url, platform, audience, location, score, why they matched, contacts, links) and a `next_cursor` that returns only people found since the previous call.
+- Every people tool returns a `next` line that says what to call next.
+- People tools reject unknown arguments, so a misspelled or nested filter is not dropped from a billed search.
+- The `/export` CSV and JSON Lines routes are not tools.
+
+### Tool annotations
+
+The 15 existing tools keep `readOnlyHint: true`, `destructiveHint: false`, `openWorldHint: true`. So do `people-search-status`, `people-search-tasks`, and `people-profiles`.
+
+- `people-search`: `readOnlyHint: false`, `destructiveHint: false`, `idempotentHint: false`. It creates a billed task.
+- `people-search-control`: `readOnlyHint: false`, `destructiveHint: true` (cancel cannot be undone), `idempotentHint: true`.
 
 ## 0.1.4
 
@@ -67,7 +96,7 @@ Node.js `>=20.18.1`. Node 22 is supported. Node 18 is not. `desearch-js` loads `
 
 ### Tool annotations
 
-`tools/list` sets MCP tool annotations on every tool:
+In 0.1.2, `tools/list` set MCP tool annotations on every tool in that release:
 
 - `readOnlyHint: true` — the tool reads Desearch, the web, or X and does not write caller state
 - `destructiveHint: false` — it does not perform a destructive update

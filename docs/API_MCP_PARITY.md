@@ -12,6 +12,7 @@ Auth is unchanged: stdio reads `DESEARCH_API_KEY`; Streamable HTTP builds one cl
 | Phase 2 | Web tools: `web-search`, `web-links-search` | Done. |
 | Phase 3 | Remaining X tools (posts, user timelines, replies, retweeters, AI X links). Also the extra `xSearch` filters on `x-search`. | Done. |
 | Phase 4 | `extract`, legacy `webCrawl` (`web-crawl`), and `xTrends` | Done. |
+| People Search | `people-search`, `people-search-status`, `people-search-control`, `people-search-tasks`, `people-profiles` | Done in 0.2.0. Merge after People Search is live on `api.desearch.ai`. |
 
 Phase 4 covers the remaining public `desearch-js` 1.5 methods. Every method in the table below has an MCP tool. The intentional gap is `latestTweets`: desearch-js 1.0.1 called `GET /twitter/latest`, and 1.5 removed that method, so there is no MCP tool for it. `web-crawl` stays even though the SDK deprecates `webCrawl` in favor of `extract`.
 
@@ -44,6 +45,23 @@ Phase 4 covers the remaining public `desearch-js` 1.5 methods. Every method in t
 | `webCrawl` | `GET /web/crawl` | `web-crawl` | done (Phase 4) | Same params as `extract` (`WebCrawlParams` extends `ExtractParams`). SDK marks `webCrawl` deprecated and keeps it only for the legacy route. The MCP tool description says to prefer `extract`. |
 
 Tool handlers return the SDK payload as pretty-printed JSON text. They do not pass `includeMetadata: true`, same as `ai-search` and `x-search`.
+
+## People Search routes
+
+People Search is not in `desearch-js` 1.5. `people.ts` calls the routes directly with the same base URL (`https://api.desearch.ai`), the same `Authorization: <key>` header, and the same `HTTP <status>: <detail>` error text as desearch-js. The contract is `desearch-public-api` `src/model/people.py`, `src/routers/people.py`, and `src/utils/people_filters.py`.
+
+| HTTP endpoint | MCP tool | Billed | Notes |
+| --- | --- | --- | --- |
+| `POST /desearch/people/search/{x,youtube,linkedin,tiktok}` | `people-search` | Yes | `platform` picks the route. Body is `query`, optional `count` (5–200), `min_score`, `exclude`, and `filters`. The MCP tool takes the filters as top-level arguments and builds `filters` from the ones set; a filter that is not in that platform's model (`XProfileSearchFilters`, `YouTubeCreatorSearchFilters`, `LinkedInProfileSearchFilters`, `TikTokCreatorSearchFilters`) is rejected before the call, because the API forbids extra keys. `idempotency_key` is sent as the `Idempotency-Key` header. A 200 (same key as an earlier search) is returned with `existing_task: true`. |
+| `GET /desearch/people/tasks/{task_id}` | `people-search-status` | No | Status, stage, progress, errors, and cost. |
+| `GET /desearch/people/tasks/{task_id}/results` | `people-search-status` | No | Called in the same tool when `result_count > 0` and the task has not expired. `cursor` and `limit` (MCP default 25, max 100; API allows 500) pass through. Each person is reduced to `id`, `platform`, `handle`, `name`, `url`, `audience`, `location`, `verified`, `headline`, `company`, `score`, `why` (`score.summary`), up to three `reasons`, `contacts`, `links`, and `evidence_url`. |
+| `POST /desearch/people/tasks/{task_id}/pause`, `/resume`, `/cancel` | `people-search-control` | No | `action` picks the route. A 409 is returned as a tool error with the API detail and the task's current status. |
+| `GET /desearch/people/tasks` | `people-search-tasks` | No | `platform`, `status` (list, sent comma-separated), `limit`, `cursor`. |
+| `GET /desearch/people/profiles` | `people-profiles` | No | `platform`, `q`, `sort`, `limit` (MCP default 25), `cursor`, and the result filters `has` (list, sent comma-separated), `min_audience`, `max_audience`, `min_score`, `location`, `verified`. Each profile keeps `found_by`. |
+| `GET /desearch/people/tasks/{task_id}/export` | — | No | Not a tool. It streams a whole CSV or JSON Lines file. Read pages with `people-search-status` or `people-profiles`, or call the API for a file. |
+| `GET /desearch/people/profiles/export` | — | No | Not a tool, for the same reason. |
+
+People tools reject unknown arguments. Without that, an argument the schema does not list (for example the API's nested `filters` object) would be dropped and the billed search would run without it.
 
 ## Link fields vs billing fields
 

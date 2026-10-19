@@ -267,7 +267,7 @@ test("authorization code PKCE issues an opaque token that calls the server", asy
         assert.equal(names.includes("search"), true);
         assert.equal(names.includes("fetch"), true);
         const expectedSchemes = [{ type: "oauth2", scopes: ["mcp"] }];
-        assert.ok(tools.result.tools.length >= 17);
+        assert.equal(tools.result.tools.length, 22);
         for (const tool of tools.result.tools) {
             assert.deepEqual(tool.securitySchemes, expectedSchemes, tool.name);
             assert.deepEqual(tool._meta.securitySchemes, expectedSchemes, tool.name);
@@ -908,7 +908,7 @@ test("every tools/list entry carries oauth securitySchemes", async () => {
         });
         assert.equal(listed.status, 200);
         const tools = (await listed.json()).result.tools;
-        assert.ok(tools.length >= 17);
+        assert.equal(tools.length, 22);
         for (const tool of tools) {
             assert.deepEqual(tool.securitySchemes, expected, tool.name);
             assert.deepEqual(tool._meta.securitySchemes, expected, tool.name);
