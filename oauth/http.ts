@@ -19,8 +19,33 @@ const OAUTH_PATHS = new Set([
     "/token",
 ]);
 
+/**
+ * `vercel.json` rewrites the public OAuth paths to these destinations before
+ * the request reaches the process. The `api/*.js` wrappers map them back, but
+ * a Node framework project uses `index.ts` as the only entry and never runs
+ * those wrappers. Accept the rewritten paths here so both setups work.
+ * Metadata URLs still advertise the public paths.
+ */
+const OAUTH_REWRITTEN_PATHS: Record<string, string> = {
+    "/api/oauth-protected-resource": "/.well-known/oauth-protected-resource",
+    "/api/oauth-protected-resource-mcp": "/.well-known/oauth-protected-resource/mcp",
+    "/api/oauth-authorization-server": "/.well-known/oauth-authorization-server",
+    "/api/openid-configuration": "/.well-known/openid-configuration",
+    "/api/oauth-register": "/register",
+    "/api/oauth-authorize": "/authorize",
+    "/api/oauth-token": "/token",
+};
+
+export function canonicalOAuthPath(pathname: string): string | null {
+    const normalized = pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;
+    if (OAUTH_PATHS.has(normalized)) {
+        return normalized;
+    }
+    return OAUTH_REWRITTEN_PATHS[normalized] ?? null;
+}
+
 export function isOAuthPath(pathname: string): boolean {
-    return OAUTH_PATHS.has(pathname);
+    return canonicalOAuthPath(pathname) !== null;
 }
 
 export function isOAuthMaterial(value: string): boolean {
@@ -92,8 +117,8 @@ function methodNotAllowed(allow: string): Response {
 }
 
 export async function handleOAuthHttp(request: Request): Promise<Response | null> {
-    const pathname = new URL(request.url).pathname.replace(/\/+$/, "") || "/";
-    if (!isOAuthPath(pathname)) {
+    const pathname = canonicalOAuthPath(new URL(request.url).pathname);
+    if (!pathname) {
         return null;
     }
     try {

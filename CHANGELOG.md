@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.2
+
+OAuth discovery and sign-in answer on the rewritten `/api/*` paths as well as the public paths.
+
+Vercel rewrites `/.well-known/oauth-protected-resource`, `/.well-known/oauth-protected-resource/mcp`, `/.well-known/oauth-authorization-server`, `/.well-known/openid-configuration`, `/register`, `/authorize`, and `/token` to `/api/oauth-protected-resource`, `/api/oauth-protected-resource-mcp`, `/api/oauth-authorization-server`, `/api/openid-configuration`, `/api/oauth-register`, `/api/oauth-authorize`, and `/api/oauth-token`. A Node framework project serves `index.ts` and does not run the `api/*.js` wrappers, so those rewritten paths were 404. The handler now treats each rewritten path as the matching public route. Issuer, resource, and metadata URLs stay on the public paths.
+
 ## 0.2.1
 
 Remote MCP OAuth 2.1 and per-IP rate limits, on top of the 0.2.0 People Search tools. `search` and `fetch` are included for clients that look up a page by query and then read it.
