@@ -21,6 +21,7 @@ const TASK = {
     query: "Skincare creators who review sunscreen",
     count: 10,
     result_count: 2,
+    metadata: {},
     interpreted: { criteria: ["reviews sunscreen"], queries: ["spf review"] },
     progress: { round: 1, candidates_processed: 12, qualified: 2 },
     errors: [],
@@ -419,6 +420,78 @@ test("people-search rejects bad input before any request", async () => {
     });
 });
 
+test("people-search sends metadata labels and returns them on the task", async () => {
+    await withServer(async (client, mock) => {
+        const metadata = { campaign: "q4-outbound", "workspace.id": "ws_42" };
+        mock.reply("POST", "/desearch/people/search/linkedin", 202, {
+            ...TASK,
+            platform: "linkedin",
+            status: "queued",
+            metadata,
+        });
+        mock.reply("POST", "/desearch/people/search/x", 202, { ...TASK, platform: "x", status: "queued" });
+
+        const tagged = await client.callTool({
+            name: "people-search",
+            arguments: { platform: "linkedin", query: "Heads of sales at fintech startups", count: 5, metadata },
+        });
+        assert.equal(tagged.isError, undefined, textOf(tagged));
+        assert.deepEqual(JSON.parse(textOf(tagged)).metadata, metadata);
+
+        // An empty object is not sent, and the task's empty metadata is left out of the reply.
+        const untagged = await client.callTool({
+            name: "people-search",
+            arguments: { platform: "x", query: "Indie hackers", metadata: {} },
+        });
+        assert.equal(untagged.isError, undefined, textOf(untagged));
+        assert.equal(Object.hasOwn(JSON.parse(textOf(untagged)), "metadata"), false);
+
+        assert.deepEqual(
+            mock.seen.map((call) => [call.path, call.body]),
+            [
+                [
+                    "/desearch/people/search/linkedin",
+                    { query: "Heads of sales at fintech startups", count: 5, metadata },
+                ],
+                ["/desearch/people/search/x", { query: "Indie hackers" }],
+            ]
+        );
+    });
+});
+
+test("people-search rejects bad metadata before the billed call", async () => {
+    await withServer(async (client, mock) => {
+        const elevenKeys = Object.fromEntries(Array.from({ length: 11 }, (_, i) => [`k${i}`, "v"]));
+        for (const metadata of [
+            { "Campaign": "q4" },
+            { "has space": "q4" },
+            { ["k".repeat(41)]: "q4" },
+            { "": "q4" },
+            { campaign: "v".repeat(201) },
+            { campaign: 42 },
+            elevenKeys,
+            ["campaign"],
+        ]) {
+            const rejected = await client.callTool({
+                name: "people-search",
+                arguments: { platform: "tiktok", query: "Skincare creators", metadata },
+            });
+            assert.equal(rejected.isError, true, JSON.stringify(metadata));
+            assert.match(textOf(rejected), /Input validation error/, JSON.stringify(metadata));
+        }
+        assert.equal(mock.seen.length, 0);
+
+        mock.reply("POST", "/desearch/people/search/tiktok", 202, { ...TASK, status: "queued" });
+        const tenKeys = Object.fromEntries(Array.from({ length: 10 }, (_, i) => [`k${i}`, "v".repeat(200)]));
+        const accepted = await client.callTool({
+            name: "people-search",
+            arguments: { platform: "tiktok", query: "Skincare creators", metadata: tenKeys },
+        });
+        assert.equal(accepted.isError, undefined, textOf(accepted));
+        assert.deepEqual(mock.seen[0].body.metadata, tenKeys);
+    });
+});
+
 test("people-search reports API errors such as missing credits", async () => {
     await withServer(async (client, mock) => {
         mock.reply("POST", "/desearch/people/search/tiktok", 402, {
@@ -731,6 +804,43 @@ test("people-search-tasks lists tasks with platform and status filters", async (
         const rejected = await client.callTool({ name: "people-search-tasks", arguments: { status: ["done"] } });
         assert.equal(rejected.isError, true);
         assert.match(textOf(rejected), /Input validation error/);
+    });
+});
+
+test("people-search-tasks filters by metadata as metadata.<key> query parameters", async () => {
+    await withServer(async (client, mock) => {
+        const metadata = { campaign: "q4 outbound & more", "team.id": "t-1" };
+        mock.reply("GET", "/desearch/people/tasks", 200, {
+            tasks: [{ ...TASK, status: "completed", metadata }],
+            next_cursor: null,
+        });
+
+        const listed = JSON.parse(
+            textOf(
+                await client.callTool({
+                    name: "people-search-tasks",
+                    arguments: { status: ["completed"], metadata },
+                })
+            )
+        );
+        assert.deepEqual(listed.tasks[0].metadata, metadata);
+        assert.equal(listed.next_cursor, null);
+        assert.equal(
+            mock.seen[0].path,
+            "/desearch/people/tasks?status=completed&metadata.campaign=q4+outbound+%26+more&metadata.team.id=t-1"
+        );
+        assert.deepEqual(queryOf(mock.seen[0].path), {
+            status: "completed",
+            "metadata.campaign": "q4 outbound & more",
+            "metadata.team.id": "t-1",
+        });
+
+        for (const filter of [{ a: "1", b: "2", c: "3", d: "4" }, { "Bad Key": "x" }, { campaign: "v".repeat(201) }]) {
+            const rejected = await client.callTool({ name: "people-search-tasks", arguments: { metadata: filter } });
+            assert.equal(rejected.isError, true, JSON.stringify(filter));
+            assert.match(textOf(rejected), /Input validation error/, JSON.stringify(filter));
+        }
+        assert.equal(mock.seen.length, 1);
     });
 });
 

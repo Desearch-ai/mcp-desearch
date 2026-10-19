@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.0
+
+People Search `metadata` labels. Release this version only after the Desearch API release that brings `metadata` to `api.desearch.ai`. Until then the production API rejects a search that sends `metadata` (HTTP 422, extra fields are forbidden) and ignores `metadata.<key>` list filters, so a filtered `people-search-tasks` call would return every task.
+
+- `people-search` takes an optional `metadata` object: your own string labels for the search, for example `{"campaign": "q4-outbound"}`. Up to 10 keys; keys are 1-40 characters of `a-z`, `0-9`, `_`, `.`, `-`; values are strings of up to 200 characters. A bad label is rejected before the billed call. An empty object is not sent.
+- `people-search-tasks` takes an optional `metadata` filter of up to 3 pairs. Each pair is sent as `metadata.<key>=<value>`, and a task must match all of them exactly.
+- `people-search`, `people-search-status`, `people-search-control` and `people-search-tasks` return the task's `metadata` when it has any.
+- The key rule and key counts are checked by the tool, not advertised as `propertyNames`/`maxProperties` in the input schema, so clients that do not accept those keywords still load the tools. The argument descriptions state the limits.
+
 ## 0.2.4
 
 `people-search` is marked destructive because it spends the user's Desearch balance.
