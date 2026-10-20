@@ -284,8 +284,9 @@ function stringOf(value: unknown): string | undefined {
     return typeof value === "string" && value.trim() !== "" ? value : undefined;
 }
 
-// Same rule as the API's CSV `unverified_criteria` column (desearch-public-api
-// src/routers/people.py) and the console: a criterion naming a disqualifier.
+// A check's `is_disqualifier` says whether it is a disqualifier. Checks scored before the
+// flag existed fall back to the worker's keyword rule, which also sets the flag; the API's
+// CSV `unverified_criteria` column (desearch-public-api src/utils/people_criteria.py) does the same.
 const DISQUALIFIER_CRITERION = /\b(disqualif(?:y|ier|iers)|exclude|excluding|not a fit|not qualified)\b/i;
 const MAX_UNVERIFIED = 5;
 const MAX_CRITERION_CHARS = 120;
@@ -301,7 +302,10 @@ export function unverifiedCriteria(score: unknown): string[] {
         const criterion = stringOf(check.criterion);
         if (!criterion) continue;
         const met = check.verdict === "met";
-        const disqualifier = DISQUALIFIER_CRITERION.test(criterion);
+        const disqualifier =
+            typeof check.is_disqualifier === "boolean"
+                ? check.is_disqualifier
+                : DISQUALIFIER_CRITERION.test(criterion);
         if (met !== disqualifier) continue;
         const label = disqualifier ? "applies" : check.verdict === "not_met" ? "not met" : "unknown";
         const text =
