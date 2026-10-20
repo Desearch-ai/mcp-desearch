@@ -1206,3 +1206,21 @@ test("task warnings with a code this server does not know keep the API message",
         ]);
     });
 });
+
+test("unverifiedCriteria reads is_disqualifier before the keyword rule", () => {
+    assert.deepEqual(
+        unverifiedCriteria({
+            criteria_checks: [
+                // The flag wins over the wording, both ways.
+                { criterion: "Profile fit: excluding agencies is fine", verdict: "met", is_disqualifier: false },
+                { criterion: "Agency owners", verdict: "met", is_disqualifier: true },
+                { criterion: "Disqualifier: students", verdict: "unknown", is_disqualifier: true },
+                // No flag (scored before it existed) or null: the keyword rule.
+                { criterion: "Disqualifier: recruiters", verdict: "met" },
+                { criterion: "Not qualified leads", verdict: "met", is_disqualifier: null },
+                { criterion: "Topic signal: excludes nothing", verdict: "met" },
+            ],
+        }),
+        ["Agency owners (applies)", "Disqualifier: recruiters (applies)", "Not qualified leads (applies)"]
+    );
+});
