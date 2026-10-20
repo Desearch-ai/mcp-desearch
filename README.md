@@ -181,6 +181,36 @@ Then poll with `{"task_id": "3f1c2b9e-8d4a-4c1e-9b7a-2e5f6a7b8c9d"}` on `people-
 
 The output above is shortened to one person. CSV and JSON Lines downloads (`/export` routes) are not MCP tools; call the API directly for a file.
 
+When the search has ended, the task also says why and how complete it is, and each person says what their own profile confirms (0.3.2 and later):
+
+```json
+{
+    "status": "completed",
+    "done": true,
+    "completion_reason": "cost_limit",
+    "coverage_limited": true,
+    "warnings": [
+        { "code": "partial_enrichment", "platform": "linkedin", "attempted": 20, "failed": 7, "by_reason": { "not_found": 7 } }
+    ],
+    "people": [
+        {
+            "handle": "example_engineer",
+            "score": 74,
+            "fully_verified": false,
+            "unverified_criteria": ["Profile fit: Software Engineer based in Georgia (unknown)"],
+            "enrichment": "failed",
+            "enrichment_error": "not_found"
+        }
+    ],
+    "next": "Finished early: a budget stopped it (cost_limit) before it found 10 people, so more people may match. You have every person it found."
+}
+```
+
+-   `completion_reason` is one of `count_reached`, `rounds_exhausted`, `no_candidates`, `zero_qualified`, `candidate_budget`, `cost_limit`, `time_limit`, `cancelled`, or `failed`. It is left out while the search runs.
+-   `coverage_limited` appears (as `true`) only when a budget stopped the search before it found `count` people. The status is still `completed`.
+-   `warnings` lists what made part of the search less reliable. `partial_enrichment`: `failed` of `attempted` profiles could not be read after search, so those people were scored on the search hit and show `enrichment: "failed"` with `enrichment_error`.
+-   `fully_verified` is `true` when every criterion is confirmed by the person's own profile or posts. `unverified_criteria` lists up to five that are not: `(unknown)`, `(not met)`, or a disqualifier that `(applies)`. Both are information only: the person still qualified. Results scored before 2026-10-20 have neither.
+
 ## Prerequisites 📋
 
 -   An [Desearch API Key](https://console.desearch.ai/api-keys)
