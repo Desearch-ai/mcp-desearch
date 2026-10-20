@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.1
+
+- `x-search` filters `min_retweets`, `min_replies`, and `min_likes` are integers in the tool input schema. Each property has its own JSON Schema `type`.
+- `extract` and `web-crawl` descriptions link to the Desearch API docs. Prefer `extract` for new integrations. `web-crawl` stays on the legacy `/web/crawl` route.
+
 ## 0.3.0
 
 People Search `metadata` labels. Release this version only after the Desearch API release that brings `metadata` to `api.desearch.ai`. Until then the production API rejects a search that sends `metadata` (HTTP 422, extra fields are forbidden) and ignores `metadata.<key>` list filters, so a filtered `people-search-tasks` call would return every task.
