@@ -29,7 +29,7 @@ import {
 import { AI_SEARCH_TOOLS, WEB_LINK_TOOLS, toolIdSchema } from "./tool-sources.js";
 
 export const SERVER_NAME = "Desearch";
-export const SERVER_VERSION = "0.3.0";
+export const SERVER_VERSION = "0.3.1";
 
 interface XSearchPayload {
     query: string;
@@ -44,9 +44,9 @@ interface XSearchPayload {
     is_quote?: boolean;
     is_video?: boolean;
     is_image?: boolean;
-    min_retweets?: number | string;
-    min_replies?: number | string;
-    min_likes?: number | string;
+    min_retweets?: number;
+    min_replies?: number;
+    min_likes?: number;
 }
 
 interface PageContentPayload {
@@ -215,9 +215,12 @@ function platformFilterList(): string {
         .join(". ");
 }
 
-const engagementThreshold = z
-    .union([z.number().int().min(0), z.string()])
-    .optional();
+// A new schema per field. One shared instance serializes as a JSON Schema $ref,
+// and a number|string union serializes as anyOf with no type. The API uses these
+// counts as integers.
+function engagementThreshold(description: string) {
+    return z.number().int().min(0).optional().describe(description);
+}
 
 function definedFields<T extends Record<string, unknown>>(fields: T): Partial<T> {
     const out: Partial<T> = {};
@@ -572,9 +575,9 @@ export function createDesearchMcpServer(
             is_quote: z.boolean().optional().describe("Include only posts that are quotes."),
             is_video: z.boolean().optional().describe("Include only posts with video."),
             is_image: z.boolean().optional().describe("Include only posts with images."),
-            min_retweets: engagementThreshold.describe("Minimum number of retweets."),
-            min_replies: engagementThreshold.describe("Minimum number of replies."),
-            min_likes: engagementThreshold.describe("Minimum number of likes."),
+            min_retweets: engagementThreshold("Minimum number of retweets."),
+            min_replies: engagementThreshold("Minimum number of replies."),
+            min_likes: engagementThreshold("Minimum number of likes."),
         },
         async ({
             query,
@@ -849,7 +852,7 @@ export function createDesearchMcpServer(
         apiKey,
         "extract",
         "Extract Page Content",
-        "Extract a public URL and return its content as plain text or HTML using Desearch. Preferred over web-crawl for new integrations.",
+        "Extract a public URL and return its content as plain text or HTML using Desearch. Preferred over web-crawl for new integrations. API docs: https://www.desearch.ai/docs/api-reference/get-web-extract",
         pageContentFields(),
         async ({ url, format, js, wait }) => {
             try {
@@ -865,7 +868,7 @@ export function createDesearchMcpServer(
         apiKey,
         "web-crawl",
         "Crawl Web Page (Legacy)",
-        "Crawl a public URL and return its content as plain text or HTML on the legacy Desearch /web/crawl route. The SDK marks webCrawl deprecated in favor of extract; this tool stays for parity with that route. Prefer extract for new integrations.",
+        "Crawl a public URL and return its content as plain text or HTML on the legacy Desearch /web/crawl route. The SDK marks webCrawl deprecated in favor of extract; this tool stays for parity with that route. Prefer extract for new integrations. API docs: https://www.desearch.ai/docs/guide/apis/extract-api",
         pageContentFields(),
         async ({ url, format, js, wait }) => {
             try {

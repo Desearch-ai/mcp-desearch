@@ -200,7 +200,7 @@ test("phase 3 x tools call the matching desearch-js methods", async () => {
                 is_video: false,
                 is_image: true,
                 min_retweets: 5,
-                min_replies: "2",
+                min_replies: 2,
                 min_likes: 10,
             },
         });
@@ -291,7 +291,7 @@ test("phase 3 x tools call the matching desearch-js methods", async () => {
                 is_video: false,
                 is_image: true,
                 min_retweets: 5,
-                min_replies: "2",
+                min_replies: 2,
                 min_likes: 10,
             },
         ],
