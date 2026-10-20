@@ -29,7 +29,7 @@ import {
 import { AI_SEARCH_TOOLS, WEB_LINK_TOOLS, toolIdSchema } from "./tool-sources.js";
 
 export const SERVER_NAME = "Desearch";
-export const SERVER_VERSION = "0.3.1";
+export const SERVER_VERSION = "0.3.2";
 
 interface XSearchPayload {
     query: string;
@@ -1084,7 +1084,7 @@ export function createDesearchMcpServer(
         apiKey,
         "people-search-status",
         "Get People Search Status",
-        "Status, progress, and cost of one People Search task, plus a page of the people found so far: name, handle, url, platform, audience, location, fit score, why they matched, contacts, and links. Free. People arrive while the search runs: pass the returned next_cursor as cursor on the next call to get only the people found since then. When done is true and has_more is false you have everyone the search found.",
+        "Status, progress, and cost of one People Search task, plus a page of the people found so far: name, handle, url, platform, audience, location, fit score, why they matched, contacts, and links. Free. People arrive while the search runs: pass the returned next_cursor as cursor on the next call to get only the people found since then. When done is true and has_more is false you have everyone the search found. An ended task has completion_reason (why it stopped), coverage_limited: true when a budget stopped it before count (more people may match), and warnings such as partial_enrichment (some profiles could not be read, so those people were scored on the search hit; they show enrichment: failed). Each person has fully_verified (every criterion confirmed by their own profile or posts) and unverified_criteria (criteria that are unknown or not met, or a disqualifier that applies). These are information only: the person still qualified.",
         strictArgs({
             task_id: peopleTaskId,
             cursor: z
@@ -1143,7 +1143,7 @@ export function createDesearchMcpServer(
         apiKey,
         "people-search-tasks",
         "List People Search Tasks",
-        "Your People Search tasks, newest first, with status, counts, cost, and the metadata labels set on people-search. Free. Use it to find a task_id (filter by metadata to find the searches of one campaign), or to see which searches are still queued, running, or paused: a new search is refused while too many are active.",
+        "Your People Search tasks, newest first, with status, counts, cost, why each ended search stopped (completion_reason, coverage_limited), and the metadata labels set on people-search. Free. Use it to find a task_id (filter by metadata to find the searches of one campaign), or to see which searches are still queued, running, or paused: a new search is refused while too many are active.",
         strictArgs({
             platform: peoplePlatform.optional().describe("Only tasks on this platform: 'x', 'youtube', 'linkedin', or 'tiktok'."),
             status: z

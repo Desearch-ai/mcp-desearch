@@ -4,7 +4,7 @@ import { MockAgent, getGlobalDispatcher, setGlobalDispatcher } from "undici";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createDesearchMcpServer } from "../build/server.js";
-import { PEOPLE_SEARCH_FILTERS, compactPerson, peopleSearchBody } from "../build/people.js";
+import { PEOPLE_SEARCH_FILTERS, compactPerson, peopleSearchBody, unverifiedCriteria } from "../build/people.js";
 
 const API = "https://api.desearch.ai";
 const TASK_ID = "3f1c2b9e-8d4a-4c1e-9b7a-2e5f6a7b8c9d";
@@ -962,4 +962,247 @@ test("compactPerson keeps who, audience, fit, and contact fields and drops the r
         }
     );
     assert.deepEqual(compactPerson(null), {});
+});
+
+// Shapes from a real prod LinkedIn task (2026-10-20) and api.desearch.ai/openapi.json:
+// PeopleTask.completion_reason / coverage_limited / warnings, PeopleScore.criteria_checks /
+// fully_verified, Person.attributes.enrichment / enrichment_error.
+const LINKEDIN_WARNING = {
+    code: "partial_enrichment",
+    platform: "linkedin",
+    attempted: 20,
+    enriched: 13,
+    failed: 7,
+    by_reason: { not_found: 7 },
+    message:
+        '7 of 20 LinkedIn profiles could not be read after search; those candidates were scored on search data only, and results among them have attributes.enrichment = "failed".',
+};
+
+const LINKEDIN_CHECKS = [
+    {
+        criterion: "Profile fit: Software Engineer based in Georgia",
+        verdict: "met",
+        quote: "Software Engineer at EPAM Systems",
+        source_url: "https://www.linkedin.com/in/ana",
+        reason: "Role and Tbilisi location supplied.",
+    },
+    {
+        criterion: "Topic signal: coding or development work",
+        verdict: "met",
+        quote: "Experienced Web Developer",
+        source_url: "https://www.linkedin.com/in/ana",
+        reason: "Development work explicitly stated.",
+    },
+    {
+        criterion: "Disqualifier: exclude recruiters, talent acquisition professionals, non-engineering managers",
+        verdict: "unknown",
+        quote: null,
+        source_url: null,
+        reason: "",
+    },
+];
+
+function linkedinPerson(handle, overrides = {}) {
+    return {
+        id: `linkedin:${handle}`,
+        platform: "linkedin",
+        handle,
+        url: `https://www.linkedin.com/in/${handle}`,
+        name: handle,
+        location: "Tbilisi, Georgia",
+        metrics: { followers: 300 },
+        attributes: { headline: "Software Engineer at EPAM Systems", company: "EPAM Systems", enrichment: "ok" },
+        links: [],
+        contacts: [],
+        evidence: [],
+        score: { value: 80, summary: "Engineer in Tbilisi.", criteria_checks: LINKEDIN_CHECKS, fully_verified: true },
+        ...overrides,
+    };
+}
+
+test("people-search-status shows why the search ended, its warnings, and what each person confirms", async () => {
+    await withServer(async (client, mock) => {
+        mock.reply("GET", TASK_PATH, 200, {
+            ...TASK,
+            search_type: "linkedin_profile_search",
+            platform: "linkedin",
+            status: "completed",
+            stage: null,
+            count: 5,
+            result_count: 2,
+            completion_reason: "count_reached",
+            coverage_limited: false,
+            warnings: [LINKEDIN_WARNING],
+        });
+        mock.reply("GET", `${TASK_PATH}/results`, 200, {
+            task_id: TASK_ID,
+            status: "completed",
+            results: [
+                linkedinPerson("ana"),
+                linkedinPerson("giorgi", {
+                    location: null,
+                    attributes: { enrichment: "failed", enrichment_error: "not_found" },
+                    score: {
+                        value: 72,
+                        criteria_checks: [
+                            { ...LINKEDIN_CHECKS[0], verdict: "unknown", quote: null, source_url: null },
+                            { ...LINKEDIN_CHECKS[1], verdict: "not_met", quote: null, source_url: null },
+                            { ...LINKEDIN_CHECKS[2], verdict: "met", quote: "Talent partner" },
+                        ],
+                        fully_verified: false,
+                    },
+                }),
+            ],
+            next_cursor: "2",
+            has_more: false,
+        });
+
+        const body = JSON.parse(
+            textOf(await client.callTool({ name: "people-search-status", arguments: { task_id: TASK_ID } }))
+        );
+        assert.equal(body.completion_reason, "count_reached");
+        assert.equal("coverage_limited" in body, false);
+        assert.deepEqual(body.warnings, [
+            { code: "partial_enrichment", platform: "linkedin", attempted: 20, failed: 7, by_reason: { not_found: 7 } },
+        ]);
+        const [ana, giorgi] = body.people;
+        assert.equal(ana.fully_verified, true);
+        assert.equal("unverified_criteria" in ana, false);
+        assert.equal("enrichment" in ana, false);
+        assert.equal(giorgi.fully_verified, false);
+        assert.deepEqual(giorgi.unverified_criteria, [
+            "Profile fit: Software Engineer based in Georgia (unknown)",
+            "Topic signal: coding or development work (not met)",
+            "Disqualifier: exclude recruiters, talent acquisition professionals, non-engineering managers (applies)",
+        ]);
+        assert.equal(giorgi.enrichment, "failed");
+        assert.equal(giorgi.enrichment_error, "not_found");
+        assert.equal(body.next, "Finished. You have every person this search found.");
+    });
+});
+
+test("people-search-status says when a budget or an empty search ended the task", async () => {
+    await withServer(async (client, mock) => {
+        const ended = { ...TASK, status: "completed", stage: null, result_count: 0, warnings: [] };
+        mock.reply("GET", TASK_PATH, 200, {
+            ...ended,
+            count: 50,
+            result_count: 12,
+            completion_reason: "cost_limit",
+            coverage_limited: true,
+        });
+        mock.reply("GET", TASK_PATH, 200, { ...ended, completion_reason: "no_candidates", coverage_limited: false });
+        mock.reply("GET", TASK_PATH, 200, { ...ended, completion_reason: "zero_qualified", coverage_limited: false });
+        mock.reply("GET", TASK_PATH, 200, { ...TASK, completion_reason: null, coverage_limited: false, warnings: [] });
+
+        const read = async () =>
+            JSON.parse(
+                textOf(
+                    await client.callTool({
+                        name: "people-search-status",
+                        arguments: { task_id: TASK_ID, include_people: false },
+                    })
+                )
+            );
+        const limited = await read();
+        assert.equal(limited.completion_reason, "cost_limit");
+        assert.equal(limited.coverage_limited, true);
+        assert.equal("warnings" in limited, false);
+        assert.equal(
+            limited.next,
+            "Finished early: a budget stopped it (cost_limit) before it found 50 people, so more people may match. You have every person it found."
+        );
+        assert.equal((await read()).next, "Finished: its searches found nobody to check. Try a broader description.");
+        assert.equal(
+            (await read()).next,
+            "Finished: it checked the people its searches found and none fit. Try a broader description."
+        );
+        const running = await read();
+        assert.equal("completion_reason" in running, false);
+        assert.equal("coverage_limited" in running, false);
+        assert.equal(running.done, false);
+        assert.equal(mock.seen.length, 4);
+    });
+});
+
+test("people-search-tasks shows each task's completion reason and coverage", async () => {
+    await withServer(async (client, mock) => {
+        mock.reply("GET", "/desearch/people/tasks", 200, {
+            tasks: [
+                { ...TASK, status: "completed", completion_reason: "candidate_budget", coverage_limited: true, warnings: [] },
+                { ...TASK, status: "completed", completion_reason: "count_reached", coverage_limited: false, warnings: [] },
+            ],
+            next_cursor: null,
+        });
+        const body = JSON.parse(textOf(await client.callTool({ name: "people-search-tasks", arguments: {} })));
+        assert.deepEqual(
+            body.tasks.map((task) => [task.completion_reason, task.coverage_limited]),
+            [
+                ["candidate_budget", true],
+                ["count_reached", undefined],
+            ]
+        );
+    });
+});
+
+test("unverifiedCriteria follows the CSV rule, labels each verdict, and stays short", () => {
+    assert.deepEqual(unverifiedCriteria({ criteria_checks: LINKEDIN_CHECKS }), []);
+    assert.deepEqual(unverifiedCriteria({}), []);
+    assert.deepEqual(unverifiedCriteria(null), []);
+    assert.deepEqual(unverifiedCriteria({ criteria_checks: "not a list" }), []);
+
+    const long = "Evidence quality: " + "posts about software projects and engineering practices ".repeat(4);
+    const checks = [
+        { criterion: long, verdict: "unknown" },
+        { criterion: "Topic signal: one", verdict: "not_met" },
+        { criterion: "Topic signal: two", verdict: "unknown" },
+        { criterion: "Topic signal: three", verdict: "unknown" },
+        { criterion: "Disqualifier: exclude agencies", verdict: "met" },
+        { criterion: "Disqualifier: exclude students", verdict: "not_met" },
+        { criterion: "Topic signal: four", verdict: "unknown" },
+        { criterion: "Topic signal: five", verdict: "unknown" },
+        { criterion: "", verdict: "unknown" },
+        { verdict: "unknown" },
+    ];
+    const listed = unverifiedCriteria({ criteria_checks: checks });
+    assert.equal(listed.length, 6);
+    assert.equal(listed[0].length, 120 + " (unknown)".length);
+    assert.ok(listed[0].endsWith("... (unknown)"));
+    assert.deepEqual(listed.slice(1), [
+        "Topic signal: one (not met)",
+        "Topic signal: two (unknown)",
+        "Topic signal: three (unknown)",
+        "Disqualifier: exclude agencies (applies)",
+        "and 2 more",
+    ]);
+});
+
+test("compactPerson leaves results scored before criteria checks unchanged", () => {
+    assert.deepEqual(compactPerson(TIKTOK_PERSON), TIKTOK_COMPACT);
+    const failedWithoutReason = compactPerson(
+        linkedinPerson("nino", { attributes: { enrichment: "failed" }, score: { value: 70, fully_verified: null } })
+    );
+    assert.equal(failedWithoutReason.enrichment, "failed");
+    assert.equal("enrichment_error" in failedWithoutReason, false);
+    assert.equal("fully_verified" in failedWithoutReason, false);
+});
+
+test("task warnings with a code this server does not know keep the API message", async () => {
+    await withServer(async (client, mock) => {
+        mock.reply("GET", TASK_PATH, 200, {
+            ...TASK,
+            warnings: [{ code: "slow_provider", platform: "x", message: "X search was slow; fewer queries ran." }],
+        });
+        const body = JSON.parse(
+            textOf(
+                await client.callTool({
+                    name: "people-search-status",
+                    arguments: { task_id: TASK_ID, include_people: false },
+                })
+            )
+        );
+        assert.deepEqual(body.warnings, [
+            { code: "slow_provider", platform: "x", message: "X search was slow; fewer queries ran." },
+        ]);
+    });
 });

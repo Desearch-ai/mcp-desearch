@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.2
+
+People Search summaries show the result fields the API returns since 2026-10-20.
+
+- Task summaries (`people-search`, `people-search-status`, `people-search-control`, `people-search-tasks`) carry `completion_reason` once the search has ended, `coverage_limited: true` when a budget stopped it before `count`, and `warnings`. A `partial_enrichment` warning keeps `code`, `platform`, `attempted`, `failed`, and `by_reason`, without the long message; a warning code this server does not know keeps its `message`.
+- The `next` hint of a completed search says when a budget stopped it early, when its searches found nobody (`no_candidates`), and when nobody fit (`zero_qualified`).
+- Each person carries `fully_verified` and `unverified_criteria`: up to five criteria their own profile or posts do not confirm, labelled `(unknown)`, `(not met)`, or `(applies)` for a disqualifier that applies. It follows the rule of the API's CSV `unverified_criteria` column. A person whose profile could not be read after search carries `enrichment: "failed"` and `enrichment_error`.
+- The `people-search-status` and `people-search-tasks` descriptions mention these fields.
+
 ## 0.3.1
 
 - `x-search` filters `min_retweets`, `min_replies`, and `min_likes` are integers in the tool input schema. Each property has its own JSON Schema `type`.

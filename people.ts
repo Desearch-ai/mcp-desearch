@@ -284,9 +284,38 @@ function stringOf(value: unknown): string | undefined {
     return typeof value === "string" && value.trim() !== "" ? value : undefined;
 }
 
+// Same rule as the API's CSV `unverified_criteria` column (desearch-public-api
+// src/routers/people.py) and the console: a criterion naming a disqualifier.
+const DISQUALIFIER_CRITERION = /\b(disqualif(?:y|ier|iers)|exclude|excluding|not a fit|not qualified)\b/i;
+const MAX_UNVERIFIED = 5;
+const MAX_CRITERION_CHARS = 120;
+
+/**
+ * The criteria a person's own profile and posts do not confirm, as short strings:
+ * a criterion that is not met ("(unknown)" or "(not met)"), or a disqualifier that
+ * applies ("(applies)"). Empty for results scored before criteria checks existed.
+ */
+export function unverifiedCriteria(score: unknown): string[] {
+    const out: string[] = [];
+    for (const check of arrayOf(objectOf(score).criteria_checks).map(objectOf)) {
+        const criterion = stringOf(check.criterion);
+        if (!criterion) continue;
+        const met = check.verdict === "met";
+        const disqualifier = DISQUALIFIER_CRITERION.test(criterion);
+        if (met !== disqualifier) continue;
+        const label = disqualifier ? "applies" : check.verdict === "not_met" ? "not met" : "unknown";
+        const text =
+            criterion.length > MAX_CRITERION_CHARS ? `${criterion.slice(0, MAX_CRITERION_CHARS - 3)}...` : criterion;
+        out.push(`${text} (${label})`);
+    }
+    return out.length > MAX_UNVERIFIED
+        ? [...out.slice(0, MAX_UNVERIFIED), `and ${out.length - MAX_UNVERIFIED} more`]
+        : out;
+}
+
 /**
  * One person as an agent needs it: who they are, how big their audience is,
- * how well they fit and why, and how to reach them.
+ * how well they fit and why, what their profile does not confirm, and how to reach them.
  */
 export function compactPerson(person: unknown): Record<string, unknown> {
     const p = objectOf(person);
@@ -309,6 +338,11 @@ export function compactPerson(person: unknown): Record<string, unknown> {
         score: numberOf(score.value),
         why: stringOf(score.summary),
         reasons: arrayOf(score.reasons).filter((r) => typeof r === "string").slice(0, 3),
+        fully_verified: typeof score.fully_verified === "boolean" ? score.fully_verified : undefined,
+        unverified_criteria: unverifiedCriteria(score),
+        // Only when the profile could not be read after search: it was scored on the search hit.
+        enrichment: attributes.enrichment === "failed" ? "failed" : undefined,
+        enrichment_error: attributes.enrichment === "failed" ? stringOf(attributes.enrichment_error) : undefined,
         contacts: arrayOf(p.contacts)
             .map(objectOf)
             .filter((c) => stringOf(c.value))
@@ -329,7 +363,31 @@ export function compactPerson(person: unknown): Record<string, unknown> {
     });
 }
 
-/** Task fields an agent polls on. `progress` is the worker's counters, passed through. */
+/** Warning codes this server knows; another code keeps the API's message. */
+const KNOWN_WARNING_CODES: ReadonlySet<string> = new Set(["partial_enrichment"]);
+
+/**
+ * A task warning without its long message: `partial_enrichment` means `failed` of
+ * `attempted` profile lookups could not be read, so those people were scored on the
+ * search hit (`by_reason` says why).
+ */
+function compactWarning(warning: unknown): Record<string, unknown> {
+    const w = objectOf(warning);
+    const code = stringOf(w.code);
+    return compact({
+        code,
+        platform: w.platform,
+        attempted: numberOf(w.attempted),
+        failed: numberOf(w.failed),
+        by_reason: isPlainObject(w.by_reason) ? w.by_reason : undefined,
+        message: code && KNOWN_WARNING_CODES.has(code) ? undefined : stringOf(w.message),
+    });
+}
+
+/**
+ * Task fields an agent polls on. `progress` is the worker's counters, passed through.
+ * `completion_reason` appears once the task has ended, `coverage_limited` only when true.
+ */
 export function compactTask(task: unknown, options: { progress?: boolean } = {}): Record<string, unknown> {
     const t = objectOf(task);
     const status = typeof t.status === "string" ? t.status : undefined;
@@ -343,6 +401,9 @@ export function compactTask(task: unknown, options: { progress?: boolean } = {})
         metadata: t.metadata,
         count: t.count,
         result_count: t.result_count,
+        completion_reason: stringOf(t.completion_reason),
+        coverage_limited: t.coverage_limited === true ? true : undefined,
+        warnings: arrayOf(t.warnings).map(compactWarning),
         progress: options.progress ? t.progress : undefined,
         errors: options.progress ? t.errors : undefined,
         reserved_cost_usd: t.reserved_cost_usd,
@@ -357,8 +418,14 @@ export function compactTask(task: unknown, options: { progress?: boolean } = {})
 /**
  * One sentence on what to do next, so an agent does not have to infer it from the status.
  * `nextCursor` is the results cursor when the caller just read a page of people.
+ * `task` adds why a completed search ended (`completion_reason`, `coverage_limited`).
  */
-export function peopleNextStep(status: string | undefined, nextCursor?: string, hasMore = false): string {
+export function peopleNextStep(
+    status: string | undefined,
+    nextCursor?: string,
+    hasMore = false,
+    task: { completion_reason?: unknown; coverage_limited?: unknown; count?: unknown } = {}
+): string {
     const again =
         nextCursor === undefined
             ? "people-search-status again"
@@ -379,6 +446,16 @@ export function peopleNextStep(status: string | undefined, nextCursor?: string, 
         case "cancelling":
             return "Cancelling. Call people-search-status again to read the final status.";
         case "completed":
+            if (task.coverage_limited === true) {
+                const wanted = typeof task.count === "number" ? `${task.count} people` : "the count you asked for";
+                return `Finished early: a budget stopped it (${String(task.completion_reason)}) before it found ${wanted}, so more people may match. You have every person it found.`;
+            }
+            if (task.completion_reason === "no_candidates") {
+                return "Finished: its searches found nobody to check. Try a broader description.";
+            }
+            if (task.completion_reason === "zero_qualified") {
+                return "Finished: it checked the people its searches found and none fit. Try a broader description.";
+            }
             return "Finished. You have every person this search found.";
         case "partial":
             return "Finished with partial results: some searches failed. You have every person it found.";
@@ -427,7 +504,7 @@ export async function readPeopleStatus(
     const status = typeof summary.status === "string" ? summary.status : undefined;
     const includePeople = args.include_people !== false;
     if (!includePeople) {
-        return { ...summary, next: peopleNextStep(status) };
+        return { ...summary, next: peopleNextStep(status, undefined, false, summary) };
     }
     let nextCursor = args.cursor ?? "0";
     let hasMore = false;
@@ -447,7 +524,7 @@ export async function readPeopleStatus(
         people,
         next_cursor: nextCursor,
         has_more: hasMore,
-        next: peopleNextStep(status, nextCursor, hasMore),
+        next: peopleNextStep(status, nextCursor, hasMore, summary),
     };
 }
 
@@ -458,7 +535,7 @@ export async function controlPeopleTask(
 ): Promise<Record<string, unknown>> {
     const task = compactTask(await client.controlTask(args.task_id, args.action));
     const status = typeof task.status === "string" ? task.status : undefined;
-    return { ...task, next: peopleNextStep(status) };
+    return { ...task, next: peopleNextStep(status, undefined, false, task) };
 }
 
 /** `people-search-tasks`: the caller's tasks, newest first. */
