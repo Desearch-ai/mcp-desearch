@@ -8,7 +8,7 @@ Ask the user for their Desearch API key. If they do not have one, they can creat
 
 ## 2. Option A: hosted server (recommended, no local install)
 
-The hosted Streamable HTTP endpoint is `https://mcp.desearch.ai/mcp`. Send the key in the `x-api-key` header (`Authorization: Bearer <key>` is also accepted). A client that supports OAuth can sign in instead: the server asks for the same Desearch API key on its own page.
+The hosted Streamable HTTP endpoint is `https://mcp.desearch.ai/mcp`. Send the key as `Authorization: Bearer <DESEARCH_API_KEY>`. The hosted server also accepts `x-api-key` as an alternative. A client that supports OAuth can sign in instead: the server asks for the same Desearch API key on its own page.
 
 ```json
 {
@@ -16,7 +16,7 @@ The hosted Streamable HTTP endpoint is `https://mcp.desearch.ai/mcp`. Send the k
     "desearch": {
       "url": "https://mcp.desearch.ai/mcp",
       "headers": {
-        "x-api-key": "YOUR_DESEARCH_API_KEY"
+        "Authorization": "Bearer <DESEARCH_API_KEY>"
       }
     }
   }
