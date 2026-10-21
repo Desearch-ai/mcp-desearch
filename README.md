@@ -288,14 +288,14 @@ Hosted server (no local install). Remote servers use `serverUrl` with `headers`:
         "desearch": {
             "serverUrl": "https://mcp.desearch.ai/mcp",
             "headers": {
-                "x-api-key": "your-api-key"
+                "Authorization": "Bearer your-api-key"
             }
         }
     }
 }
 ```
 
-To keep the key out of the file, Windsurf can interpolate an environment variable: `"x-api-key": "${env:DESEARCH_API_KEY}"`.
+To keep the key out of the file, Windsurf can interpolate an environment variable: `"Authorization": "Bearer ${env:DESEARCH_API_KEY}"`.
 
 Local stdio alternative:
 
@@ -327,7 +327,7 @@ Hosted server:
         "desearch": {
             "url": "https://mcp.desearch.ai/mcp",
             "headers": {
-                "x-api-key": "your-api-key"
+                "Authorization": "Bearer your-api-key"
             }
         }
     }
@@ -438,7 +438,7 @@ The same server can run over MCP Streamable HTTP for a remote client. Local stdi
 Remote requests do not use that environment variable. Discovery does not need a key: `initialize`, `notifications/initialized`, `ping`, `tools/list`, `prompts/list`, `resources/list`, and `resources/templates/list` return 200 so a marketplace scanner can read the tool list. `tools/call` and every other method still require the caller's own Desearch API key, the same key from [console.desearch.ai/api-keys](https://console.desearch.ai/api-keys):
 
 - `Authorization: Bearer <DESEARCH_API_KEY>` (preferred)
-- `x-api-key: <DESEARCH_API_KEY>`
+- `x-api-key: <DESEARCH_API_KEY>` (also accepted)
 - `Authorization: Bearer <oauth access token>` after the OAuth sign-in below
 
 A bare `Authorization: <DESEARCH_API_KEY>` value is also accepted. The key is not read from the query string. There is no shared server secret. A protected call without a valid key or access token returns 401 with a `WWW-Authenticate` header pointing at `/.well-known/oauth-protected-resource/mcp`. The hosted process forwards the per-request Desearch API key to the Desearch API only when a call needs it. An OAuth access token is opaque: the server looks up the key stored for that token and does not put the raw key in the token.
@@ -447,7 +447,7 @@ The MCP endpoint is `POST /mcp`. Responses are JSON (stateless Streamable HTTP).
 
 ## Hosted endpoint
 
-The public Streamable HTTP endpoint is `https://mcp.desearch.ai/mcp`. Listing the tools does not need a key. Send your Desearch API key on each `tools/call` in the `x-api-key` header. `Authorization: Bearer <key>` is also accepted. Use the key from [console.desearch.ai/api-keys](https://console.desearch.ai/api-keys). The server does not read a key from the query string. Remote requests do not use a process-level `DESEARCH_API_KEY`.
+The public Streamable HTTP endpoint is `https://mcp.desearch.ai/mcp`. Listing the tools does not need a key. Send your Desearch API key on each `tools/call` using `Authorization: Bearer <DESEARCH_API_KEY>` (preferred). The `x-api-key` header is also accepted. Use the key from [console.desearch.ai/api-keys](https://console.desearch.ai/api-keys). The server does not read a key from the query string. Remote requests do not use a process-level `DESEARCH_API_KEY`.
 
 Cursor, or any remote MCP client:
 
@@ -457,7 +457,7 @@ Cursor, or any remote MCP client:
         "desearch": {
             "url": "https://mcp.desearch.ai/mcp",
             "headers": {
-                "x-api-key": "your-api-key"
+                "Authorization": "Bearer your-api-key"
             }
         }
     }
@@ -521,7 +521,7 @@ Sources: [Custom remote MCP connectors](https://claude.com/docs/connectors/custo
 2. Select **Add**, then **Custom**. If asked for the connector type, choose **Web**.
 3. Server URL: `https://mcp.desearch.ai/mcp`
 4. Sign-in option: **No sign-in**.
-5. Under **Request headers**, add `x-api-key` with your Desearch API key as the value.
+5. Under **Request headers**, add `Authorization` with `Bearer <DESEARCH_API_KEY>` as the value, replacing `<DESEARCH_API_KEY>` with your Desearch API key.
 6. Select **Add**.
 
 The header value is stored once and shared by everyone in the organization who uses the connector.
@@ -532,7 +532,7 @@ OAuth alternative: choose sign-in instead of a request header, leave the OAuth c
 
 ```bash
 claude mcp add --transport http desearch https://mcp.desearch.ai/mcp \
-  --header "x-api-key: YOUR_DESEARCH_API_KEY"
+  --header "Authorization: Bearer your-api-key"
 ```
 
 ### Run locally
@@ -592,7 +592,7 @@ No server-side Desearch API key is required in the Vercel project. After deploy,
 
 `https://<project>.vercel.app/mcp`
 
-`https://mcp.desearch.ai/mcp` is the public hostname. This repo does not create DNS records. Clients send `x-api-key`, or `Authorization: Bearer <key>`.
+`https://mcp.desearch.ai/mcp` is the public hostname. This repo does not create DNS records. Clients send `Authorization: Bearer <DESEARCH_API_KEY>` (preferred). The `x-api-key` header is also accepted.
 
 The same `node build/index.js --http` process is the fallback if you would rather run a long-lived Node host instead of Vercel. The Docker image defaults to stdio; pass `--http` or set `MCP_TRANSPORT=http` to serve Streamable HTTP from it.
 
@@ -610,7 +610,7 @@ The same `node build/index.js --http` process is the fallback if you would rathe
     - Confirm your `DESEARCH_API_KEY` is valid
     - Check the `DESEARCH_API_KEY` is correctly set in the Cursor or Claude Desktop config
     - Verify that there are no spaces around the API key
-    - For the remote HTTP server, send `Authorization: Bearer <key>` or `x-api-key`. A hosted `DESEARCH_API_KEY` environment variable is not used for those requests.
+    - For the remote HTTP server, send `Authorization: Bearer <DESEARCH_API_KEY>` (preferred); `x-api-key` is also accepted. A hosted `DESEARCH_API_KEY` environment variable is not used for those requests.
 
 3. **Connection Issues**
 
