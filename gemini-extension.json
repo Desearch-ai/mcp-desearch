@@ -1,6 +1,6 @@
 {
   "name": "desearch",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "description": "AI search, X search and web search for AI agents, plus page extraction, X data tools, and People Search for X, YouTube, LinkedIn, and TikTok. Bring your own Desearch API key.",
   "mcpServers": {
     "desearch": {

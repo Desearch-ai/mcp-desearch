@@ -29,7 +29,7 @@ import {
 import { AI_SEARCH_TOOLS, WEB_LINK_TOOLS, toolIdSchema } from "./tool-sources.js";
 
 export const SERVER_NAME = "Desearch";
-export const SERVER_VERSION = "0.3.3";
+export const SERVER_VERSION = "0.3.4";
 
 interface XSearchPayload {
     query: string;
