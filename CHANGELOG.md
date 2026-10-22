@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.4
+
+- Tools accept `null` for omitted optional arguments and treat it as absent (#47).
+
 ## 0.3.3
 
 - `unverified_criteria` reads each check's `is_disqualifier`, which the API returns since 2026-10-20, and falls back to the keyword rule for checks scored before it, like the API's CSV `unverified_criteria` column.
