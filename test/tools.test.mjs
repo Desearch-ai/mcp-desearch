@@ -552,6 +552,89 @@ test("search and fetch map web results into the page lookup shape", async () => 
     ]);
 });
 
+test("web-search accepts start: null as 0 and still accepts an omitted start", async () => {
+    const calls = [];
+    const fake = {
+        async webSearch(payload) {
+            calls.push(["webSearch", payload]);
+            return { data: [] };
+        },
+        async xSearch(payload) {
+            calls.push(["xSearch", payload]);
+            return [];
+        },
+    };
+    const people = {
+        async startSearch(platform, body, idempotencyKey) {
+            calls.push(["startSearch", platform, body, idempotencyKey]);
+            return {
+                status: 202,
+                data: { task_id: "3f1c2b9e-8d4a-4c1e-9b7a-2e5f6a7b8c9d", platform, status: "queued" },
+            };
+        },
+    };
+    const server = createDesearchMcpServer("test-key", fake, people);
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "null-optionals", version: "0.0.1" });
+    try {
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+        const listed = await client.listTools();
+        assert.equal(listed.tools.length, 22);
+        const webSearch = listed.tools.find((tool) => tool.name === "web-search");
+        assert.equal(webSearch.inputSchema.properties.start.type, "integer");
+        assert.equal(webSearch.inputSchema.properties.start.minimum, 0);
+        assert.match(webSearch.inputSchema.properties.start.description, /Omit for the first page/);
+        assert.deepEqual(webSearch.inputSchema.required, ["query"]);
+
+        const withNull = await client.callTool({
+            name: "web-search",
+            arguments: { query: "desearch", start: null },
+        });
+        assert.equal(withNull.isError, undefined, textOf(withNull));
+
+        const omitted = await client.callTool({
+            name: "web-search",
+            arguments: { query: "desearch" },
+        });
+        assert.equal(omitted.isError, undefined, textOf(omitted));
+
+        const rejected = await client.callTool({
+            name: "web-search",
+            arguments: { query: "desearch", start: -1 },
+        });
+        assert.equal(rejected.isError, true);
+        assert.match(textOf(rejected), /Input validation error/);
+
+        const x = await client.callTool({
+            name: "x-search",
+            arguments: { query: "bittensor", count: null, user: null, verified: null },
+        });
+        assert.equal(x.isError, undefined, textOf(x));
+
+        const peopleSearch = await client.callTool({
+            name: "people-search",
+            arguments: {
+                platform: "x",
+                query: "skincare creators",
+                count: null,
+                min_followers: null,
+                verified_only: null,
+            },
+        });
+        assert.equal(peopleSearch.isError, undefined, textOf(peopleSearch));
+    } finally {
+        await client.close();
+        await server.close();
+    }
+
+    assert.deepEqual(calls, [
+        ["webSearch", { query: "desearch", start: 0 }],
+        ["webSearch", { query: "desearch", start: undefined }],
+        ["xSearch", { query: "bittensor", sort: "Top", count: 20 }],
+        ["startSearch", "x", { query: "skincare creators" }, undefined],
+    ]);
+});
+
 test("an empty API key does not call Desearch", async () => {
     let called = false;
     const fake = new Proxy(

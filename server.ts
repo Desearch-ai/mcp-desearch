@@ -233,6 +233,49 @@ function definedFields<T extends Record<string, unknown>>(fields: T): Partial<T>
 }
 
 /**
+ * CrewAI's MCPServerAdapter (mcpadapt) sends an omitted optional argument as null.
+ * `.optional()` accepts a missing value and rejects null, which becomes
+ * "Expected number, received null". Null is the same as omitting the argument:
+ * defaults still apply, and a null is not forwarded to Desearch.
+ *
+ * `web-search` `start` has no schema default. The first page is offset 0, so
+ * `start: null` resolves to 0. An omitted `start` stays omitted.
+ */
+function relaxOptional(key: string, field: z.ZodTypeAny): z.ZodTypeAny {
+    if (!field.isOptional()) {
+        return field;
+    }
+    const whenNull = key === "start" ? 0 : undefined;
+    return z.preprocess((value) => (value === null ? whenNull : value), field);
+}
+
+function relaxShape(shape: Record<string, z.ZodTypeAny>): Record<string, z.ZodTypeAny> {
+    const next: Record<string, z.ZodTypeAny> = {};
+    for (const [key, field] of Object.entries(shape)) {
+        next[key] = relaxOptional(key, field);
+    }
+    return next;
+}
+
+function relaxInputSchema(
+    inputSchema: Record<string, z.ZodTypeAny> | z.AnyZodObject
+): Record<string, z.ZodTypeAny> | z.AnyZodObject {
+    if (!(inputSchema instanceof z.ZodObject)) {
+        return relaxShape(inputSchema);
+    }
+    const shape = relaxShape(inputSchema.shape as Record<string, z.ZodTypeAny>);
+    const object = z.object(shape);
+    const unknownKeys = (inputSchema._def as { unknownKeys?: string }).unknownKeys;
+    if (unknownKeys === "strict") {
+        return object.strict();
+    }
+    if (unknownKeys === "passthrough") {
+        return object.passthrough();
+    }
+    return object;
+}
+
+/**
  * Payload note when a link search body has no link list.
  * Does not name web vs AI search, and does not say the query had "results".
  * A missing list (the cost-only API bug) and an empty list are the same note:
@@ -432,7 +475,7 @@ function registerTool(
         {
             title,
             description,
-            inputSchema,
+            inputSchema: relaxInputSchema(inputSchema),
             ...(outputSchema ? { outputSchema } : {}),
             annotations: { ...annotations, title },
         },
