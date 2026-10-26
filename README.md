@@ -7,7 +7,7 @@ If Desearch is useful, a [star](https://github.com/Desearch-ai/mcp-desearch/star
 
 Remote: `https://mcp.desearch.ai/mcp` with header `Authorization: Bearer <DESEARCH_API_KEY>`.
 
-Local: `npx -y desearch-mcp-server` with env `DESEARCH_API_KEY`.
+Local: `npx -y desearch-mcp-server@latest` with env `DESEARCH_API_KEY`.
 
 [Get a key](https://console.desearch.ai/api-keys).
 
@@ -231,7 +231,7 @@ npm install -g desearch-mcp-server
 Or run it without a global install:
 
 ```bash
-npx -y desearch-mcp-server
+npx -y desearch-mcp-server@latest
 ```
 
 Cursor or Claude can start that bin directly:
@@ -241,7 +241,7 @@ Cursor or Claude can start that bin directly:
     "mcpServers": {
         "desearch": {
             "command": "npx",
-            "args": ["-y", "desearch-mcp-server"],
+            "args": ["-y", "desearch-mcp-server@latest"],
             "env": {
                 "DESEARCH_API_KEY": "your-api-key"
             }
@@ -304,7 +304,7 @@ Local stdio alternative:
     "mcpServers": {
         "desearch": {
             "command": "npx",
-            "args": ["-y", "desearch-mcp-server"],
+            "args": ["-y", "desearch-mcp-server@latest"],
             "env": {
                 "DESEARCH_API_KEY": "your-api-key"
             }
@@ -341,7 +341,7 @@ Local stdio alternative:
     "context_servers": {
         "desearch": {
             "command": "npx",
-            "args": ["-y", "desearch-mcp-server"],
+            "args": ["-y", "desearch-mcp-server@latest"],
             "env": {
                 "DESEARCH_API_KEY": "your-api-key"
             }
