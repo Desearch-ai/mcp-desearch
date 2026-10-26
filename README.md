@@ -241,7 +241,7 @@ Cursor or Claude can start that bin directly:
     "mcpServers": {
         "desearch": {
             "command": "npx",
-            "args": ["-y", "desearch-mcp-server"],
+            "args": ["-y", "desearch-mcp-server@latest"],
             "env": {
                 "DESEARCH_API_KEY": "your-api-key"
             }
@@ -304,7 +304,7 @@ Local stdio alternative:
     "mcpServers": {
         "desearch": {
             "command": "npx",
-            "args": ["-y", "desearch-mcp-server"],
+            "args": ["-y", "desearch-mcp-server@latest"],
             "env": {
                 "DESEARCH_API_KEY": "your-api-key"
             }
@@ -341,7 +341,7 @@ Local stdio alternative:
     "context_servers": {
         "desearch": {
             "command": "npx",
-            "args": ["-y", "desearch-mcp-server"],
+            "args": ["-y", "desearch-mcp-server@latest"],
             "env": {
                 "DESEARCH_API_KEY": "your-api-key"
             }

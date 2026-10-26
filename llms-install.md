@@ -34,7 +34,7 @@ Requires Node.js v20.18.1 or higher. The npm package is `desearch-mcp-server` an
   "mcpServers": {
     "desearch": {
       "command": "npx",
-      "args": ["-y", "desearch-mcp-server"],
+      "args": ["-y", "desearch-mcp-server@latest"],
       "env": {
         "DESEARCH_API_KEY": "YOUR_DESEARCH_API_KEY"
       }
