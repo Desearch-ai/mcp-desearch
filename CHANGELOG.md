@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Add the public OpenAI Apps domain verification route at `/.well-known/openai-apps-challenge`, configurable through `OPENAI_APPS_CHALLENGE_TOKEN` or the source constant. Unconfigured tokens return 404.
+
 ## 0.3.3
 
 - `unverified_criteria` reads each check's `is_disqualifier`, which the API returns since 2026-10-20, and falls back to the keyword rule for checks scored before it, like the API's CSV `unverified_criteria` column.

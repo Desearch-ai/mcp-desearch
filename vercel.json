@@ -10,6 +10,7 @@
         { "source": "/.well-known/oauth-protected-resource/mcp", "destination": "/api/oauth-protected-resource-mcp" },
         { "source": "/.well-known/oauth-authorization-server", "destination": "/api/oauth-authorization-server" },
         { "source": "/.well-known/openid-configuration", "destination": "/api/openid-configuration" },
+        { "source": "/.well-known/openai-apps-challenge", "destination": "/api/openai-apps-challenge" },
         { "source": "/register", "destination": "/api/oauth-register" },
         { "source": "/authorize", "destination": "/api/oauth-authorize" },
         { "source": "/token", "destination": "/api/oauth-token" }

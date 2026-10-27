@@ -596,6 +596,12 @@ No server-side Desearch API key is required in the Vercel project. After deploy,
 
 The same `node build/index.js --http` process is the fallback if you would rather run a long-lived Node host instead of Vercel. The Docker image defaults to stdio; pass `--http` or set `MCP_TRANSPORT=http` to serve Streamable HTTP from it.
 
+### OpenAI Apps domain verification
+
+`GET https://mcp.desearch.ai/.well-known/openai-apps-challenge` serves the exact domain verification token as plain text, with no trailing newline and `Cache-Control: no-store`. It requires no authentication. `HEAD` returns the same headers with no body.
+
+Copy the token from the OpenAI Apps portal (Verify Domain). Set `OPENAI_APPS_CHALLENGE_TOKEN` in Vercel, or replace the constant in `openai-apps-challenge.ts`, then redeploy. A non-empty environment value overrides the constant after trimming whitespace. Until a token is configured, the route returns 404 and never serves the placeholder.
+
 ## Troubleshooting 🔧
 
 ### Common Issues
