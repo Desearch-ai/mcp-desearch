@@ -22,13 +22,22 @@ function request(method = "GET", path = pathname) {
     return new Request(`https://mcp.desearch.ai${path}`, { method });
 }
 
-test("unconfigured and placeholder challenge tokens return the unknown-route response", async () => {
+test("default GET serves the exact public OpenAI Apps token", async () => {
+    await withToken(undefined, async () => {
+        const response = await handleMcpHttpRequest(request());
+        assert.equal(response.status, 200);
+        assert.equal(await response.text(), "izKGHpAfQ5WzE5-QR0SrRad5StYDEzjKi434MfJGQPI");
+    });
+});
+
+test("unset, empty, whitespace and placeholder env tokens serve the default token", async () => {
     for (const value of [undefined, "", " \n ", " REPLACE_WITH_OPENAI_APPS_CHALLENGE_TOKEN "]) {
         await withToken(value, async () => {
             const response = await handleMcpHttpRequest(request());
-            const unknown = await handleMcpHttpRequest(request("GET", "/unknown"));
-            assert.equal(response.status, 404);
-            assert.equal(await response.text(), await unknown.text());
+            assert.equal(response.status, 200);
+            assert.equal(await response.text(), "izKGHpAfQ5WzE5-QR0SrRad5StYDEzjKi434MfJGQPI");
+            assert.equal(response.headers.get("content-type"), "text/plain; charset=utf-8");
+            assert.equal(response.headers.get("cache-control"), "no-store");
         });
     }
 });

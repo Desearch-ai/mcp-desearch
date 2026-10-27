@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Add the public OpenAI Apps domain verification route at `/.well-known/openai-apps-challenge`, configurable through `OPENAI_APPS_CHALLENGE_TOKEN` or the source constant. Unconfigured tokens return 404.
+- Add the public OpenAI Apps domain verification route at `/.well-known/openai-apps-challenge` with the public token set in source. The `OPENAI_APPS_CHALLENGE_TOKEN` environment variable can override it; unset, empty, whitespace-only or placeholder values fall back to the source token.
 
 ## 0.3.3
 
