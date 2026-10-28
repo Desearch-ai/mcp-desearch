@@ -7,7 +7,7 @@ description: Choose which Desearch MCP tool to call. Use when the task needs AI 
 
 Pick one Desearch tool from this list. Do not call a tool that is not registered.
 
-Set `DESEARCH_API_KEY` before the server starts. The plugin launches `npx -y desearch-mcp-server` and passes that variable through. The search and X tools send read requests. They do not post, follow, delete, or change an account. `people-search` starts a billed background search, and `people-search-control` pauses, resumes, or cancels one.
+Set `DESEARCH_API_KEY` before the server starts. The plugin launches `npx -y desearch-mcp-server` and passes that variable through. The search and X tools send read requests. They do not post, follow, delete, or change an account. `people-search` starts a billed background search, and `people-search-pause`, `people-search-resume`, and `people-search-cancel` pause, resume, or cancel one.
 
 ## Which tool
 
@@ -30,7 +30,9 @@ Set `DESEARCH_API_KEY` before the server starts. The plugin launches `npx -y des
 - **X Trends** (`x-trends`): Trends for a location WOEID. Arguments: `woeid` (required), `count` (optional, 30 to 100).
 - **People Search** (`people-search`): Start a billed background search for people who match a plain-language description. It reserves `count` people at the platform's per-person price and bills only the people it delivers; a search that finds no one is free. Arguments: `platform` (required: `x`, `youtube`, `linkedin`, `tiktok`), `query` (required), `count` (optional, 5 to 200), `min_score` (optional, 0 to 100), `exclude` (optional handles), `metadata` (optional labels such as `{"campaign": "q4-outbound"}`: up to 10 keys of a-z, 0-9, `_`, `.`, `-`, string values up to 200 characters; returned on the task), `idempotency_key` (optional; reuse it on a retry so the search is not started twice). Filters by platform: x `min_followers`, `max_followers`, `verified_only`, `countries`, `keywords`, `exclude_keywords`; youtube `min_subscribers`, `max_subscribers`, `countries`, `require_contact`, `keywords`, `exclude_keywords`; linkedin `min_followers`, `max_followers`, `countries`, `keywords`, `exclude_keywords`; tiktok `min_followers`, `max_followers`, `require_contact`, `keywords`, `exclude_keywords`.
 - **People Search Status** (`people-search-status`): Status, progress, cost, and a page of people for one task. Searches usually take 1 to 5 minutes. Arguments: `task_id` (required), `cursor` (optional, the previous `next_cursor`, to get only new people), `limit` (optional, 1 to 100, default 25), `include_people` (optional).
-- **Control People Search** (`people-search-control`): Pause, resume, or cancel a task. Arguments: `task_id` (required), `action` (required: `pause`, `resume`, `cancel`). Cancel cannot be undone.
+- **Pause People Search** (`people-search-pause`): Pause a task. Argument: `task_id` (required).
+- **Resume People Search** (`people-search-resume`): Resume a paused task with no new charge. Argument: `task_id` (required).
+- **Cancel People Search** (`people-search-cancel`): Stop a task for good; only people already delivered are billed. Argument: `task_id` (required). Cancel cannot be undone.
 - **List People Search Tasks** (`people-search-tasks`): Your searches, newest first. Arguments: `platform`, `status` (list), `limit`, `cursor`, `metadata` (up to 3 labels a task must have, exact match), all optional.
 - **List People Found** (`people-profiles`): Everyone your searches found on one platform. Arguments: `platform` (required), `q`, `sort` (`score`, `recent`, `audience`), `limit`, `cursor`, `has` (list of `email`, `website`, `x`, `linkedin`, `instagram`, `youtube`, `tiktok`), `min_audience`, `max_audience`, `min_score`, `location`, `verified`.
 

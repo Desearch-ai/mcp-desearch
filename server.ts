@@ -8,7 +8,6 @@ import {
 import DesearchImport from "desearch-js";
 import { z } from "zod";
 import {
-    PEOPLE_CONTROL_ACTIONS,
     PEOPLE_FILTER_CHANNELS,
     PEOPLE_METADATA_KEY_PATTERN,
     PEOPLE_METADATA_MAX_FILTERS,
@@ -107,21 +106,35 @@ const READ_ONLY_OPEN_WORLD: ToolAnnotations = {
 
 /**
  * `people-search` starts a paid job billed to the user's Desearch balance.
- * Spending that balance is irreversible, so destructiveHint is true.
+ * It creates a new task and reserves balance, but it does not delete or overwrite
+ * anything the caller already has, so destructiveHint is false. The unused part
+ * of the reservation is returned when the search ends.
  * Calling it again starts (and reserves) another search unless the same idempotency_key is sent.
  */
 const BILLED_TASK: ToolAnnotations = {
     readOnlyHint: false,
-    destructiveHint: true,
+    destructiveHint: false,
     idempotentHint: false,
     openWorldHint: true,
 };
 
 /**
- * `people-search-control` changes a task's state. `cancel` cannot be undone.
- * Repeating the same action has no further effect (the API answers 409).
+ * `people-search-pause` and `people-search-resume` change a task's state, and each
+ * undoes the other, so destructiveHint is false.
+ * Repeating the same call has no further effect (the API answers 409).
  */
-const TASK_CONTROL: ToolAnnotations = {
+const TASK_STATE_CHANGE: ToolAnnotations = {
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: true,
+};
+
+/**
+ * `people-search-cancel` stops a task for good. It cannot be undone, so destructiveHint is true.
+ * Repeating it has no further effect (the API answers 409).
+ */
+const TASK_CANCEL: ToolAnnotations = {
     readOnlyHint: false,
     destructiveHint: true,
     idempotentHint: true,
@@ -504,7 +517,7 @@ export function createDesearchMcpServer(
         },
         {
             instructions:
-                "Search the public web and X with Desearch. Use search for titles and links, then fetch with a result URL to read the page. Other tools cover AI search, X posts, and page extraction. People Search finds people and creators on X, YouTube, LinkedIn, and TikTok: people-search starts a paid job billed to the user's Desearch balance, people-search-status reads progress, and people-search-control can pause, resume, or cancel it. Calls need a Desearch API key.",
+                "Search the public web and X with Desearch. Use search for titles and links, then fetch with a result URL to read the page. Other tools cover AI search, X posts, and page extraction. People Search finds people and creators on X, YouTube, LinkedIn, and TikTok: people-search starts a paid job billed to the user's Desearch balance, people-search-status reads progress, and people-search-pause, people-search-resume, and people-search-cancel pause, resume, or cancel it. Calls need a Desearch API key.",
         }
     );
 
@@ -1019,7 +1032,7 @@ export function createDesearchMcpServer(
         apiKey,
         "people-search",
         "People Search",
-        "Start a paid job billed to the user's Desearch balance: find people on X, YouTube, LinkedIn, or TikTok who match a plain-language description. Each person comes back with a fit score, why they matched, their audience, and public contacts and links. This call reserves count times the platform's per-person price (reserved_cost_usd) and returns a task_id at once. When the search ends you pay only for the people it delivered (a per-search minimum applies when it finds anyone; a search that finds no one is free) and the rest of the reservation is returned. The search runs in the background, usually for 1 to 5 minutes: poll people-search-status with the task_id to read progress and the people found so far, and use people-search-control to pause, resume, or cancel it. Do not start the same search twice; send idempotency_key so a retry returns the first task instead of charging again. Filters depend on the platform. " +
+        "Start a paid job billed to the user's Desearch balance: find people on X, YouTube, LinkedIn, or TikTok who match a plain-language description. Each person comes back with a fit score, why they matched, their audience, and public contacts and links. This call reserves count times the platform's per-person price (reserved_cost_usd) and returns a task_id at once. When the search ends you pay only for the people it delivered (a per-search minimum applies when it finds anyone; a search that finds no one is free) and the rest of the reservation is returned. The search runs in the background, usually for 1 to 5 minutes: poll people-search-status with the task_id to read progress and the people found so far, and use people-search-pause, people-search-resume, or people-search-cancel to pause, resume, or cancel it. Do not start the same search twice; send idempotency_key so a retry returns the first task instead of charging again. Filters depend on the platform. " +
             platformFilterList() +
             ".",
         strictArgs({
@@ -1155,30 +1168,69 @@ export function createDesearchMcpServer(
             } catch (error) {
                 return fail("People Search Status error", error);
             }
-        }
+        },
+        undefined,
+        READ_ONLY_OPEN_WORLD
     );
 
     registerTool(
         server,
         apiKey,
-        "people-search-control",
-        "Control People Search",
-        "Pause, resume, or cancel a People Search task. Free. pause: a queued search pauses at once; a running one finishes its current batch first (status pausing, then paused). A search paused for more than 7 days is cancelled. resume: continues a paused search where it stopped, with no new charge. cancel: stops the search for good; you pay only for the people it already delivered and the rest of the reservation is returned. People found so far stay readable for 30 days.",
+        "people-search-pause",
+        "Pause People Search",
+        "Pause a People Search task. Free. A queued search pauses at once; a running one finishes its current batch first (status pausing, then paused). Resume it with people-search-resume. A search paused for more than 7 days is cancelled.",
         strictArgs({
             task_id: peopleTaskId,
-            action: z
-                .enum(PEOPLE_CONTROL_ACTIONS)
-                .describe("'pause', 'resume', or 'cancel'. cancel cannot be undone."),
         }),
         async (args) => {
             try {
-                return ok(await controlPeopleTask(people, args));
+                return ok(await controlPeopleTask(people, { task_id: args.task_id, action: "pause" }));
             } catch (error) {
-                return fail("People Search Control error", error);
+                return fail("People Search Pause error", error);
             }
         },
         undefined,
-        TASK_CONTROL
+        TASK_STATE_CHANGE
+    );
+
+    registerTool(
+        server,
+        apiKey,
+        "people-search-resume",
+        "Resume People Search",
+        "Resume a paused People Search task. Free. The search continues where it stopped, with no new charge.",
+        strictArgs({
+            task_id: peopleTaskId,
+        }),
+        async (args) => {
+            try {
+                return ok(await controlPeopleTask(people, { task_id: args.task_id, action: "resume" }));
+            } catch (error) {
+                return fail("People Search Resume error", error);
+            }
+        },
+        undefined,
+        TASK_STATE_CHANGE
+    );
+
+    registerTool(
+        server,
+        apiKey,
+        "people-search-cancel",
+        "Cancel People Search",
+        "Cancel a People Search task. Free. The search stops for good; you pay only for the people it already delivered and the rest of the reservation is returned. People found so far stay readable for 30 days. This cannot be undone.",
+        strictArgs({
+            task_id: peopleTaskId,
+        }),
+        async (args) => {
+            try {
+                return ok(await controlPeopleTask(people, { task_id: args.task_id, action: "cancel" }));
+            } catch (error) {
+                return fail("People Search Cancel error", error);
+            }
+        },
+        undefined,
+        TASK_CANCEL
     );
 
     registerTool(
@@ -1213,7 +1265,9 @@ export function createDesearchMcpServer(
             } catch (error) {
                 return fail("People Search Tasks error", error);
             }
-        }
+        },
+        undefined,
+        READ_ONLY_OPEN_WORLD
     );
 
     registerTool(
@@ -1282,7 +1336,9 @@ export function createDesearchMcpServer(
             } catch (error) {
                 return fail("People Profiles error", error);
             }
-        }
+        },
+        undefined,
+        READ_ONLY_OPEN_WORLD
     );
 
     // Scanners ask for these lists during discovery. There is nothing to return,

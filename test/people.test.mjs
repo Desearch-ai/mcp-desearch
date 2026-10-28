@@ -702,7 +702,7 @@ test("people-search-status reports a missing task and rejects a malformed task_i
     });
 });
 
-test("people-search-control pauses, resumes, and cancels", async () => {
+test("people-search-pause, people-search-resume, and people-search-cancel change a task", async () => {
     await withServer(async (client, mock) => {
         mock.reply("POST", `${TASK_PATH}/pause`, 200, { ...TASK, status: "pausing" });
         mock.reply("POST", `${TASK_PATH}/resume`, 200, { ...TASK, status: "queued", stage: null });
@@ -713,39 +713,44 @@ test("people-search-control pauses, resumes, and cancels", async () => {
         });
 
         const paused = JSON.parse(
-            textOf(await client.callTool({ name: "people-search-control", arguments: { task_id: TASK_ID, action: "pause" } }))
+            textOf(await client.callTool({ name: "people-search-pause", arguments: { task_id: TASK_ID } }))
         );
         assert.equal(paused.status, "pausing");
         assert.equal(paused.done, false);
         assert.match(paused.next, /^Pausing after the current batch/);
 
         const resumed = JSON.parse(
-            textOf(await client.callTool({ name: "people-search-control", arguments: { task_id: TASK_ID, action: "resume" } }))
+            textOf(await client.callTool({ name: "people-search-resume", arguments: { task_id: TASK_ID } }))
         );
         assert.equal(resumed.status, "queued");
         assert.equal(resumed.next, "Still searching. Wait 15 to 30 seconds, then call people-search-status again.");
 
         const cancelled = JSON.parse(
-            textOf(await client.callTool({ name: "people-search-control", arguments: { task_id: TASK_ID, action: "cancel" } }))
+            textOf(await client.callTool({ name: "people-search-cancel", arguments: { task_id: TASK_ID } }))
         );
         assert.equal(cancelled.status, "cancelling");
         assert.equal(Object.hasOwn(cancelled, "progress"), false);
 
         const conflict = await client.callTool({
-            name: "people-search-control",
-            arguments: { task_id: TASK_ID, action: "resume" },
+            name: "people-search-resume",
+            arguments: { task_id: TASK_ID },
         });
         assert.equal(conflict.isError, true);
         assert.equal(
             textOf(conflict),
-            "People Search Control error: HTTP 409: Only paused searches can be resumed. Task status: running."
+            "People Search Resume error: HTTP 409: Only paused searches can be resumed. Task status: running."
         );
 
-        for (const args of [{ task_id: TASK_ID, action: "delete" }, { task_id: "not-a-uuid", action: "pause" }, { task_id: TASK_ID }]) {
-            const rejected = await client.callTool({ name: "people-search-control", arguments: args });
-            assert.equal(rejected.isError, true, JSON.stringify(args));
-            assert.match(textOf(rejected), /Input validation error/, JSON.stringify(args));
+        for (const name of ["people-search-pause", "people-search-resume", "people-search-cancel"]) {
+            for (const args of [{ task_id: TASK_ID, action: "pause" }, { task_id: TASK_ID, extra: true }, { task_id: "not-a-uuid" }, {}]) {
+                const rejected = await client.callTool({ name, arguments: args });
+                assert.equal(rejected.isError, true, `${name} ${JSON.stringify(args)}`);
+                assert.match(textOf(rejected), /Input validation error/, `${name} ${JSON.stringify(args)}`);
+            }
         }
+
+        const { tools } = await client.listTools();
+        assert.equal(tools.some((tool) => tool.name === "people-search-control"), false);
 
         assert.deepEqual(
             mock.seen.map((call) => [call.method, call.path, call.body]),
