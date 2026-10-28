@@ -33,10 +33,13 @@ const HTML_HEADERS = {
     "X-Frame-Options": "DENY",
 };
 
+const EXTRA_FORM_ACTION_ORIGINS: Readonly<Record<string, readonly string[]>> = {
+    "https://chatgpt.com": ["https://platform.openai.com"],
+};
+
 /**
- * `form-action 'self'` blocks the 302 that follows a form POST in Chrome, so
- * the sign-in page also allows the validated callback origin (claude.ai,
- * chatgpt.com, or the loopback host and port).
+ * Chrome checks form-action on every redirect after a form POST, so allow the
+ * validated callback origin and ChatGPT's extra hop to the OpenAI platform portal.
  */
 function contentSecurityPolicy(redirectUri?: string): string {
     const targets = ["'self'"];
@@ -45,6 +48,7 @@ function contentSecurityPolicy(redirectUri?: string): string {
             const origin = new URL(redirectUri).origin;
             if (/^https?:\/\/[A-Za-z0-9.\[\]:-]+$/.test(origin)) {
                 targets.push(origin);
+                targets.push(...(EXTRA_FORM_ACTION_ORIGINS[origin] ?? []));
             }
         } catch {
             // The redirect was already rejected before a page is rendered.

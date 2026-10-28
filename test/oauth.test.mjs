@@ -946,6 +946,50 @@ test("authorize POST rejects a cross-site Origin or Referer", async () => {
     });
 });
 
+test("authorize CSP allows the platform hop only for ChatGPT callbacks", async () => {
+    await withServer(async (server) => {
+        const origin = `http://127.0.0.1:${server.port}`;
+        const { challenge } = pkce();
+        const cases = [
+            ["https://chatgpt.com/connector_platform_oauth_redirect", "https://chatgpt.com https://platform.openai.com"],
+            ["https://chatgpt.com/connector/oauth/test-connector", "https://chatgpt.com https://platform.openai.com"],
+            ["https://claude.ai/api/mcp/auth_callback", "https://claude.ai"],
+            ["https://claude.com/api/mcp/auth_callback", "https://claude.com"],
+            ["http://127.0.0.1:4312/callback", "http://127.0.0.1:4312"],
+        ];
+        for (const [redirectUri, targets] of cases) {
+            const client = await register(server.port, redirectUri);
+            const authorizeUrl = new URL(`${origin}/authorize`);
+            authorizeUrl.search = new URLSearchParams({
+                response_type: "code",
+                client_id: client.client_id,
+                redirect_uri: redirectUri,
+                code_challenge: challenge,
+                code_challenge_method: "S256",
+                state: "csp-state",
+                resource: `${origin}/mcp`,
+            }).toString();
+            const page = await fetch(authorizeUrl);
+            assert.equal(page.status, 200, redirectUri);
+            const csp = page.headers.get("content-security-policy") ?? "";
+            const directives = csp.split(";").map((directive) => directive.trim());
+            assert.equal(
+                directives.find((directive) => directive.startsWith("form-action ")),
+                `form-action 'self' ${targets}`,
+                redirectUri
+            );
+            assert.deepEqual(
+                directives.filter((directive) => !directive.startsWith("form-action ")),
+                ["default-src 'none'", "style-src 'unsafe-inline'", "base-uri 'none'", "frame-ancestors 'none'"]
+            );
+            if (new URL(redirectUri).hostname !== "chatgpt.com") {
+                assert.equal(csp.includes("platform.openai.com"), false);
+            }
+            await page.text();
+        }
+    });
+});
+
 test("browser authorize form posts parsed fields with Origin null", async () => {
     await withServer(async (server) => {
         const origin = `http://127.0.0.1:${server.port}`;
