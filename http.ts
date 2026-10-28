@@ -1,5 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
+import { PUBLIC_ICONS } from "./icons.js";
 import { openaiAppsChallengeToken } from "./openai-apps-challenge.js";
 import { DIRECT_CLIENT_IP_HEADER } from "./oauth/client-ip.js";
 import { OAuthConfigError } from "./oauth/errors.js";
@@ -311,6 +312,22 @@ export async function handleMcpHttpRequest(request: Request): Promise<Response> 
         }
     }
 
+    const icon = PUBLIC_ICONS.get(pathname);
+    if (icon) {
+        if (request.method !== "GET" && request.method !== "HEAD") {
+            return withCors(jsonRpcError(405, -32000, "Method not allowed.", { Allow: "GET, HEAD" }));
+        }
+        return withCors(new Response(request.method === "HEAD" ? null : icon.bytes, {
+            status: 200,
+            headers: {
+                "Content-Type": icon.contentType,
+                "Content-Length": String(icon.bytes.byteLength),
+                "Cache-Control": "public, max-age=86400",
+                "Cross-Origin-Resource-Policy": "cross-origin",
+            },
+        }));
+    }
+
     const oauthResponse = await handleOAuthHttp(request);
     if (oauthResponse) {
         return withCors(oauthResponse);
@@ -431,10 +448,13 @@ async function toWebRequest(req: IncomingMessage): Promise<Request> {
     });
 }
 
-async function writeWebResponse(res: ServerResponse, response: Response): Promise<void> {
+async function writeWebResponse(res: ServerResponse, response: Response, method?: string): Promise<void> {
     const body = Buffer.from(await response.arrayBuffer());
     const headers = new Headers(response.headers);
-    headers.set("content-length", String(body.byteLength));
+    // A HEAD response keeps the Content-Length of the GET body it describes.
+    if (method !== "HEAD" || !headers.has("content-length")) {
+        headers.set("content-length", String(body.byteLength));
+    }
     const outgoing: Record<string, string> = {};
     headers.forEach((value, key) => {
         outgoing[key] = value;
@@ -451,7 +471,7 @@ export function startHttpServer(options: HttpListenOptions = {}): Promise<Runnin
         try {
             const request = await toWebRequest(req);
             const response = await handleMcpHttpRequest(request);
-            await writeWebResponse(res, response);
+            await writeWebResponse(res, response, request.method);
         } catch (error) {
             console.error(
                 `HTTP server error: ${error instanceof Error ? error.message : String(error)}`
