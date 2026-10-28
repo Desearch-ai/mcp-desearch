@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Add the public OpenAI Apps domain verification route at `/.well-known/openai-apps-challenge` with the public token set in source. The `OPENAI_APPS_CHALLENGE_TOKEN` environment variable can override it; unset, empty, whitespace-only or placeholder values fall back to the source token.
+
 ## 0.3.3
 
 - `unverified_criteria` reads each check's `is_disqualifier`, which the API returns since 2026-10-20, and falls back to the keyword rule for checks scored before it, like the API's CSV `unverified_criteria` column.

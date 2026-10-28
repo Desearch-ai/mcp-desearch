@@ -1,5 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
+import { openaiAppsChallengeToken } from "./openai-apps-challenge.js";
 import { DIRECT_CLIENT_IP_HEADER } from "./oauth/client-ip.js";
 import { OAuthConfigError } from "./oauth/errors.js";
 import { handleOAuthHttp, resolveRequestCredential } from "./oauth/http.js";
@@ -293,6 +294,22 @@ export async function handleMcpHttpRequest(request: Request): Promise<Response> 
     }
 
     const pathname = normalizePath(new URL(request.url).pathname);
+
+    if (pathname === "/.well-known/openai-apps-challenge" || pathname === "/api/openai-apps-challenge") {
+        const token = openaiAppsChallengeToken();
+        if (token) {
+            if (request.method !== "GET" && request.method !== "HEAD") {
+                return withCors(jsonRpcError(405, -32000, "Method not allowed.", { Allow: "GET, HEAD" }));
+            }
+            return withCors(new Response(request.method === "HEAD" ? null : token, {
+                status: 200,
+                headers: {
+                    "Content-Type": "text/plain; charset=utf-8",
+                    "Cache-Control": "no-store",
+                },
+            }));
+        }
+    }
 
     const oauthResponse = await handleOAuthHttp(request);
     if (oauthResponse) {
