@@ -1,13 +1,13 @@
 ---
 name: desearch
-description: Choose which Desearch MCP tool to call. Use when the task needs AI search, web search, a page as text or HTML, X posts, X trends, or finding people and creators on X, YouTube, LinkedIn, or TikTok.
+description: Choose which Desearch MCP tool to call. Use when the task needs AI search, web search, a page as text or HTML, X posts, X trends, finding people and creators on X, YouTube, LinkedIn, or TikTok, or finding companies and their public contacts and leaders (or enriching domains you already have).
 ---
 
 # Desearch
 
 Pick one Desearch tool from this list. Do not call a tool that is not registered.
 
-Set `DESEARCH_API_KEY` before the server starts. The plugin launches `npx -y desearch-mcp-server` and passes that variable through. The search and X tools send read requests. They do not post, follow, delete, or change an account. `people-search` starts a billed background search, and `people-search-pause`, `people-search-resume`, and `people-search-cancel` pause, resume, or cancel one.
+Set `DESEARCH_API_KEY` before the server starts. The plugin launches `npx -y desearch-mcp-server` and passes that variable through. The search and X tools send read requests. They do not post, follow, delete, or change an account. `people-search` starts a billed background search, and `people-search-pause`, `people-search-resume`, and `people-search-cancel` pause, resume, or cancel one. `company-search` and `company-enrich` start billed background company tasks, and `company-search-pause`, `company-search-resume`, and `company-search-cancel` pause, resume, or cancel one.
 
 ## Which tool
 
@@ -35,9 +35,16 @@ Set `DESEARCH_API_KEY` before the server starts. The plugin launches `npx -y des
 - **Cancel People Search** (`people-search-cancel`): Stop a task for good; only people already delivered are billed. Argument: `task_id` (required). Cancel cannot be undone.
 - **List People Search Tasks** (`people-search-tasks`): Your searches, newest first. Arguments: `platform`, `status` (list), `limit`, `cursor`, `metadata` (up to 3 labels a task must have, exact match), all optional.
 - **List People Found** (`people-profiles`): Everyone your searches found on one platform. Arguments: `platform` (required), `q`, `sort` (`score`, `recent`, `audience`), `limit`, `cursor`, `has` (list of `email`, `website`, `x`, `linkedin`, `instagram`, `youtube`, `tiktok`), `min_audience`, `max_audience`, `min_score`, `location`, `verified`.
+- **Company Search** (`company-search`): Start a billed background task that finds companies on the web matching a plain-language description and collects each one's public emails, phones, social profiles, and leaders (with LinkedIn profiles and emails). It reserves `count` companies at the Company Search price and bills only the companies it delivers (a minimum of 2 when it delivers any; a task that delivers none is free). Arguments: `query` (required, 3 to 1000 characters), `count` (optional, 5 to 200, default 25), `min_score` (optional, 0 to 100), `exclude` (optional domains or URLs, up to 1000), `countries` (optional ISO codes or names, up to 20), `require` (optional list of `email`, `phone`, `linkedin`, `leader`, `leader_email`; a company without them is not delivered or billed), `roles` (optional list of `ceo`, `founder`, `cto`, `cfo`, `coo`, `cmo`, `president`, `owner`, `managing_director`; default `ceo`, `founder`, `cto`, `cfo`), `infer_emails` (optional, default true), `verify_emails` (optional, default true), `metadata` (optional labels, same rules as People Search), `idempotency_key` (optional).
+- **Company Enrich** (`company-enrich`): Start a billed background task that collects the same public contact data for companies you already know. One company per domain, with no fit score (`score` is null). It reserves one company per domain sent at the Company Enrich price and bills only the companies it delivers (a minimum of 1). Arguments: `domains` (required, 1 to 200 domains or URLs; deduplicated), `roles`, `infer_emails`, `verify_emails`, `metadata`, `idempotency_key` (all optional).
+- **Company Search Status** (`company-search-status`): Status, progress, cost, and a page of companies for one Company Search or Company Enrich task. Companies arrive with `enrichment` status `partial` and later stages fill them in: pass the previous `next_cursor` as `cursor` to get only new companies, and call without `cursor` to read every company in its latest version (do that once more after the task is done). Arguments: `task_id` (required), `cursor` (optional), `limit` (optional, 1 to 100, default 10), `include_companies` (optional).
+- **Pause Company Search** (`company-search-pause`): Pause a task. Argument: `task_id` (required).
+- **Resume Company Search** (`company-search-resume`): Resume a paused task with no new charge. Argument: `task_id` (required).
+- **Cancel Company Search** (`company-search-cancel`): Stop a task for good; only companies already delivered are billed. Argument: `task_id` (required). Cancel cannot be undone.
+- **List Company Search Tasks** (`company-search-tasks`): Your Company Search and Company Enrich tasks, newest first. Arguments: `type` (`search` or `enrich`), `status` (list), `limit`, `cursor`, `metadata` (up to 3 labels a task must have, exact match), all optional.
 
-Before `people-search`, check `people-profiles` when the user may already have searched for these people. Start a new search only when the user asks to find people.
+Before `people-search`, check `people-profiles` when the user may already have searched for these people. Start a new search only when the user asks to find people. Use `company-search` only when the user asks to find companies, and `company-enrich` when they already have the domains; both are billed. A People Search `task_id` does not work on the company tools, and a company `task_id` does not work on the People Search tools.
 
 ## When not to use these tools
 
-Skip Desearch when the task is only about files in the current project, or when the text you need is already in the conversation. These tools do not browse a logged-in site, post to X, contact the people they find, or change Desearch account settings.
+Skip Desearch when the task is only about files in the current project, or when the text you need is already in the conversation. These tools do not browse a logged-in site, post to X, contact the people or companies they find, or change Desearch account settings.

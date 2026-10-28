@@ -120,7 +120,7 @@ export interface PeopleApiResponse {
     data: unknown;
 }
 
-type QueryValue = string | number | boolean | undefined;
+export type QueryValue = string | number | boolean | undefined;
 
 export interface PeopleClient {
     startSearch(
@@ -148,7 +148,7 @@ function errorDetail(data: unknown, text: string): string {
     return text.length > 500 ? `${text.slice(0, 500)}...` : text;
 }
 
-function withQuery(path: string, params: Record<string, QueryValue>): string {
+export function withQuery(path: string, params: Record<string, QueryValue>): string {
     const search = new URLSearchParams();
     for (const [key, value] of Object.entries(params)) {
         if (value !== undefined) {
@@ -159,12 +159,19 @@ function withQuery(path: string, params: Record<string, QueryValue>): string {
     return qs ? `${path}?${qs}` : path;
 }
 
-export function createPeopleClient(apiKey: string, baseUrl: string = PEOPLE_API_BASE_URL): PeopleClient {
-    async function call(
-        method: "GET" | "POST",
-        path: string,
-        options: { body?: Record<string, unknown>; headers?: Record<string, string> } = {}
-    ): Promise<PeopleApiResponse> {
+export type ApiCall = (
+    method: "GET" | "POST",
+    path: string,
+    options?: { body?: Record<string, unknown>; headers?: Record<string, string> }
+) => Promise<PeopleApiResponse>;
+
+/**
+ * One Desearch API request with the desearch-js conventions: `Authorization: <key>`,
+ * a JSON body, and `HTTP <status>: <detail>` on an error status. People Search and
+ * Company Search (companies.ts) share it.
+ */
+export function createApiCall(apiKey: string, baseUrl: string = PEOPLE_API_BASE_URL): ApiCall {
+    return async function call(method, path, options = {}) {
         const headers: Record<string, string> = { Authorization: apiKey, ...options.headers };
         if (options.body) {
             headers["Content-Type"] = "application/json";
@@ -195,8 +202,11 @@ export function createPeopleClient(apiKey: string, baseUrl: string = PEOPLE_API_
             throw new Error(`HTTP ${response.status}: ${errorDetail(data, text)}`);
         }
         return { status: response.status, data };
-    }
+    };
+}
 
+export function createPeopleClient(apiKey: string, baseUrl: string = PEOPLE_API_BASE_URL): PeopleClient {
+    const call = createApiCall(apiKey, baseUrl);
     const taskPath = (taskId: string) => `/desearch/people/tasks/${encodeURIComponent(taskId)}`;
 
     return {
@@ -257,7 +267,7 @@ export function peopleSearchBody(args: PeopleSearchArgs): Record<string, unknown
     return body;
 }
 
-function compact(fields: Record<string, unknown>): Record<string, unknown> {
+export function compact(fields: Record<string, unknown>): Record<string, unknown> {
     const out: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(fields)) {
         if (value === undefined || value === null || value === "") continue;
@@ -268,19 +278,19 @@ function compact(fields: Record<string, unknown>): Record<string, unknown> {
     return out;
 }
 
-function objectOf(value: unknown): Record<string, unknown> {
+export function objectOf(value: unknown): Record<string, unknown> {
     return isPlainObject(value) ? value : {};
 }
 
-function arrayOf(value: unknown): unknown[] {
+export function arrayOf(value: unknown): unknown[] {
     return Array.isArray(value) ? value : [];
 }
 
-function numberOf(value: unknown): number | undefined {
+export function numberOf(value: unknown): number | undefined {
     return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
-function stringOf(value: unknown): string | undefined {
+export function stringOf(value: unknown): string | undefined {
     return typeof value === "string" && value.trim() !== "" ? value : undefined;
 }
 
