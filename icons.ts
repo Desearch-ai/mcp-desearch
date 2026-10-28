@@ -14,8 +14,8 @@ const ICON_64: PublicIcon = { contentType: "image/png", bytes: decode(ICON_64_PN
 const FAVICON: PublicIcon = { contentType: "image/x-icon", bytes: decode(FAVICON_ICO_BASE64) };
 
 /**
- * Public icon paths. `/api/icon` serves them on Vercel and maps each rewrite
- * back to one of these names with `?name=`.
+ * Public icon paths for the Node HTTP server. On Vercel the same bytes are
+ * static files in public/, with headers set in vercel.json.
  */
 export const PUBLIC_ICONS: ReadonlyMap<string, PublicIcon> = new Map([
     ["/icon-512.png", ICON_512],

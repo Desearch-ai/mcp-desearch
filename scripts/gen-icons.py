@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Regenerate the server icons from assets/desearch-mark-white.png.
 
-Writes assets/icon-512.png, assets/icon-64.png, assets/favicon.ico and
-icons-data.ts (base64 copies of the same bytes, so the Vercel functions serve
-them without reading files). Each icon is the official white Desearch glyph
+Writes public/icon-512.png, public/icon-64.png, public/favicon.png (the 64x64
+icon), public/favicon.ico and icons-data.ts. Vercel serves the public/ files
+as static assets, with the headers set in vercel.json. icons-data.ts holds
+base64 copies of the same bytes, so the local HTTP server (http.ts) serves the
+same icons without reading files. Each icon is the official white Desearch glyph
 centered on a #0F172A rounded square tile with transparent corners, matching
 the www.desearch.ai favicon. Every size is composed on its own from the source
 glyph, which is only ever downscaled; no finished icon is resized into another.
@@ -21,6 +23,7 @@ from PIL import Image, ImageDraw
 
 ROOT = Path(__file__).resolve().parent.parent
 ASSETS = ROOT / "assets"
+PUBLIC = ROOT / "public"
 SOURCE = ASSETS / "desearch-mark-white.png"
 TILE_COLOR = (0x0F, 0x17, 0x2A, 255)
 CORNER_RADIUS = 0.1875  # fraction of the tile size
@@ -53,15 +56,18 @@ def compose(glyph: Image.Image, size: int) -> Image.Image:
 
 def main() -> None:
     glyph = Image.open(SOURCE).convert("RGBA")
+    PUBLIC.mkdir(exist_ok=True)
 
-    compose(glyph, 512).save(ASSETS / "icon-512.png")
-    compose(glyph, 64).save(ASSETS / "icon-64.png")
+    compose(glyph, 512).save(PUBLIC / "icon-512.png")
+    compose(glyph, 64).save(PUBLIC / "icon-64.png")
+    # favicon.png is the same bytes as icon-64.png.
+    (PUBLIC / "favicon.png").write_bytes((PUBLIC / "icon-64.png").read_bytes())
 
     # Pillow uses an appended image when its size matches an ICO entry, so
     # each entry is composed separately at its own size.
     frames = [compose(glyph, size) for size in ICO_SIZES]
     frames[-1].save(
-        ASSETS / "favicon.ico",
+        PUBLIC / "favicon.ico",
         sizes=[(size, size) for size in ICO_SIZES],
         append_images=frames[:-1],
     )
@@ -76,7 +82,7 @@ def main() -> None:
         "",
     ]
     for name, filename in entries:
-        encoded = base64.b64encode((ASSETS / filename).read_bytes()).decode("ascii")
+        encoded = base64.b64encode((PUBLIC / filename).read_bytes()).decode("ascii")
         lines.append(f'export const {name}: string = "{encoded}";')
     (ROOT / "icons-data.ts").write_text("\n".join(lines) + "\n")
 

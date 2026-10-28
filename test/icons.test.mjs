@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
-import iconHandler from "../api/icon.js";
 import { handleMcpHttpRequest, startHttpServer } from "../build/http.js";
+import { FAVICON_ICO_BASE64, ICON_512_PNG_BASE64, ICON_64_PNG_BASE64 } from "../build/icons-data.js";
 
 const INIT_BODY = {
     jsonrpc: "2.0",
@@ -128,19 +128,42 @@ test("local HTTP server serves icons and keeps the HEAD content length", async (
     }
 });
 
-test("Vercel routes each icon path to api/icon with its name", async () => {
+test("Vercel serves each icon as a static file from public/ with icon headers", async () => {
     const config = JSON.parse(readFileSync(new URL("../vercel.json", import.meta.url), "utf8"));
-    assert.ok(existsSync(new URL("../api/icon.js", import.meta.url)));
+    const contentTypes = {
+        "/icon-512.png": "image/png",
+        "/icon-64.png": "image/png",
+        "/favicon.png": "image/png",
+        "/favicon.ico": "image/x-icon",
+    };
+    const served = {
+        "/icon-512.png": ICON_512_PNG_BASE64,
+        "/icon-64.png": ICON_64_PNG_BASE64,
+        "/favicon.png": ICON_64_PNG_BASE64,
+        "/favicon.ico": FAVICON_ICO_BASE64,
+    };
     for (const path of ICON_PATHS) {
-        const rewrite = config.rewrites.find(({ source }) => source === path);
-        assert.ok(rewrite, path);
-        const destination = new URL(rewrite.destination, "https://mcp.desearch.ai");
-        assert.equal(destination.pathname, "/api/icon");
-        const response = await iconHandler.fetch(request("GET", `${destination.pathname}${destination.search}`));
-        assert.equal(response.status, 200, path);
-        const direct = await handleMcpHttpRequest(request("GET", path));
-        assert.deepEqual(new Uint8Array(await response.arrayBuffer()), new Uint8Array(await direct.arrayBuffer()));
+        const file = new URL(`../public${path}`, import.meta.url);
+        assert.ok(existsSync(file), `public${path}`);
+        const bytes = new Uint8Array(readFileSync(file));
+        if (path in PNG_PATHS) {
+            const size = PNG_PATHS[path];
+            assert.deepEqual(pngSize(bytes), { width: size, height: size }, path);
+        } else {
+            assert.deepEqual([...bytes.subarray(0, 4)], [0, 0, 1, 0], path);
+        }
+        assert.deepEqual(bytes, new Uint8Array(Buffer.from(served[path], "base64")), path);
+        const response = await handleMcpHttpRequest(request("GET", path));
+        assert.deepEqual(bytes, new Uint8Array(await response.arrayBuffer()), path);
+
+        assert.ok(!config.rewrites.some(({ source }) => source === path), `rewrite for ${path}`);
+        const entry = config.headers.find(({ source }) => source === path);
+        assert.ok(entry, `headers for ${path}`);
+        const headers = Object.fromEntries(entry.headers.map(({ key, value }) => [key.toLowerCase(), value]));
+        assert.equal(headers["access-control-allow-origin"], "*", path);
+        assert.equal(headers["cross-origin-resource-policy"], "cross-origin", path);
+        assert.equal(headers["cache-control"], "public, max-age=86400", path);
+        assert.equal(headers["content-type"], contentTypes[path], path);
     }
-    const unknown = await iconHandler.fetch(request("GET", "/api/icon?name=secret.txt"));
-    assert.equal(unknown.status, 404);
+    assert.ok(!existsSync(new URL("../api/icon.js", import.meta.url)));
 });
