@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Breaking tool-name change: `people-search-control` is replaced by three tools, `people-search-pause`, `people-search-resume`, and `people-search-cancel`. Each takes only `task_id` and calls the same `POST /desearch/people/tasks/{task_id}/pause`, `/resume`, or `/cancel` route as before, with the same 409 handling. Errors are titled `People Search Pause error`, `People Search Resume error`, and `People Search Cancel error`. `people-search-control` is removed with no alias. The `people-search` description, the server instructions, and the `next` hints for pausing and paused tasks name the new tools.
+- Annotation fixes: `people-search` sets `destructiveHint: false` (it was `true`); it creates a task and does not delete or overwrite anything. `people-search-pause` and `people-search-resume` set `destructiveHint: false` and `idempotentHint: true`. `people-search-cancel` sets `destructiveHint: true` and `idempotentHint: true`. `people-search-status`, `people-search-tasks`, and `people-profiles` set `readOnlyHint: true` and `destructiveHint: false` explicitly. `openWorldHint` stays `true` on every tool.
+
 - Accept OAuth state values up to 4096 characters so OpenAI Apps relay state survives sign-in. Report missing and oversized state values separately.
 
 - Add the public OpenAI Apps domain verification route at `/.well-known/openai-apps-challenge` with the public token set in source. The `OPENAI_APPS_CHALLENGE_TOKEN` environment variable can override it; unset, empty, whitespace-only or placeholder values fall back to the source token.

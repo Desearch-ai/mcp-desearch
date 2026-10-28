@@ -30,7 +30,9 @@ const TOOL_NAMES = [
     "fetch",
     "people-profiles",
     "people-search",
-    "people-search-control",
+    "people-search-cancel",
+    "people-search-pause",
+    "people-search-resume",
     "people-search-status",
     "people-search-tasks",
     "search",
@@ -69,25 +71,36 @@ const TOOL_TITLES = {
     "x-trends": "Get X Trends",
     "people-search": "People Search",
     "people-search-status": "Get People Search Status",
-    "people-search-control": "Control People Search",
+    "people-search-pause": "Pause People Search",
+    "people-search-resume": "Resume People Search",
+    "people-search-cancel": "Cancel People Search",
     "people-search-tasks": "List People Search Tasks",
     "people-profiles": "List People Found",
 };
 
-// Tools that change state. Every other tool is read-only.
-const WRITE_ANNOTATIONS = {
-    "people-search": { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
-    "people-search-control": { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
+// Every People Search tool, explicitly. Tools not listed here are read-only lookups.
+const PEOPLE_ANNOTATIONS = {
+    "people-search": { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    "people-search-status": { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+    "people-search-tasks": { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+    "people-profiles": { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+    "people-search-pause": { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    "people-search-resume": { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    "people-search-cancel": { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
 };
 
 const UNSOURCED_SPEED = /real-?time|nova is|orbit is|\b10s\b|\b30s\b/i;
 
 function assertToolMetadata(tools) {
-    assert.equal(tools.length, 22);
+    assert.equal(tools.length, 24);
+    assert.equal(tools.some((tool) => tool.name === "people-search-control"), false);
+    for (const name of Object.keys(PEOPLE_ANNOTATIONS)) {
+        assert.ok(tools.some((tool) => tool.name === name), name);
+    }
     for (const tool of tools) {
         assert.equal(tool.title, TOOL_TITLES[tool.name], tool.name);
         assert.equal(tool.annotations?.title, TOOL_TITLES[tool.name], tool.name);
-        const hints = WRITE_ANNOTATIONS[tool.name] ?? { readOnlyHint: true, destructiveHint: false };
+        const hints = PEOPLE_ANNOTATIONS[tool.name] ?? { readOnlyHint: true, destructiveHint: false };
         for (const [hint, value] of Object.entries(hints)) {
             assert.equal(tool.annotations?.[hint], value, `${tool.name} ${hint}`);
         }
@@ -195,12 +208,19 @@ test("stdio initializes and lists tools", async () => {
             "x-trends": ["woeid"],
             "people-search": ["platform", "query"],
             "people-search-status": ["task_id"],
-            "people-search-control": ["task_id", "action"],
+            "people-search-pause": ["task_id"],
+            "people-search-resume": ["task_id"],
+            "people-search-cancel": ["task_id"],
             "people-profiles": ["platform"],
         };
         for (const [name, required] of Object.entries(requiredByTool)) {
             const tool = listed.tools.find((entry) => entry.name === name);
             assert.deepEqual(tool.inputSchema.required, required, name);
+        }
+        for (const name of ["people-search-pause", "people-search-resume", "people-search-cancel"]) {
+            const tool = listed.tools.find((entry) => entry.name === name);
+            assert.deepEqual(Object.keys(tool.inputSchema.properties), ["task_id"], name);
+            assert.equal(tool.inputSchema.additionalProperties, false, name);
         }
 
         for (const name of ["extract", "web-crawl"]) {

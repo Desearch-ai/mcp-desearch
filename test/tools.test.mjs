@@ -337,7 +337,9 @@ test("phase 4 extract, web-crawl, and x-trends call the matching desearch-js met
                 "fetch",
                 "people-profiles",
                 "people-search",
-                "people-search-control",
+                "people-search-cancel",
+                "people-search-pause",
+                "people-search-resume",
                 "people-search-status",
                 "people-search-tasks",
                 "search",
@@ -470,22 +472,34 @@ test("every listed tool has a title and annotations", async () => {
         "x-trends": "Get X Trends",
         "people-search": "People Search",
         "people-search-status": "Get People Search Status",
-        "people-search-control": "Control People Search",
+        "people-search-pause": "Pause People Search",
+        "people-search-resume": "Resume People Search",
+        "people-search-cancel": "Cancel People Search",
         "people-search-tasks": "List People Search Tasks",
         "people-profiles": "List People Found",
     };
-    // people-search spends the user's balance; people-search-control can cancel a search.
-    const writes = {
-        "people-search": { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
-        "people-search-control": { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
+    // people-search spends the user's balance but deletes nothing; pause and resume undo
+    // each other; only cancel cannot be undone. status, tasks, and profiles only read.
+    const people = {
+        "people-search": { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+        "people-search-status": { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+        "people-search-tasks": { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+        "people-profiles": { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+        "people-search-pause": { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+        "people-search-resume": { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+        "people-search-cancel": { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
     };
     await withFakeClient({}, async (client) => {
         const listed = await client.listTools();
-        assert.equal(listed.tools.length, 22);
+        assert.equal(listed.tools.length, 24);
+        assert.equal(listed.tools.some((tool) => tool.name === "people-search-control"), false);
+        for (const name of Object.keys(people)) {
+            assert.ok(listed.tools.some((tool) => tool.name === name), name);
+        }
         for (const tool of listed.tools) {
             assert.equal(tool.title, expected[tool.name], tool.name);
             assert.equal(tool.annotations?.title, expected[tool.name], tool.name);
-            const hints = writes[tool.name] ?? { readOnlyHint: true, destructiveHint: false };
+            const hints = people[tool.name] ?? { readOnlyHint: true, destructiveHint: false };
             for (const [hint, value] of Object.entries(hints)) {
                 assert.equal(tool.annotations?.[hint], value, `${tool.name} ${hint}`);
             }
@@ -579,7 +593,7 @@ test("web-search accepts start: null as 0 and still accepts an omitted start", a
     try {
         await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
         const listed = await client.listTools();
-        assert.equal(listed.tools.length, 22);
+        assert.equal(listed.tools.length, 24);
         const webSearch = listed.tools.find((tool) => tool.name === "web-search");
         assert.equal(webSearch.inputSchema.properties.start.type, "integer");
         assert.equal(webSearch.inputSchema.properties.start.minimum, 0);

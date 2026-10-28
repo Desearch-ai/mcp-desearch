@@ -213,7 +213,10 @@ test("people tools advertise the People Search API enums", async () => {
         assert.deepEqual(byName["people-search-tasks"].status.items.enum, PEOPLE_STATUS_ENUM);
         assert.deepEqual(byName["people-profiles"].has.items.enum, PEOPLE_CHANNEL_ENUM);
         assert.deepEqual(byName["people-profiles"].sort.enum, ["score", "recent", "audience"]);
-        assert.deepEqual(byName["people-search-control"].action.enum, ["pause", "resume", "cancel"]);
+        assert.equal(byName["people-search-control"], undefined);
+        for (const name of ["people-search-pause", "people-search-resume", "people-search-cancel"]) {
+            assert.deepEqual(Object.keys(byName[name]), ["task_id"], name);
+        }
 
         // Every platform filter is an argument, and every filter argument belongs to a platform.
         const filterArgs = new Set(Object.values(PEOPLE_SEARCH_FILTERS).flat());

@@ -444,9 +444,9 @@ export function peopleNextStep(
                 ? `Still searching. Wait 15 to 30 seconds, then call ${again}.`
                 : `Still searching. Wait 15 to 30 seconds, then call ${again} to get only the people found since this call.`;
         case "pausing":
-            return "Pausing after the current batch. Resume it with people-search-control action \"resume\".";
+            return "Pausing after the current batch. Resume it with people-search-resume.";
         case "paused":
-            return "Paused. Resume it with people-search-control action \"resume\", or cancel it.";
+            return "Paused. Resume it with people-search-resume, or cancel it with people-search-cancel.";
         case "cancelling":
             return "Cancelling. Call people-search-status again to read the final status.";
         case "completed":
@@ -532,7 +532,7 @@ export async function readPeopleStatus(
     };
 }
 
-/** `people-search-control`: pause, resume, or cancel a task. */
+/** `people-search-pause`, `people-search-resume`, `people-search-cancel`: change a task's state. */
 export async function controlPeopleTask(
     client: PeopleClient,
     args: { task_id: string; action: PeopleControlAction }
