@@ -1,18 +1,18 @@
-import { fetch } from "undici";
+import { DESEARCH_API_BASE_URL, createDesearchApi, type DesearchApi, type QueryValue } from "./desearch-api.js";
 
 /**
  * People Search on the Desearch API (`/desearch/people/*`).
  *
  * desearch-js 1.5 has no People Search methods, so this module calls the routes
- * directly with the same base URL, `Authorization: <key>` header, and
- * `HTTP <status>: <detail>` error text that desearch-js uses.
+ * directly through `desearch-api.ts`, with the same base URL, `Authorization: <key>`
+ * header, and `HTTP <status>: <detail>` error text that desearch-js uses.
  *
  * - `POST /desearch/people/search/{platform}` starts a background search and is billed:
  *   it reserves `count` people at the route price and settles to what it delivers.
- * - Every other route (tasks, results, pause/resume/cancel, profiles) is free.
+ * - Every other route (tasks, results, pause/resume/cancel, profiles, exports) is free.
  */
 
-export const PEOPLE_API_BASE_URL = "https://api.desearch.ai";
+export const PEOPLE_API_BASE_URL = DESEARCH_API_BASE_URL;
 
 export const PEOPLE_PLATFORMS = ["x", "youtube", "linkedin", "tiktok"] as const;
 export type PeoplePlatform = (typeof PEOPLE_PLATFORMS)[number];
@@ -120,7 +120,8 @@ export interface PeopleApiResponse {
     data: unknown;
 }
 
-type QueryValue = string | number | boolean | undefined;
+export const PEOPLE_EXPORT_FORMATS = ["csv", "jsonl"] as const;
+export type PeopleExportFormat = (typeof PEOPLE_EXPORT_FORMATS)[number];
 
 export interface PeopleClient {
     startSearch(
@@ -133,93 +134,52 @@ export interface PeopleClient {
     controlTask(taskId: string, action: PeopleControlAction): Promise<unknown>;
     listTasks(params: Record<string, QueryValue>): Promise<unknown>;
     listProfiles(params: Record<string, QueryValue>): Promise<unknown>;
+    /** `GET /desearch/people/tasks/{task_id}/export`: the file body as text. */
+    exportTask(taskId: string, params: Record<string, QueryValue>): Promise<string>;
+    /** `GET /desearch/people/profiles/export`: the file body as text. */
+    exportProfiles(params: Record<string, QueryValue>): Promise<string>;
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function errorDetail(data: unknown, text: string): string {
-    if (isPlainObject(data) && data.detail !== undefined) {
-        const detail = typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail);
-        const task = isPlainObject(data.task) ? data.task : undefined;
-        return typeof task?.status === "string" ? `${detail} Task status: ${task.status}.` : detail;
-    }
-    return text.length > 500 ? `${text.slice(0, 500)}...` : text;
-}
-
-function withQuery(path: string, params: Record<string, QueryValue>): string {
-    const search = new URLSearchParams();
-    for (const [key, value] of Object.entries(params)) {
-        if (value !== undefined) {
-            search.append(key, String(value));
-        }
-    }
-    const qs = search.toString();
-    return qs ? `${path}?${qs}` : path;
-}
-
 export function createPeopleClient(apiKey: string, baseUrl: string = PEOPLE_API_BASE_URL): PeopleClient {
-    async function call(
-        method: "GET" | "POST",
-        path: string,
-        options: { body?: Record<string, unknown>; headers?: Record<string, string> } = {}
-    ): Promise<PeopleApiResponse> {
-        const headers: Record<string, string> = { Authorization: apiKey, ...options.headers };
-        if (options.body) {
-            headers["Content-Type"] = "application/json";
-        }
-        let response;
-        let text;
-        try {
-            response = await fetch(`${baseUrl}${path}`, {
-                method,
-                headers,
-                body: options.body ? JSON.stringify(options.body) : undefined,
-            });
-            text = await response.text();
-        } catch (error) {
-            throw new Error(
-                `Unexpected Error: ${error instanceof Error ? error.message : String(error)}`
-            );
-        }
-        let data: unknown = text;
-        if (text) {
-            try {
-                data = JSON.parse(text);
-            } catch {
-                // Not JSON: keep the text.
-            }
-        }
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${errorDetail(data, text)}`);
-        }
-        return { status: response.status, data };
-    }
+    return peopleClientFor(createDesearchApi(apiKey, baseUrl));
+}
 
+/** A People Search client on an existing API caller, so the server shares one per key. */
+export function peopleClientFor(call: DesearchApi): PeopleClient {
     const taskPath = (taskId: string) => `/desearch/people/tasks/${encodeURIComponent(taskId)}`;
 
     return {
-        startSearch(platform, body, idempotencyKey) {
-            return call("POST", `/desearch/people/search/${platform}`, {
+        async startSearch(platform, body, idempotencyKey) {
+            const { status, data } = await call("POST", `/desearch/people/search/${platform}`, {
                 body,
                 headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined,
             });
+            return { status, data };
         },
         async getTask(taskId) {
             return (await call("GET", taskPath(taskId))).data;
         },
         async getResults(taskId, params) {
-            return (await call("GET", withQuery(`${taskPath(taskId)}/results`, params))).data;
+            return (await call("GET", `${taskPath(taskId)}/results`, { query: params })).data;
         },
         async controlTask(taskId, action) {
             return (await call("POST", `${taskPath(taskId)}/${action}`)).data;
         },
         async listTasks(params) {
-            return (await call("GET", withQuery("/desearch/people/tasks", params))).data;
+            return (await call("GET", "/desearch/people/tasks", { query: params })).data;
         },
         async listProfiles(params) {
-            return (await call("GET", withQuery("/desearch/people/profiles", params))).data;
+            return (await call("GET", "/desearch/people/profiles", { query: params })).data;
+        },
+        async exportTask(taskId, params) {
+            return (await call("GET", `${taskPath(taskId)}/export`, { query: params })).text;
+        },
+        async exportProfiles(params) {
+            return (await call("GET", "/desearch/people/profiles/export", { query: params })).text;
         },
     };
 }
@@ -608,5 +568,171 @@ export async function listPeopleProfiles(
         total: numberOf(page.total) ?? 0,
         next_cursor: stringOf(page.next_cursor) ?? null,
         profiles: arrayOf(page.profiles).map(compactPerson),
+    };
+}
+
+/** Rows `people-search-export` returns when the caller does not set `max_rows`. */
+export const PEOPLE_EXPORT_DEFAULT_ROWS = 100;
+export const PEOPLE_EXPORT_MAX_ROWS = 1000;
+/** Most characters of file text one reply carries; whole rows only. */
+export const PEOPLE_EXPORT_MAX_CHARS = 50_000;
+
+export interface PeopleExportArgs {
+    task_id?: string;
+    platform?: PeoplePlatform;
+    format?: PeopleExportFormat;
+    q?: string;
+    sort?: (typeof PEOPLE_PROFILE_SORTS)[number];
+    has?: string[];
+    min_audience?: number;
+    max_audience?: number;
+    min_score?: number;
+    location?: string;
+    verified?: boolean;
+    max_rows?: number;
+}
+
+export interface PeopleExportResult {
+    /** One sentence: what was exported, how many rows, and how many were cut. */
+    note: string;
+    /** The file text up to the last row kept, byte for byte (CSV keeps its header). */
+    text: string;
+    total_rows: number;
+    returned_rows: number;
+    cut_rows: number;
+}
+
+/**
+ * End offset (after the line break) of each non-blank record. CSV fields in quotes
+ * may hold line breaks, so a CSV line break only ends a record outside quotes; a
+ * doubled quote inside a field toggles twice and changes nothing. JSON Lines escape
+ * line breaks, so every line is a record.
+ */
+export function exportRecordEnds(text: string, format: PeopleExportFormat): number[] {
+    const ends: number[] = [];
+    const csv = format === "csv";
+    let inQuotes = false;
+    let start = 0;
+    for (let i = 0; i < text.length; i++) {
+        const ch = text[i];
+        if (csv && ch === '"') {
+            inQuotes = !inQuotes;
+        } else if (ch === "\n" && !inQuotes) {
+            if (text.slice(start, i).trim() !== "") {
+                ends.push(i + 1);
+            }
+            start = i + 1;
+        }
+    }
+    if (text.slice(start).trim() !== "") {
+        ends.push(text.length);
+    }
+    return ends;
+}
+
+/**
+ * Keep the CSV header and at most `maxRows` whole rows that fit in `maxChars`.
+ * The kept text is a prefix of the file, so it parses the same way the file does.
+ */
+export function truncateExport(
+    text: string,
+    format: PeopleExportFormat,
+    maxRows: number,
+    maxChars: number = PEOPLE_EXPORT_MAX_CHARS
+): { text: string; total_rows: number; returned_rows: number; cut_rows: number; char_limited: boolean } {
+    const ends = exportRecordEnds(text, format);
+    const headerRecords = format === "csv" && ends.length > 0 ? 1 : 0;
+    const totalRows = ends.length - headerRecords;
+    let end = headerRecords ? ends[0] : 0;
+    let kept = 0;
+    let charLimited = false;
+    for (let i = headerRecords; i < ends.length && kept < maxRows; i++) {
+        if (ends[i] > maxChars) {
+            charLimited = true;
+            break;
+        }
+        end = ends[i];
+        kept++;
+    }
+    const cut = totalRows - kept;
+    return {
+        // A file without rows (only a header, or empty) comes back unchanged.
+        text: cut === 0 ? text : text.slice(0, end),
+        total_rows: totalRows,
+        returned_rows: kept,
+        cut_rows: cut,
+        char_limited: charLimited,
+    };
+}
+
+function exportQuery(args: PeopleExportArgs): Record<string, QueryValue> {
+    return {
+        format: args.format,
+        has: args.has?.length ? args.has.join(",") : undefined,
+        min_audience: args.min_audience,
+        max_audience: args.max_audience,
+        min_score: args.min_score,
+        location: args.location,
+        verified: args.verified,
+    };
+}
+
+/**
+ * `people-search-export`: one search's people (`task_id`) or everyone the caller's
+ * searches found on a platform (`platform`), as CSV or JSON Lines text cut to
+ * `max_rows` rows and PEOPLE_EXPORT_MAX_CHARS characters.
+ */
+export async function exportPeople(client: PeopleClient, args: PeopleExportArgs): Promise<PeopleExportResult> {
+    const format: PeopleExportFormat = args.format ?? "csv";
+    const maxRows = args.max_rows ?? PEOPLE_EXPORT_DEFAULT_ROWS;
+    let text: string;
+    let what: string;
+    let route: string;
+    if (args.task_id !== undefined) {
+        const profileOnly = (["platform", "q", "sort"] as const).filter((key) => args[key] !== undefined);
+        if (profileOnly.length > 0) {
+            throw new Error(
+                `${profileOnly.join(", ")} ${profileOnly.length === 1 ? "applies" : "apply"} only to a platform export. Send task_id to export one search, or platform (without task_id) to export everyone your searches found on it.`
+            );
+        }
+        text = await client.exportTask(args.task_id, exportQuery({ ...args, format }));
+        what = `task ${args.task_id}`;
+        route = `/desearch/people/tasks/${args.task_id}/export?format=${format}`;
+    } else {
+        if (args.platform === undefined) {
+            throw new Error(
+                "Send task_id to export one search, or platform to export everyone your searches found on it."
+            );
+        }
+        text = await client.exportProfiles({
+            platform: args.platform,
+            q: args.q,
+            sort: args.sort,
+            ...exportQuery({ ...args, format }),
+        });
+        what = `everyone found on ${args.platform}`;
+        route = `/desearch/people/profiles/export?platform=${args.platform}&format=${format}`;
+    }
+    const kept = truncateExport(text, format, maxRows);
+    const label = format === "csv" ? "CSV" : "JSON Lines";
+    const rows = (n: number) => `${n} ${n === 1 ? "row" : "rows"}`;
+    let note: string;
+    if (kept.cut_rows === 0) {
+        note = `${label} export of ${what}: ${rows(kept.total_rows)}, all shown.`;
+    } else {
+        const reason = kept.char_limited
+            ? `to keep this reply under ${PEOPLE_EXPORT_MAX_CHARS.toLocaleString("en-US")} characters`
+            : `by max_rows ${maxRows}`;
+        note =
+            `${label} export of ${what}: ${rows(kept.total_rows)}. Showing the first ${rows(kept.returned_rows)}; ` +
+            `${rows(kept.cut_rows)} ${kept.cut_rows === 1 ? "was" : "were"} cut ${reason}. ` +
+            `For the whole file, call GET ${PEOPLE_API_BASE_URL}${route} (plus the same filters) with your API key, or page through people with people-search-status or people-profiles.`;
+    }
+    return {
+        note,
+        text: kept.text,
+        total_rows: kept.total_rows,
+        returned_rows: kept.returned_rows,
+        cut_rows: kept.cut_rows,
     };
 }

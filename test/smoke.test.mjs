@@ -27,15 +27,20 @@ const MCP_HEADERS = {
 const TOOL_NAMES = [
     "ai-search",
     "extract",
+    "facebook",
     "fetch",
+    "instagram",
     "people-profiles",
     "people-search",
     "people-search-cancel",
+    "people-search-export",
     "people-search-pause",
     "people-search-resume",
     "people-search-status",
     "people-search-tasks",
     "search",
+    "search-api",
+    "tiktok",
     "web-crawl",
     "web-links-search",
     "web-search",
@@ -76,6 +81,11 @@ const TOOL_TITLES = {
     "people-search-cancel": "Cancel People Search",
     "people-search-tasks": "List People Search Tasks",
     "people-profiles": "List People Found",
+    "people-search-export": "Export People Found",
+    "search-api": "Search API",
+    tiktok: "TikTok",
+    facebook: "Facebook",
+    instagram: "Instagram",
 };
 
 // Every People Search tool, explicitly. Tools not listed here are read-only lookups.
@@ -84,6 +94,7 @@ const PEOPLE_ANNOTATIONS = {
     "people-search-status": { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
     "people-search-tasks": { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
     "people-profiles": { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+    "people-search-export": { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
     "people-search-pause": { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     "people-search-resume": { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     "people-search-cancel": { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
@@ -92,7 +103,7 @@ const PEOPLE_ANNOTATIONS = {
 const UNSOURCED_SPEED = /real-?time|nova is|orbit is|\b10s\b|\b30s\b/i;
 
 function assertToolMetadata(tools) {
-    assert.equal(tools.length, 24);
+    assert.equal(tools.length, 29);
     assert.equal(tools.some((tool) => tool.name === "people-search-control"), false);
     for (const name of Object.keys(PEOPLE_ANNOTATIONS)) {
         assert.ok(tools.some((tool) => tool.name === name), name);
@@ -212,6 +223,10 @@ test("stdio initializes and lists tools", async () => {
             "people-search-resume": ["task_id"],
             "people-search-cancel": ["task_id"],
             "people-profiles": ["platform"],
+            "search-api": ["query"],
+            tiktok: ["action"],
+            facebook: ["action"],
+            instagram: ["action"],
         };
         for (const [name, required] of Object.entries(requiredByTool)) {
             const tool = listed.tools.find((entry) => entry.name === name);
@@ -236,6 +251,33 @@ test("stdio initializes and lists tools", async () => {
         assert.equal(typeof trends.inputSchema.properties.count, "object");
         assert.equal(trends.inputSchema.properties.count.minimum, 30);
         assert.equal(trends.inputSchema.properties.count.maximum, 100);
+
+        const actions = {
+            tiktok: ["search", "post", "profile", "profile_posts", "comments", "hashtag", "trending"],
+            facebook: ["search", "post", "profile", "profile_posts", "comments", "hashtag"],
+            instagram: ["search", "media", "profile", "profile_posts", "comments", "hashtag"],
+        };
+        for (const [name, enumValues] of Object.entries(actions)) {
+            const tool = listed.tools.find((entry) => entry.name === name);
+            assert.deepEqual(tool.inputSchema.properties.action.enum, enumValues, name);
+            assert.equal(tool.inputSchema.additionalProperties, false, name);
+            assert.equal(tool.inputSchema.properties.cursor.type, "string", name);
+            assert.equal(tool.inputSchema.properties.count.maximum, 100, name);
+            assert.match(tool.description, /next_cursor/, name);
+            for (const action of enumValues) {
+                assert.ok(tool.description.includes(action), `${name} ${action}`);
+            }
+            assert.equal(JSON.stringify(tool.inputSchema).includes("$ref"), false, name);
+        }
+        const searchApi = listed.tools.find((entry) => entry.name === "search-api");
+        assert.deepEqual(searchApi.inputSchema.properties.mode.enum, ["fast", "balanced"]);
+        assert.equal(searchApi.inputSchema.properties.count.multipleOf, 5);
+        const peopleExport = listed.tools.find((entry) => entry.name === "people-search-export");
+        assert.equal(peopleExport.inputSchema.required, undefined);
+        assert.equal(peopleExport.inputSchema.additionalProperties, false);
+        assert.deepEqual(peopleExport.inputSchema.properties.format.enum, ["csv", "jsonl"]);
+        assert.equal(peopleExport.inputSchema.properties.max_rows.default, 100);
+        assert.equal(peopleExport.inputSchema.properties.max_rows.maximum, 1000);
 
         const peopleTasks = listed.tools.find((entry) => entry.name === "people-search-tasks");
         assert.equal(peopleTasks.inputSchema.required, undefined);
