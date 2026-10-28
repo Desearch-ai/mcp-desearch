@@ -120,7 +120,13 @@ const BILLED_TASK: ToolAnnotations = {
 
 /**
  * `people-search-pause` and `people-search-resume` change a task's state, and each
- * undoes the other, so destructiveHint is false.
+ * undoes the other, so destructiveHint is false. Pausing loses no data (people found
+ * so far stay readable and the search keeps its progress) and changes no billing
+ * (nothing is charged or refunded; the reservation stays until the search ends).
+ * Resume continues from where the search stopped with no new charge.
+ * Caveat: the API cancels a search paused for more than 7 days, and a cancelled
+ * search cannot be resumed. Pause is reversible only within those 7 days; the
+ * cancel itself bills only the people already delivered and returns the rest.
  * Repeating the same call has no further effect (the API answers 409).
  */
 const TASK_STATE_CHANGE: ToolAnnotations = {
@@ -1032,7 +1038,10 @@ export function createDesearchMcpServer(
         apiKey,
         "people-search",
         "People Search",
-        "Start a paid job billed to the user's Desearch balance: find people on X, YouTube, LinkedIn, or TikTok who match a plain-language description. Each person comes back with a fit score, why they matched, their audience, and public contacts and links. This call reserves count times the platform's per-person price (reserved_cost_usd) and returns a task_id at once. When the search ends you pay only for the people it delivered (a per-search minimum applies when it finds anyone; a search that finds no one is free) and the rest of the reservation is returned. The search runs in the background, usually for 1 to 5 minutes: poll people-search-status with the task_id to read progress and the people found so far, and use people-search-pause, people-search-resume, or people-search-cancel to pause, resume, or cancel it. Do not start the same search twice; send idempotency_key so a retry returns the first task instead of charging again. Filters depend on the platform. " +
+        "Start a paid job billed to the user's Desearch balance: find people on X, YouTube, LinkedIn, or TikTok who match a plain-language description. Returns a task_id at once, with the task's status and reserved_cost_usd. " +
+            "Cost: the call reserves count times the platform's per-person price at the time of the call (reserved_cost_usd; prices at https://desearch.ai/pricing). When the search ends you pay only for the people it delivered (final_cost_usd; a per-search minimum applies when it finds anyone; a search that finds no one is free) and the rest of the reservation is returned. " +
+            "Data: each person comes back with a fit score, why they matched, their audience, and only the contacts and links they list publicly. Desearch reads public data only. X: public posts and public profile fields (bio, followers, website, location). YouTube: public channel pages (About section, subscribers, country, links) and the creator's own website for publicly listed contact details. LinkedIn: public posts and public profiles (headline, company, location, followers, about). TikTok: public videos and public profiles (bio, followers, likes, latest videos, a public email listed in the bio). People found stay readable for 30 days after the search ends. " +
+            "The search runs in the background, usually for 1 to 5 minutes: poll people-search-status with the task_id to read progress and the people found so far, and use people-search-pause, people-search-resume, or people-search-cancel to pause, resume, or cancel it. Do not start the same search twice; send idempotency_key so a retry returns the first task instead of charging again. Filters depend on the platform. " +
             platformFilterList() +
             ".",
         strictArgs({
@@ -1140,7 +1149,7 @@ export function createDesearchMcpServer(
         apiKey,
         "people-search-status",
         "Get People Search Status",
-        "Status, progress, and cost of one People Search task, plus a page of the people found so far: name, handle, url, platform, audience, location, fit score, why they matched, contacts, and links. Free. People arrive while the search runs: pass the returned next_cursor as cursor on the next call to get only the people found since then. When done is true and has_more is false you have everyone the search found. An ended task has completion_reason (why it stopped), coverage_limited: true when a budget stopped it before count (more people may match), and warnings such as partial_enrichment (some profiles could not be read, so those people were scored on the search hit; they show enrichment: failed). Each person has fully_verified (every criterion confirmed by their own profile or posts) and unverified_criteria (criteria that are unknown or not met, or a disqualifier that applies). These are information only: the person still qualified.",
+        "Status, progress, and cost of one People Search task, plus a page of the people found so far: name, handle, url, platform, audience, location, fit score, why they matched, contacts, and links. Free: it reads a search you already started and runs no new search. Cost fields are reserved_cost_usd and, once the search ended, final_cost_usd. People come from public profiles and posts on the search's platform, with only the contacts they list publicly. People arrive while the search runs: pass the returned next_cursor as cursor on the next call to get only the people found since then. When done is true and has_more is false you have everyone the search found. An ended task has completion_reason (why it stopped), coverage_limited: true when a budget stopped it before count (more people may match), and warnings such as partial_enrichment (some profiles could not be read, so those people were scored on the search hit; they show enrichment: failed). Each person has fully_verified (every criterion confirmed by their own profile or posts) and unverified_criteria (criteria that are unknown or not met, or a disqualifier that applies). These are information only: the person still qualified.",
         strictArgs({
             task_id: peopleTaskId,
             cursor: z
@@ -1178,7 +1187,7 @@ export function createDesearchMcpServer(
         apiKey,
         "people-search-pause",
         "Pause People Search",
-        "Pause a People Search task. Free. A queued search pauses at once; a running one finishes its current batch first (status pausing, then paused). Resume it with people-search-resume. A search paused for more than 7 days is cancelled.",
+        "Pause a People Search task and return its updated status. Free: it charges and refunds nothing. A queued search pauses at once; a running one finishes its current batch first (status pausing, then paused). Pausing loses no data: the people found so far stay readable with people-search-status, and the search keeps its progress. Billing does not change: the reservation made when the search started stays reserved while paused and is settled only when the search ends. Undo it with people-search-resume, which continues from where the search stopped with no new charge. Limit: a search paused for more than 7 days is cancelled by the API and can no longer be resumed; you then pay only for the people already delivered, the rest of the reservation is returned, and the people found stay readable for 30 days.",
         strictArgs({
             task_id: peopleTaskId,
         }),
@@ -1198,7 +1207,7 @@ export function createDesearchMcpServer(
         apiKey,
         "people-search-resume",
         "Resume People Search",
-        "Resume a paused People Search task. Free. The search continues where it stopped, with no new charge.",
+        "Resume a paused People Search task and return its updated status. Free. The search continues from where it stopped, keeping the people already found, with no new charge: the cost already spent is carried forward and the original reservation still covers it. Works only on a paused search, within 7 days of pausing; a search in any other state, including one the API cancelled after 7 days paused, returns 409. Poll people-search-status for the new people.",
         strictArgs({
             task_id: peopleTaskId,
         }),
@@ -1238,7 +1247,7 @@ export function createDesearchMcpServer(
         apiKey,
         "people-search-tasks",
         "List People Search Tasks",
-        "Your People Search tasks, newest first, with status, counts, cost, why each ended search stopped (completion_reason, coverage_limited), and the metadata labels set on people-search. Free. Use it to find a task_id (filter by metadata to find the searches of one campaign), or to see which searches are still queued, running, or paused: a new search is refused while too many are active.",
+        "Your People Search tasks, newest first, with status, counts, cost, why each ended search stopped (completion_reason, coverage_limited), and the metadata labels set on people-search. Free; it lists your own tasks, not the people they found (read those with people-search-status or people-profiles). Use it to find a task_id (filter by metadata to find the searches of one campaign), or to see which searches are still queued, running, or paused: a new search is refused while too many are active.",
         strictArgs({
             platform: peoplePlatform.optional().describe("Only tasks on this platform: 'x', 'youtube', 'linkedin', or 'tiktok'."),
             status: z
@@ -1275,7 +1284,7 @@ export function createDesearchMcpServer(
         apiKey,
         "people-profiles",
         "List People Found",
-        "Everyone your People Searches found on one platform, one entry per person: their best-scoring result and the search that found them (found_by). Free; it does not run a new search. Search by name, handle, bio, or location with q, filter by contact channels (has), audience, fit score, location, or verification, and sort by score, recent, or audience. People from searches that ended more than 30 days ago are left out.",
+        "Everyone your own People Searches found on one platform, one entry per person: their best-scoring result (name, handle, url, audience, location, fit score, why they matched, public contacts, and links) and the search that found them (found_by). Free: it reads only people your earlier searches found, runs no new search, and queries no outside source. That data came from public profiles and posts, with only the contacts each person lists publicly. Search by name, handle, bio, or location with q, filter by contact channels (has), audience, fit score, location, or verification, and sort by score, recent, or audience. People from searches that ended more than 30 days ago are left out.",
         strictArgs({
             platform: peoplePlatform,
             q: z
