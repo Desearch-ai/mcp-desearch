@@ -11,6 +11,10 @@
         { "source": "/.well-known/oauth-authorization-server", "destination": "/api/oauth-authorization-server" },
         { "source": "/.well-known/openid-configuration", "destination": "/api/openid-configuration" },
         { "source": "/.well-known/openai-apps-challenge", "destination": "/api/openai-apps-challenge" },
+        { "source": "/icon-512.png", "destination": "/api/icon?name=icon-512.png" },
+        { "source": "/icon-64.png", "destination": "/api/icon?name=icon-64.png" },
+        { "source": "/favicon.png", "destination": "/api/icon?name=favicon.png" },
+        { "source": "/favicon.ico", "destination": "/api/icon?name=favicon.ico" },
         { "source": "/register", "destination": "/api/oauth-register" },
         { "source": "/authorize", "destination": "/api/oauth-authorize" },
         { "source": "/token", "destination": "/api/oauth-token" }

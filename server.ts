@@ -4,6 +4,8 @@ import {
     ListResourcesRequestSchema,
     ListResourceTemplatesRequestSchema,
     ListToolsRequestSchema,
+    type Icon,
+    type Implementation,
 } from "@modelcontextprotocol/sdk/types.js";
 import DesearchImport from "desearch-js";
 import { z } from "zod";
@@ -29,6 +31,16 @@ import { AI_SEARCH_TOOLS, WEB_LINK_TOOLS, toolIdSchema } from "./tool-sources.js
 
 export const SERVER_NAME = "Desearch";
 export const SERVER_VERSION = "0.3.3";
+export const SERVER_TITLE = "Desearch";
+export const SERVER_WEBSITE_URL = "https://www.desearch.ai";
+
+// Public origin of the hosted server, which serves the icons below.
+export const MCP_PUBLIC_BASE_URL = (process.env.MCP_PUBLIC_BASE_URL?.trim() || "https://mcp.desearch.ai").replace(/\/+$/, "");
+
+export const SERVER_ICONS: Icon[] = [
+    { src: `${MCP_PUBLIC_BASE_URL}/icon-512.png`, mimeType: "image/png", sizes: ["512x512"] },
+    { src: `${MCP_PUBLIC_BASE_URL}/icon-64.png`, mimeType: "image/png", sizes: ["64x64"] },
+];
 
 interface XSearchPayload {
     query: string;
@@ -516,11 +528,15 @@ export function createDesearchMcpServer(
 ): McpServer {
     const desearch = client ?? new Desearch(apiKey);
     const people = peopleClient ?? createPeopleClient(apiKey);
+    const serverInfo: Implementation = {
+        name: SERVER_NAME,
+        version: SERVER_VERSION,
+        title: SERVER_TITLE,
+        websiteUrl: SERVER_WEBSITE_URL,
+        icons: SERVER_ICONS,
+    };
     const server = new McpServer(
-        {
-            name: SERVER_NAME,
-            version: SERVER_VERSION,
-        },
+        serverInfo,
         {
             instructions:
                 "Search the public web and X with Desearch. Use search for titles and links, then fetch with a result URL to read the page. Other tools cover AI search, X posts, and page extraction. People Search finds people and creators on X, YouTube, LinkedIn, and TikTok: people-search starts a paid job billed to the user's Desearch balance, people-search-status reads progress, and people-search-pause, people-search-resume, and people-search-cancel pause, resume, or cancel it. Calls need a Desearch API key.",
