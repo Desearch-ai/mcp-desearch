@@ -25,6 +25,7 @@ import {
 } from "./store.js";
 import { checkDesearchApiKey } from "./validate-key.js";
 
+const MAX_STATE_LENGTH = 4096;
 const VERIFIER_PATTERN = /^[A-Za-z0-9\-._~]{43,128}$/;
 const HTML_HEADERS = {
     "Content-Type": "text/html; charset=utf-8",
@@ -271,8 +272,11 @@ async function authorizeContext(
     if (query.responseType !== "code") {
         return failAuthorize(request, client, fields, "unsupported_response_type", "Only authorization code is supported.");
     }
-    if (!query.state || query.state.length > 512) {
+    if (!query.state) {
         return failAuthorize(request, client, fields, "invalid_request", "A state value is required.");
+    }
+    if (query.state.length > MAX_STATE_LENGTH) {
+        return failAuthorize(request, client, fields, "invalid_request", "The state value is too long.");
     }
     if (query.codeChallengeMethod !== "S256" || !VERIFIER_PATTERN.test(query.codeChallenge)) {
         return failAuthorize(request, client, fields, "invalid_request", "PKCE S256 is required.");

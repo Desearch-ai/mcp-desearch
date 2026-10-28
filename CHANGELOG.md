@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Accept OAuth state values up to 4096 characters so OpenAI Apps relay state survives sign-in. Report missing and oversized state values separately.
+
 - Add the public OpenAI Apps domain verification route at `/.well-known/openai-apps-challenge` with the public token set in source. The `OPENAI_APPS_CHALLENGE_TOKEN` environment variable can override it; unset, empty, whitespace-only or placeholder values fall back to the source token.
 
 ## 0.3.3

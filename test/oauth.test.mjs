@@ -183,6 +183,91 @@ async function authorizeAndToken(port, redirectUri) {
     return { client, resource, body, code, verifier };
 }
 
+test("authorize preserves long relay state and escaped state through the form and redirect", async () => {
+    await withServer(async (server) => {
+        const origin = `http://127.0.0.1:${server.port}`;
+        const redirectUri = "https://chatgpt.com/connector_platform_oauth_redirect";
+        const client = await register(server.port, redirectUri);
+        const { challenge } = pkce();
+        const relayState = "openai_platform_oauth_relay__" + randomBytes(1100).toString("base64url");
+        const states = [relayState, "a".repeat(4096), '"<>&\' +/=?#%'.repeat(200)];
+        for (const state of states) {
+            const authorizeUrl = new URL(`${origin}/authorize`);
+            authorizeUrl.search = new URLSearchParams({
+                response_type: "code",
+                client_id: client.client_id,
+                redirect_uri: redirectUri,
+                code_challenge: challenge,
+                code_challenge_method: "S256",
+                state,
+                resource: `${origin}/mcp`,
+            }).toString();
+            const page = await fetch(authorizeUrl, { redirect: "manual" });
+            assert.equal(page.status, 200);
+            const html = await page.text();
+            const fields = hiddenFormFields(html);
+            assert.equal(fields.state, state);
+            if (state.includes('"')) {
+                assert.ok(html.includes('&quot;&lt;&gt;&amp;&#39;'));
+            }
+            const submitted = await fetch(`${origin}/authorize`, {
+                method: "POST",
+                redirect: "manual",
+                headers: { "content-type": "application/x-www-form-urlencoded", origin },
+                body: new URLSearchParams({ ...fields, api_key: API_KEY, decision: "allow" }),
+            });
+            assert.equal(submitted.status, 302);
+            const location = new URL(submitted.headers.get("location"));
+            assert.equal(location.origin + location.pathname, redirectUri);
+            assert.equal(location.searchParams.get("state"), state);
+            assert.equal(location.searchParams.get("error"), null);
+            const code = location.searchParams.get("code");
+            assert.ok(code);
+            const stored = await (await getOAuthStore()).consumeCode(code);
+            assert.equal(stored.ok, true);
+        }
+    });
+});
+
+test("authorize rejects oversized, empty and missing state on GET and POST", async () => {
+    await withServer(async (server) => {
+        const origin = `http://127.0.0.1:${server.port}`;
+        const redirectUri = "https://chatgpt.com/connector_platform_oauth_redirect";
+        const client = await register(server.port, redirectUri);
+        const { challenge } = pkce();
+        for (const [state, description] of [
+            ["a".repeat(4097), "The state value is too long."],
+            ["", "A state value is required."],
+            [undefined, "A state value is required."],
+        ]) {
+            const fields = new URLSearchParams({
+                response_type: "code",
+                client_id: client.client_id,
+                redirect_uri: redirectUri,
+                code_challenge: challenge,
+                code_challenge_method: "S256",
+                resource: `${origin}/mcp`,
+            });
+            if (state !== undefined) fields.set("state", state);
+            for (const method of ["GET", "POST"]) {
+                const response = await fetch(`${origin}/authorize${method === "GET" ? `?${fields}` : ""}`, {
+                    method,
+                    redirect: "manual",
+                    ...(method === "POST" ? {
+                        headers: { "content-type": "application/x-www-form-urlencoded", origin },
+                        body: fields,
+                    } : {}),
+                });
+                assert.equal(response.status, 302);
+                const location = new URL(response.headers.get("location"));
+                assert.equal(location.searchParams.get("error"), "invalid_request");
+                assert.equal(location.searchParams.get("error_description"), description);
+                assert.equal(location.searchParams.get("code"), null);
+            }
+        }
+    });
+});
+
 test("protected resource and authorization server metadata", async () => {
     await withServer(async (server) => {
         const origin = `http://127.0.0.1:${server.port}`;
