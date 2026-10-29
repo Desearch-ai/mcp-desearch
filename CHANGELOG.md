@@ -1,8 +1,36 @@
 # Changelog
 
-## Unreleased
+## 0.6.0
+
+Company Search and Company Enrich tools. Company Search is live on `api.desearch.ai` since 2026-10-29.
+
+Company Search finds companies on the web from a plain-language description; Company Enrich starts from the domains you send. Both collect each company's public emails, phones, and social profiles, and its leaders (CEO, founders, CTO, and CFO by default) with their LinkedIn profiles and emails, and every contact keeps the page it came from. They run as background tasks on the People Search engine. desearch-js 1.5 has no Company Search methods, so `companies.ts` calls the `/desearch/companies/*` routes directly with the same key header and error text as `people.ts` (the request helper is now shared).
+
+| Tool | Route | Billed |
+| --- | --- | --- |
+| `company-search` | `POST /desearch/companies/search` | Yes. Reserves `count` companies at the Company Search per-company price and settles to the companies delivered (a minimum of 2 when it delivers any; nothing when it delivers none). |
+| `company-enrich` | `POST /desearch/companies/enrich` | Yes. Reserves one company per domain sent at the Company Enrich per-company price and settles to the companies delivered (a minimum of 1); duplicate domains are returned. |
+| `company-search-status` | `GET /desearch/companies/tasks/{id}` and `GET /desearch/companies/tasks/{id}/results` | No |
+| `company-search-pause` | `POST /desearch/companies/tasks/{id}/pause` | No |
+| `company-search-resume` | `POST /desearch/companies/tasks/{id}/resume` | No |
+| `company-search-cancel` | `POST /desearch/companies/tasks/{id}/cancel` | No |
+| `company-search-tasks` | `GET /desearch/companies/tasks` | No |
+
+- `company-search` takes `query`, `count`, `min_score`, `exclude` (domains or URLs), `countries` and `require` (sent as `filters.countries` and `filters.require`), `roles`, `infer_emails`, `verify_emails`, `metadata`, and `idempotency_key`. `company-enrich` takes `domains` (1-200), `roles`, `infer_emails`, `verify_emails`, `metadata`, and `idempotency_key`. Only the arguments the caller set are sent. `idempotency_key` is sent as `Idempotency-Key`; a replay is returned with `existing_task: true` and is not charged again. Metadata labels follow the People Search rules and are checked before the billed call.
+- `company-search-status` returns compact companies: domain, name, url, industry, location, a short description, `score` (always present; `null` for Company Enrich), `why`, up to three `reasons`, `fully_verified` and `unverified_criteria` (Company Search), `primary_email`, `primary_contact`, `contact_coverage`, emails, phones, and socials with their `source_url`, leaders with `roles`, `title`, `verified`, LinkedIn profile, and emails (each email with its `verification` status, and inferred ones with `confidence` and `pattern`), and `enrichment` (`status` and `stages`). Its page size defaults to 10 (max 100).
+- The `next` hint understands results that fill in place: it says to read again without `cursor` while the task is `enriching`, to read once more without `cursor` after the task ends when companies were read while it ran, and how many companies on the page stayed `partial` when a task ended before every stage ran. Completed tasks name `all_domains_processed`, a budget stop, `no_candidates`, and `zero_qualified`.
+- `company-search-tasks` filters by `type` (`search` or `enrich`), `status`, and up to 3 `metadata` pairs. Task summaries keep `search_type` (`company_search` or `company_enrich`), `completion_reason`, `coverage_limited: true` when a budget stopped the task before `count`, and `warnings` with their `code` and `message`.
+- Pause, resume, and cancel take only `task_id`; a 409 is returned as a tool error with the API detail and the task's status. Errors are titled `Company Search error`, `Company Enrich error`, `Company Search Status error`, `Company Search Pause error`, `Company Search Resume error`, `Company Search Cancel error`, and `Company Search Tasks error`.
+- Company tools reject unknown arguments, so a nested `filters` object or a misspelled argument is not dropped from a billed task.
+- The `GET /desearch/companies/tasks/{id}/export` CSV and JSON Lines route is not a tool, like People Search's export routes.
+- Annotations follow People Search: `company-search` and `company-enrich` set `readOnlyHint: false`, `destructiveHint: false`, `idempotentHint: false`; `company-search-status` and `company-search-tasks` set `readOnlyHint: true`, `destructiveHint: false`; `company-search-pause` and `company-search-resume` set `destructiveHint: false`, `idempotentHint: true`; `company-search-cancel` sets `destructiveHint: true`, `idempotentHint: true`. `openWorldHint` is `true` on every tool.
+- The server instructions, README, `docs/API_MCP_PARITY.md`, `llms-install.md`, `GEMINI.md`, the plugin skill, and the manifest descriptions mention Company Search. The server lists 31 tools.
+
+## 0.5.0
 
 - `extract` and `web-crawl` accept `format: "markdown"` (headings, lists, tables and code). `full_page` is described as `text`-only.
+
+## 0.4.0
 
 - `extract` and `web-crawl` take `full_page` (boolean). With `format: "text"` it returns all visible text of the page, every section, table and notice, instead of only the main content. The `extract` description says what the `js_required` and `blocked` errors mean.
 

@@ -26,6 +26,13 @@ const MCP_HEADERS = {
 
 const TOOL_NAMES = [
     "ai-search",
+    "company-enrich",
+    "company-search",
+    "company-search-cancel",
+    "company-search-pause",
+    "company-search-resume",
+    "company-search-status",
+    "company-search-tasks",
     "extract",
     "fetch",
     "people-profiles",
@@ -76,9 +83,16 @@ const TOOL_TITLES = {
     "people-search-cancel": "Cancel People Search",
     "people-search-tasks": "List People Search Tasks",
     "people-profiles": "List People Found",
+    "company-search": "Company Search",
+    "company-enrich": "Company Enrich",
+    "company-search-status": "Get Company Search Status",
+    "company-search-pause": "Pause Company Search",
+    "company-search-resume": "Resume Company Search",
+    "company-search-cancel": "Cancel Company Search",
+    "company-search-tasks": "List Company Search Tasks",
 };
 
-// Every People Search tool, explicitly. Tools not listed here are read-only lookups.
+// Every People Search and Company Search tool, explicitly. Tools not listed here are read-only lookups.
 const PEOPLE_ANNOTATIONS = {
     "people-search": { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     "people-search-status": { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
@@ -87,12 +101,19 @@ const PEOPLE_ANNOTATIONS = {
     "people-search-pause": { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     "people-search-resume": { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     "people-search-cancel": { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
+    "company-search": { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    "company-enrich": { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    "company-search-status": { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+    "company-search-tasks": { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+    "company-search-pause": { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    "company-search-resume": { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    "company-search-cancel": { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
 };
 
 const UNSOURCED_SPEED = /real-?time|nova is|orbit is|\b10s\b|\b30s\b/i;
 
 function assertToolMetadata(tools) {
-    assert.equal(tools.length, 24);
+    assert.equal(tools.length, 31);
     assert.equal(tools.some((tool) => tool.name === "people-search-control"), false);
     for (const name of Object.keys(PEOPLE_ANNOTATIONS)) {
         assert.ok(tools.some((tool) => tool.name === name), name);
@@ -212,12 +233,25 @@ test("stdio initializes and lists tools", async () => {
             "people-search-resume": ["task_id"],
             "people-search-cancel": ["task_id"],
             "people-profiles": ["platform"],
+            "company-search": ["query"],
+            "company-enrich": ["domains"],
+            "company-search-status": ["task_id"],
+            "company-search-pause": ["task_id"],
+            "company-search-resume": ["task_id"],
+            "company-search-cancel": ["task_id"],
         };
         for (const [name, required] of Object.entries(requiredByTool)) {
             const tool = listed.tools.find((entry) => entry.name === name);
             assert.deepEqual(tool.inputSchema.required, required, name);
         }
-        for (const name of ["people-search-pause", "people-search-resume", "people-search-cancel"]) {
+        for (const name of [
+            "people-search-pause",
+            "people-search-resume",
+            "people-search-cancel",
+            "company-search-pause",
+            "company-search-resume",
+            "company-search-cancel",
+        ]) {
             const tool = listed.tools.find((entry) => entry.name === name);
             assert.deepEqual(Object.keys(tool.inputSchema.properties), ["task_id"], name);
             assert.equal(tool.inputSchema.additionalProperties, false, name);
@@ -251,6 +285,26 @@ test("stdio initializes and lists tools", async () => {
         const peopleStatus = listed.tools.find((entry) => entry.name === "people-search-status");
         assert.equal(peopleStatus.inputSchema.properties.task_id.format, "uuid");
         assert.equal(peopleStatus.inputSchema.properties.limit.default, 25);
+
+        const companyTasks = listed.tools.find((entry) => entry.name === "company-search-tasks");
+        assert.equal(companyTasks.inputSchema.required, undefined);
+        for (const name of ["company-search", "company-enrich"]) {
+            const tool = listed.tools.find((entry) => entry.name === name);
+            assert.match(tool.description, /paid job billed to the user's Desearch balance/, name);
+            assert.match(tool.description, /company-search-status/, name);
+            assert.match(tool.description, /https:\/\/desearch\.ai\/pricing/, name);
+            assert.equal(tool.inputSchema.additionalProperties, false, name);
+            assert.equal(JSON.stringify(tool.inputSchema).includes("$ref"), false, name);
+        }
+        const companySearch = listed.tools.find((entry) => entry.name === "company-search");
+        assert.equal(companySearch.inputSchema.properties.count.minimum, 5);
+        assert.equal(companySearch.inputSchema.properties.count.maximum, 200);
+        const companyEnrich = listed.tools.find((entry) => entry.name === "company-enrich");
+        assert.equal(companyEnrich.inputSchema.properties.domains.minItems, 1);
+        assert.equal(companyEnrich.inputSchema.properties.domains.maxItems, 200);
+        const companyStatus = listed.tools.find((entry) => entry.name === "company-search-status");
+        assert.equal(companyStatus.inputSchema.properties.task_id.format, "uuid");
+        assert.equal(companyStatus.inputSchema.properties.limit.default, 10);
     });
 });
 

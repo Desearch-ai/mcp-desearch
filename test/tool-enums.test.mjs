@@ -17,6 +17,12 @@ import {
     PEOPLE_SEARCH_FILTERS,
     PEOPLE_TASK_STATUSES,
 } from "../build/people.js";
+import {
+    COMPANY_REQUIREMENTS,
+    COMPANY_ROLES,
+    COMPANY_TASK_STATUSES,
+    COMPANY_TASK_TYPES,
+} from "../build/companies.js";
 
 function textOf(result) {
     assert.equal(result.content[0].type, "text");
@@ -236,6 +242,73 @@ test("people tools advertise the People Search API enums", async () => {
             });
             assert.equal(rejected.isError, true, platform);
             assert.match(rejected.content[0].text, /Input validation error/, platform);
+        }
+    });
+});
+
+// Values from desearch-public-api: model/companies.py (Role, Requirement, TaskStatus reused
+// from model/people.py) and routers/companies.py (TYPE_SERVICES).
+const COMPANY_ROLE_ENUM = ["ceo", "founder", "cto", "cfo", "coo", "cmo", "president", "owner", "managing_director"];
+const COMPANY_REQUIRE_ENUM = ["email", "phone", "linkedin", "leader", "leader_email"];
+
+test("company tools advertise the Company Search API enums", async () => {
+    assert.deepEqual([...COMPANY_ROLES], COMPANY_ROLE_ENUM);
+    assert.deepEqual([...COMPANY_REQUIREMENTS], COMPANY_REQUIRE_ENUM);
+    assert.deepEqual([...COMPANY_TASK_TYPES], ["search", "enrich"]);
+    assert.deepEqual([...COMPANY_TASK_STATUSES], PEOPLE_STATUS_ENUM);
+
+    await withFakeClient({}, async (client) => {
+        const { tools } = await client.listTools();
+        const byName = Object.fromEntries(tools.map((tool) => [tool.name, tool.inputSchema.properties]));
+
+        for (const name of ["company-search", "company-enrich"]) {
+            assert.deepEqual(byName[name].roles.items.enum, COMPANY_ROLE_ENUM, name);
+            assert.equal(byName[name].roles.minItems, 1, name);
+            assert.equal(byName[name].infer_emails.type, "boolean", name);
+            assert.equal(byName[name].verify_emails.type, "boolean", name);
+            assert.equal(byName[name].idempotency_key.maxLength, 200, name);
+            assert.equal(byName[name].metadata.type, "object", name);
+        }
+        assert.deepEqual(byName["company-search"].require.items.enum, COMPANY_REQUIRE_ENUM);
+        assert.equal(byName["company-search"].countries.maxItems, 20);
+        assert.equal(byName["company-search"].exclude.maxItems, 1000);
+        assert.deepEqual(
+            Object.keys(byName["company-search"]).sort(),
+            [
+                "count",
+                "countries",
+                "exclude",
+                "idempotency_key",
+                "infer_emails",
+                "metadata",
+                "min_score",
+                "query",
+                "require",
+                "roles",
+                "verify_emails",
+            ]
+        );
+        assert.deepEqual(
+            Object.keys(byName["company-enrich"]).sort(),
+            ["domains", "idempotency_key", "infer_emails", "metadata", "roles", "verify_emails"]
+        );
+        assert.deepEqual(byName["company-search-tasks"].type.enum, ["search", "enrich"]);
+        assert.deepEqual(byName["company-search-tasks"].status.items.enum, PEOPLE_STATUS_ENUM);
+        assert.deepEqual(
+            Object.keys(byName["company-search-status"]),
+            ["task_id", "cursor", "limit", "include_companies"]
+        );
+        for (const name of ["company-search-pause", "company-search-resume", "company-search-cancel"]) {
+            assert.deepEqual(Object.keys(byName[name]), ["task_id"], name);
+        }
+
+        for (const role of ["CEO", "vp", "chairman"]) {
+            const rejected = await client.callTool({
+                name: "company-search",
+                arguments: { query: "fintech startups", roles: [role] },
+            });
+            assert.equal(rejected.isError, true, role);
+            assert.match(rejected.content[0].text, /Input validation error/, role);
         }
     });
 });

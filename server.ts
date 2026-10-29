@@ -27,10 +27,26 @@ import {
     startPeopleSearch,
     type PeopleClient,
 } from "./people.js";
+import {
+    COMPANY_COUNTRIES_MAX,
+    COMPANY_DOMAINS_MAX,
+    COMPANY_EXCLUDE_MAX,
+    COMPANY_REQUIREMENTS,
+    COMPANY_ROLES,
+    COMPANY_TASK_STATUSES,
+    COMPANY_TASK_TYPES,
+    controlCompanyTask,
+    createCompanyClient,
+    listCompanyTasks,
+    readCompanyStatus,
+    startCompanyEnrich,
+    startCompanySearch,
+    type CompanyClient,
+} from "./companies.js";
 import { AI_SEARCH_TOOLS, WEB_LINK_TOOLS, toolIdSchema } from "./tool-sources.js";
 
 export const SERVER_NAME = "Desearch";
-export const SERVER_VERSION = "0.5.0";
+export const SERVER_VERSION = "0.6.0";
 export const SERVER_TITLE = "Desearch";
 export const SERVER_WEBSITE_URL = "https://www.desearch.ai";
 
@@ -118,11 +134,11 @@ const READ_ONLY_OPEN_WORLD: ToolAnnotations = {
 };
 
 /**
- * `people-search` starts a paid job billed to the user's Desearch balance.
- * It creates a new task and reserves balance, but it does not delete or overwrite
- * anything the caller already has, so destructiveHint is false. The unused part
- * of the reservation is returned when the search ends.
- * Calling it again starts (and reserves) another search unless the same idempotency_key is sent.
+ * `people-search`, `company-search`, and `company-enrich` start a paid job billed to the
+ * user's Desearch balance. Each creates a new task and reserves balance, but it does not
+ * delete or overwrite anything the caller already has, so destructiveHint is false. The
+ * unused part of the reservation is returned when the task ends.
+ * Calling it again starts (and reserves) another task unless the same idempotency_key is sent.
  */
 const BILLED_TASK: ToolAnnotations = {
     readOnlyHint: false,
@@ -141,6 +157,8 @@ const BILLED_TASK: ToolAnnotations = {
  * search cannot be resumed. Pause is reversible only within those 7 days; the
  * cancel itself bills only the people already delivered and returns the rest.
  * Repeating the same call has no further effect (the API answers 409).
+ * `company-search-pause` and `company-search-resume` work the same way on Company
+ * Search and Company Enrich tasks, with companies in place of people.
  */
 const TASK_STATE_CHANGE: ToolAnnotations = {
     readOnlyHint: false,
@@ -150,8 +168,8 @@ const TASK_STATE_CHANGE: ToolAnnotations = {
 };
 
 /**
- * `people-search-cancel` stops a task for good. It cannot be undone, so destructiveHint is true.
- * Repeating it has no further effect (the API answers 409).
+ * `people-search-cancel` and `company-search-cancel` stop a task for good. It cannot be
+ * undone, so destructiveHint is true. Repeating it has no further effect (the API answers 409).
  */
 const TASK_CANCEL: ToolAnnotations = {
     readOnlyHint: false,
@@ -246,6 +264,57 @@ function peopleMetadata(maxKeys: number) {
         }
     });
 }
+
+const companyTaskId = z
+    .string()
+    .uuid()
+    .describe(
+        "task_id returned by company-search or company-enrich, example: '5b33f3ee-168b-4780-9c8e-63a626781872'. A People Search task_id is not found here."
+    );
+
+// Fields company-search and company-enrich share. A new schema per field, like peopleKeywordList.
+function companyTaskFields(): Record<string, z.ZodTypeAny> {
+    return {
+        roles: z
+            .array(z.enum(COMPANY_ROLES))
+            .min(1)
+            .optional()
+            .describe(
+                "The leaders to look for: any of 'ceo', 'founder', 'cto', 'cfo', 'coo', 'cmo', 'president', 'owner', 'managing_director' (API default ['ceo', 'founder', 'cto', 'cfo']). A managing director (Geschäftsführer) counts as 'ceo' when 'ceo' is asked for."
+            ),
+        infer_emails: z
+            .boolean()
+            .optional()
+            .describe(
+                "Guess leaders' emails from the company's address pattern (for example first.last), learned from the addresses found on its site (API default true). Inferred emails say source: inferred and carry a confidence: high when the pattern was learned from this company's own addresses, low for a common pattern."
+            ),
+        verify_emails: z
+            .boolean()
+            .optional()
+            .describe(
+                "Check every email: syntax, mail server (MX) and, for inferred ones, a web search (API default true). Each email then has a verification: valid, invalid, risky, or unknown. Set false to finish sooner without it."
+            ),
+        idempotency_key: z
+            .string()
+            .min(1)
+            .max(200)
+            .optional()
+            .describe(
+                "Any unique string for this task, for example a UUID. Sending the same key again returns the first task and is not charged again."
+            ),
+        metadata: peopleMetadata(PEOPLE_METADATA_MAX_KEYS)
+            .optional()
+            .describe(
+                `Your own labels for this task, example: {"campaign": "q4-outbound"}. Up to ${PEOPLE_METADATA_MAX_KEYS} keys; keys are 1-40 characters of a-z, 0-9, '_', '.', '-'; values are strings of up to ${PEOPLE_METADATA_VALUE_MAX} characters. Returned on the task; filter company-search-tasks by it. The task does not use it.`
+            ),
+    };
+}
+
+const COMPANY_DATA =
+    "Data: Desearch reads public data only: each company's own website (its homepage and its contact, about, team, and imprint pages), public web search results, and public LinkedIn profiles of its leaders. Each company comes back with its location, public emails, phones, and social profiles, and its leaders (roles) with their title, LinkedIn profile, and emails. Every contact keeps the page it came from (source_url). Leader emails can be inferred from the company's address pattern (source: inferred, with a confidence), and every email is checked (verification: valid, invalid, risky, or unknown). Companies stay readable for 30 days after the task ends. ";
+
+const COMPANY_RUNS =
+    "The task runs in the background: poll company-search-status with the task_id to read progress and the companies delivered so far. Each company is delivered first with enrichment status partial, and the later stages (contact pages, leaders, inferred emails, email checks) fill it in until it is complete. Use company-search-pause, company-search-resume, or company-search-cancel to pause, resume, or cancel it. Do not start the same task twice; send idempotency_key so a retry returns the first task instead of charging again.";
 
 function platformFilterList(): string {
     return Object.entries(PEOPLE_SEARCH_FILTERS)
@@ -525,16 +594,19 @@ function registerTool(
  * One MCP server bound to a single Desearch API key.
  * Stdio uses the process env key. Remote HTTP builds a new server per request
  * so each caller spends their own key.
- * `client` and `peopleClient` are test seams. Production callers omit them and the
- * server builds a desearch-js client and a People Search client (people.ts) from `apiKey`.
+ * `client`, `peopleClient`, and `companyClient` are test seams. Production callers omit
+ * them and the server builds a desearch-js client, a People Search client (people.ts), and
+ * a Company Search client (companies.ts) from `apiKey`.
  */
 export function createDesearchMcpServer(
     apiKey: string,
     client?: DesearchClient,
-    peopleClient?: PeopleClient
+    peopleClient?: PeopleClient,
+    companyClient?: CompanyClient
 ): McpServer {
     const desearch = client ?? new Desearch(apiKey);
     const people = peopleClient ?? createPeopleClient(apiKey);
+    const companies = companyClient ?? createCompanyClient(apiKey);
     const serverInfo: Implementation = {
         name: SERVER_NAME,
         version: SERVER_VERSION,
@@ -546,7 +618,7 @@ export function createDesearchMcpServer(
         serverInfo,
         {
             instructions:
-                "Search the public web and X with Desearch. Use search for titles and links, then fetch with a result URL to read the page. Other tools cover AI search, X posts, and page extraction. People Search finds people and creators on X, YouTube, LinkedIn, and TikTok: people-search starts a paid job billed to the user's Desearch balance, people-search-status reads progress, and people-search-pause, people-search-resume, and people-search-cancel pause, resume, or cancel it. Calls need a Desearch API key.",
+                "Search the public web and X with Desearch. Use search for titles and links, then fetch with a result URL to read the page. Other tools cover AI search, X posts, and page extraction. People Search finds people and creators on X, YouTube, LinkedIn, and TikTok: people-search starts a paid job billed to the user's Desearch balance, people-search-status reads progress, and people-search-pause, people-search-resume, and people-search-cancel pause, resume, or cancel it. Company Search finds companies on the web from a description and Company Enrich reads the domains you send; both collect public emails, phones, social profiles, and leaders (CEO, founders, CTO, CFO): company-search and company-enrich start paid jobs billed to the user's Desearch balance, company-search-status reads progress and the companies, and company-search-pause, company-search-resume, and company-search-cancel pause, resume, or cancel a task. Calls need a Desearch API key.",
         }
     );
 
@@ -1367,6 +1439,247 @@ export function createDesearchMcpServer(
                 return ok(await listPeopleProfiles(people, args));
             } catch (error) {
                 return fail("People Profiles error", error);
+            }
+        },
+        undefined,
+        READ_ONLY_OPEN_WORLD
+    );
+
+    registerTool(
+        server,
+        apiKey,
+        "company-search",
+        "Company Search",
+        "Start a paid job billed to the user's Desearch balance: find companies on the web that match a plain-language description, and collect each one's public contact data. Returns a task_id at once, with the task's status and reserved_cost_usd. " +
+            "Cost: the call reserves count companies at the Company Search per-company price at the time of the call (reserved_cost_usd; prices at https://desearch.ai/pricing). When the task ends you pay only for the companies it delivered (final_cost_usd; a minimum of 2 when it delivers any; a task that delivers none is free) and the rest of the reservation is returned. A company left out by min_score or require is not billed. " +
+            "Each company has a fit score (0-100) and why it matched, plus fully_verified and unverified_criteria (what its own pages do and do not confirm). " +
+            COMPANY_DATA +
+            COMPANY_RUNS +
+            " To read companies you already know by domain, use company-enrich instead.",
+        strictArgs({
+            query: z
+                .string()
+                .min(3)
+                .max(1000)
+                .describe(
+                    "The companies you are looking for, in plain language: what they do, where, how far along. Example: 'Series A fintech startups in Berlin building payment infrastructure'."
+                ),
+            count: z
+                .number()
+                .int()
+                .min(5)
+                .max(200)
+                .optional()
+                .describe(
+                    "How many companies to deliver (5-200, API default 25). The task reserves this many and bills only the companies it delivers."
+                ),
+            min_score: z
+                .number()
+                .int()
+                .min(0)
+                .max(100)
+                .optional()
+                .describe("Only deliver companies with at least this fit score (0-100)."),
+            exclude: z
+                .array(z.string().min(1))
+                .max(COMPANY_EXCLUDE_MAX)
+                .optional()
+                .describe(
+                    `Companies to leave out, as domains or URLs, for example ones you already contacted (up to ${COMPANY_EXCLUDE_MAX}). Each is reduced to its host without www.`
+                ),
+            countries: z
+                .array(z.string().min(1).max(120))
+                .max(COMPANY_COUNTRIES_MAX)
+                .optional()
+                .describe(
+                    `Where the companies should be: ISO 3166-1 alpha-2 codes or country names, example: ['DE', 'Austria'] (up to ${COMPANY_COUNTRIES_MAX}). Scoring treats them as a location criterion. Sent as filters.countries.`
+                ),
+            require: z
+                .array(z.enum(COMPANY_REQUIREMENTS))
+                .optional()
+                .describe(
+                    "Only deliver companies that have all of these: 'email', 'phone', 'linkedin' (the company's LinkedIn page), 'leader' (one of roles), 'leader_email' (a leader with an email). A company is delivered once the stage that can show them has run (email, phone, linkedin: the contact pages; leader: the leaders; leader_email: the email checks); one that does not have them is not delivered and not billed. Sent as filters.require."
+                ),
+            ...companyTaskFields(),
+        }),
+        async (args) => {
+            try {
+                return ok(await startCompanySearch(companies, args));
+            } catch (error) {
+                return fail("Company Search error", error);
+            }
+        },
+        undefined,
+        BILLED_TASK
+    );
+
+    registerTool(
+        server,
+        apiKey,
+        "company-enrich",
+        "Company Enrich",
+        "Start a paid job billed to the user's Desearch balance: collect public contact data for companies you already know, by domain. Send 1-200 domains or URLs; each is reduced to its host without www., lowercased, and deduplicated, and the task reads every one. Returns a task_id at once, with the task's status and reserved_cost_usd. You get one company per domain with the same fields as company-search but no fit score (score is null). The task's count is the number of domains left after deduplication. " +
+            "Cost: the call reserves one company per domain sent at the Company Enrich per-company price at the time of the call (reserved_cost_usd; prices at https://desearch.ai/pricing). When the task ends you pay only for the companies it delivered (final_cost_usd; a minimum of 1; a task that delivers none is free) and the rest of the reservation, including duplicate domains, is returned. " +
+            COMPANY_DATA +
+            COMPANY_RUNS +
+            " To find companies from a description, use company-search instead.",
+        strictArgs({
+            domains: z
+                .array(z.string().min(1))
+                .min(1)
+                .max(COMPANY_DOMAINS_MAX)
+                .describe(
+                    `1-${COMPANY_DOMAINS_MAX} company domains or URLs, example: ['acme.com', 'https://www.beta.io/about']. Each is reduced to its host without www. and lowercased; duplicates are removed.`
+                ),
+            ...companyTaskFields(),
+        }),
+        async (args) => {
+            try {
+                return ok(await startCompanyEnrich(companies, args));
+            } catch (error) {
+                return fail("Company Enrich error", error);
+            }
+        },
+        undefined,
+        BILLED_TASK
+    );
+
+    registerTool(
+        server,
+        apiKey,
+        "company-search-status",
+        "Get Company Search Status",
+        "Status, progress, and cost of one Company Search or Company Enrich task, plus a page of the companies delivered so far: domain, name, url, location, fit score (null for Company Enrich) and why it matched, primary_email and primary_contact, public emails, phones, and social profiles with the page each came from (source_url), leaders with their roles, title, LinkedIn profile, and emails (each with its verification status; inferred ones with source: inferred and a confidence), contact_coverage, and enrichment (status partial or complete, and each stage: profile, contacts, people, email_patterns, email_check). Free: it reads a task you already started and runs no new search. Cost fields are reserved_cost_usd and, once the task ended, final_cost_usd. The data came from each company's own website, public web search, and public LinkedIn profiles. " +
+            "Companies arrive while the task runs and are filled in place by the later stages: pass the returned next_cursor as cursor to get only the companies delivered since then, and call without cursor to read every company in its latest version. stage enriching means every company is delivered and only later stages of some are left. When done is true and has_more is false you have every company. An ended task has completion_reason (why it stopped; all_domains_processed for Company Enrich), coverage_limited: true when a budget stopped it before count (more companies may match), and warnings. Company Search results have fully_verified (every criterion confirmed by the company's own pages) and unverified_criteria (criteria that are unknown or not met, or a disqualifier that applies). These are information only: the company still qualified.",
+        strictArgs({
+            task_id: companyTaskId,
+            cursor: z
+                .string()
+                .max(64)
+                .optional()
+                .describe(
+                    "next_cursor from the previous company-search-status call, to get only the companies delivered since then. Omit to read from the first company, each in its latest version."
+                ),
+            limit: z
+                .number()
+                .int()
+                .min(1)
+                .max(100)
+                .default(10)
+                .describe("Companies per page (1-100, default 10)."),
+            include_companies: z
+                .boolean()
+                .default(true)
+                .describe("Set false to read only the status, progress, and cost."),
+        }),
+        async (args) => {
+            try {
+                return ok(await readCompanyStatus(companies, args));
+            } catch (error) {
+                return fail("Company Search Status error", error);
+            }
+        },
+        undefined,
+        READ_ONLY_OPEN_WORLD
+    );
+
+    registerTool(
+        server,
+        apiKey,
+        "company-search-pause",
+        "Pause Company Search",
+        "Pause a Company Search or Company Enrich task and return its updated status. Free: it charges and refunds nothing. A queued task pauses at once; a running one finishes its current batch first (status pausing, then paused). Pausing loses no data: the companies delivered so far stay readable with company-search-status, and the task keeps its progress. Billing does not change: the reservation made when the task started stays reserved while paused and is settled only when the task ends. Undo it with company-search-resume, which continues from where the task stopped with no new charge. Limit: a task paused for more than 7 days is cancelled by the API and can no longer be resumed; you then pay only for the companies already delivered, the rest of the reservation is returned, and the companies delivered stay readable for 30 days.",
+        strictArgs({
+            task_id: companyTaskId,
+        }),
+        async (args) => {
+            try {
+                return ok(await controlCompanyTask(companies, { task_id: args.task_id, action: "pause" }));
+            } catch (error) {
+                return fail("Company Search Pause error", error);
+            }
+        },
+        undefined,
+        TASK_STATE_CHANGE
+    );
+
+    registerTool(
+        server,
+        apiKey,
+        "company-search-resume",
+        "Resume Company Search",
+        "Resume a paused Company Search or Company Enrich task and return its updated status. Free. The task continues from where it stopped, keeping the companies already delivered, with no new charge. Works only on a paused task, within 7 days of pausing; a task in any other state, including one the API cancelled after 7 days paused, returns 409. Poll company-search-status for the new companies.",
+        strictArgs({
+            task_id: companyTaskId,
+        }),
+        async (args) => {
+            try {
+                return ok(await controlCompanyTask(companies, { task_id: args.task_id, action: "resume" }));
+            } catch (error) {
+                return fail("Company Search Resume error", error);
+            }
+        },
+        undefined,
+        TASK_STATE_CHANGE
+    );
+
+    registerTool(
+        server,
+        apiKey,
+        "company-search-cancel",
+        "Cancel Company Search",
+        "Cancel a Company Search or Company Enrich task. Free. The task stops for good; you pay only for the companies it already delivered (a task cancelled before it starts costs nothing) and the rest of the reservation is returned. Companies delivered so far stay readable for 30 days. This cannot be undone.",
+        strictArgs({
+            task_id: companyTaskId,
+        }),
+        async (args) => {
+            try {
+                return ok(await controlCompanyTask(companies, { task_id: args.task_id, action: "cancel" }));
+            } catch (error) {
+                return fail("Company Search Cancel error", error);
+            }
+        },
+        undefined,
+        TASK_CANCEL
+    );
+
+    registerTool(
+        server,
+        apiKey,
+        "company-search-tasks",
+        "List Company Search Tasks",
+        "Your Company Search and Company Enrich tasks, newest first, with status, counts, cost, why each ended task stopped (completion_reason, coverage_limited), and the metadata labels set on company-search or company-enrich. Free; it lists your own tasks, not the companies they found (read those with company-search-status). People Search tasks are not listed here (see people-search-tasks). Use it to find a task_id (filter by type, status, or metadata to find the tasks of one campaign), or to see which tasks are still queued, running, or paused: a new task is refused while too many People Search and Company Search tasks are active.",
+        strictArgs({
+            type: z
+                .enum(COMPANY_TASK_TYPES)
+                .optional()
+                .describe("Only Company Search ('search') or only Company Enrich ('enrich') tasks."),
+            status: z
+                .array(z.enum(COMPANY_TASK_STATUSES))
+                .optional()
+                .describe("Only tasks in these statuses, example: ['running', 'paused']."),
+            limit: z
+                .number()
+                .int()
+                .min(1)
+                .max(100)
+                .optional()
+                .describe("Tasks per page (1-100, API default 20)."),
+            cursor: z
+                .string()
+                .optional()
+                .describe("next_cursor from the previous page. Keep the same type, status, and metadata filters when you page."),
+            metadata: peopleMetadata(PEOPLE_METADATA_MAX_FILTERS)
+                .optional()
+                .describe(
+                    `Only tasks whose metadata has all of these key/value pairs (exact match, up to ${PEOPLE_METADATA_MAX_FILTERS}), example: {"campaign": "q4-outbound"}.`
+                ),
+        }),
+        async (args) => {
+            try {
+                return ok(await listCompanyTasks(companies, args));
+            } catch (error) {
+                return fail("Company Search Tasks error", error);
             }
         },
         undefined,

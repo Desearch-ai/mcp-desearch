@@ -51,13 +51,13 @@ Example output:
 
 The tool returns that JSON as pretty-printed text: `{ "content": [{ "type": "text", "text": "<json above>" }] }`.
 
-AI search, X search and web search for AI agents, plus page extraction, X data tools, and People Search (find people and creators on X, YouTube, LinkedIn, and TikTok). Bring your own Desearch API key.
+AI search, X search and web search for AI agents, plus page extraction, X data tools, People Search (find people and creators on X, YouTube, LinkedIn, and TikTok), and Company Search (find companies on the web, or enrich domains you have, with their public contacts and leaders). Bring your own Desearch API key.
 
 ## Tools
 
 The Desearch MCP server includes the following tools.
 
-Lookup tools, including `search` and `fetch`, set `readOnlyHint: true`, `destructiveHint: false`, and `openWorldHint: true`. `people-search-status`, `people-search-tasks`, and `people-profiles` are lookups too. `people-search` starts a paid job billed to the user's Desearch balance, so `readOnlyHint` is false; it creates a new task and does not delete or overwrite anything, so `destructiveHint` is false. `people-search-pause` and `people-search-resume` change a task's state and undo each other, so `readOnlyHint` and `destructiveHint` are false and `idempotentHint` is true. Pausing loses no data (people found so far stay readable and the search keeps its progress) and changes no billing (nothing is charged or refunded; the reservation stays until the search ends), and resume continues from where the search stopped with no new charge. The caveat: the API cancels a search paused for more than 7 days, and a cancelled search cannot be resumed, so a pause is reversible only within those 7 days. `people-search-cancel` cannot be undone, so `readOnlyHint` is false and `destructiveHint` and `idempotentHint` are true. `openWorldHint` is true on every tool because the call reaches a live external source.
+Lookup tools, including `search` and `fetch`, set `readOnlyHint: true`, `destructiveHint: false`, and `openWorldHint: true`. `people-search-status`, `people-search-tasks`, and `people-profiles` are lookups too. `people-search` starts a paid job billed to the user's Desearch balance, so `readOnlyHint` is false; it creates a new task and does not delete or overwrite anything, so `destructiveHint` is false. `people-search-pause` and `people-search-resume` change a task's state and undo each other, so `readOnlyHint` and `destructiveHint` are false and `idempotentHint` is true. Pausing loses no data (people found so far stay readable and the search keeps its progress) and changes no billing (nothing is charged or refunded; the reservation stays until the search ends), and resume continues from where the search stopped with no new charge. The caveat: the API cancels a search paused for more than 7 days, and a cancelled search cannot be resumed, so a pause is reversible only within those 7 days. `people-search-cancel` cannot be undone, so `readOnlyHint` is false and `destructiveHint` and `idempotentHint` are true. The Company Search tools follow the same rules: `company-search` and `company-enrich` start paid jobs (`readOnlyHint: false`, `destructiveHint: false`, `idempotentHint: false`), `company-search-status` and `company-search-tasks` are lookups, `company-search-pause` and `company-search-resume` set `destructiveHint: false` and `idempotentHint: true` (with the same 7-day caveat), and `company-search-cancel` sets `destructiveHint: true` and `idempotentHint: true`. `openWorldHint` is true on every tool because the call reaches a live external source.
 
 -   **AI Search** (`ai-search`): Performs AI Twitter and web searches with relevant links and summary. `tools` uses short source ids (`web`, `twitter`, `arxiv`, `wikipedia`, `hackernews`, `reddit`). Older labels such as `Web Search`, `ArXiv Search`, `Wikipedia Search`, `Hacker News Search`, and `Reddit Search` are still accepted and sent as the short id. `youtube` is not accepted. Default is `["web", "twitter"]`.
 -   **X Search** (`x-search`): Tweet search on X. Arguments: `query` (required), `count` (optional, default 20). Sort stays Top. Optional filters: `user`, `start_date`, `end_date` (YYYY-MM-DD), `lang`, `verified`, `blue_verified`, `is_quote`, `is_video`, `is_image`, `min_retweets`, `min_replies`, `min_likes`.
@@ -83,8 +83,15 @@ Lookup tools, including `search` and `fetch`, set `readOnlyHint: true`, `destruc
 -   **Cancel People Search** (`people-search-cancel`): Stop a task for good. You pay only for the people it already delivered; the rest of the reservation is returned. Cannot be undone. Argument: `task_id` (required). Free.
 -   **List People Search Tasks** (`people-search-tasks`): Your searches, newest first. Arguments: `platform` (optional), `status` (optional list, for example `["running", "paused"]`), `limit` (optional, 1–100), `cursor` (optional), `metadata` (optional, up to 3 labels a task must have, for example `{"campaign": "q4-outbound"}`). Free; lists tasks, not the people they found.
 -   **List People Found** (`people-profiles`): Everyone your own searches found on one platform, one entry per person, with the search that found them. Runs no new search and queries no outside source. Arguments: `platform` (required), `q` (optional text in name, handle, bio, or location), `sort` (optional: `score`, `recent`, or `audience`), `limit` (optional, 1–200, default 25), `cursor` (optional), and the filters `has` (channels every person must have: `email`, `website`, `x`, `linkedin`, `instagram`, `youtube`, `tiktok`), `min_audience`, `max_audience`, `min_score`, `location`, `verified`. Free.
+-   **Company Search** (`company-search`): Start a paid job billed to the user's Desearch balance: find companies on the web that match a plain-language description and collect each one's public contact data. Arguments: `query` (required, 3–1000 characters), `count` (optional, 5–200, API default 25), `min_score` (optional, 0–100), `exclude` (optional domains or URLs, up to 1000), `countries` (optional ISO 3166-1 alpha-2 codes or names, up to 20), `require` (optional: `email`, `phone`, `linkedin`, `leader`, `leader_email`), `roles` (optional, below), `infer_emails` (optional, default `true`), `verify_emails` (optional, default `true`), `metadata` (optional labels, as on `people-search`), `idempotency_key` (optional). `countries` and `require` are sent as the API's `filters`. Returns the `task_id`, status, and `reserved_cost_usd` (`count` times the Company Search per-company price at the time of the call; prices at https://desearch.ai/pricing); the ended task carries `final_cost_usd`. Public data only: each company's own website, public web search results, and public LinkedIn profiles of its leaders.
+-   **Company Enrich** (`company-enrich`): Start a paid job billed to the user's Desearch balance: the same public contact data for companies you already know. Arguments: `domains` (required, 1–200 domains or URLs; reduced to the host without `www.`, lowercased, deduplicated), `roles`, `infer_emails`, `verify_emails`, `metadata`, `idempotency_key` (all optional). One company per domain, with `score: null`. Reserves one company per domain sent at the Company Enrich per-company price; duplicates and companies it does not deliver are returned when the task ends.
+-   **Company Search Status** (`company-search-status`): A Company Search or Company Enrich task's status, progress, and cost, plus a page of the companies delivered so far. Arguments: `task_id` (required), `cursor` (optional, `next_cursor` from the previous call), `limit` (optional, 1–100, default 10), `include_companies` (optional, default `true`). Free.
+-   **Pause Company Search** (`company-search-pause`): Pause a task. No data is lost and billing does not change; `company-search-resume` continues where it stopped with no new charge. A task paused for more than 7 days is cancelled by the API. Argument: `task_id` (required). Free.
+-   **Resume Company Search** (`company-search-resume`): Resume a paused task from where it stopped, with no new charge (409 when it is not paused). Argument: `task_id` (required). Free.
+-   **Cancel Company Search** (`company-search-cancel`): Stop a task for good. You pay only for the companies it already delivered; the rest of the reservation is returned. Cannot be undone. Argument: `task_id` (required). Free.
+-   **List Company Search Tasks** (`company-search-tasks`): Your Company Search and Company Enrich tasks, newest first. Arguments: `type` (optional, `search` or `enrich`), `status` (optional list), `limit` (optional, 1–100), `cursor` (optional), `metadata` (optional, up to 3 labels, exact match). Free; People Search tasks are not listed here.
 
-The full SDK method → endpoint → MCP tool map is in [docs/API_MCP_PARITY.md](docs/API_MCP_PARITY.md). Every public `desearch-js` 1.5 method is a tool. `latestTweets` was removed from the SDK (`GET /twitter/latest` in 1.0.1) and is not exposed. People Search is not in `desearch-js` 1.5; its tools call the `/desearch/people/*` routes directly, and the parity doc lists them too.
+The full SDK method → endpoint → MCP tool map is in [docs/API_MCP_PARITY.md](docs/API_MCP_PARITY.md). Every public `desearch-js` 1.5 method is a tool. `latestTweets` was removed from the SDK (`GET /twitter/latest` in 1.0.1) and is not exposed. People Search and Company Search are not in `desearch-js` 1.5; their tools call the `/desearch/people/*` and `/desearch/companies/*` routes directly, and the parity doc lists them too.
 
 ### People Search
 
@@ -212,6 +219,145 @@ When the search has ended, the task also says why and how complete it is, and ea
 -   `coverage_limited` appears (as `true`) only when a budget stopped the search before it found `count` people. The status is still `completed`.
 -   `warnings` lists what made part of the search less reliable. `partial_enrichment`: `failed` of `attempted` profiles could not be read after search, so those people were scored on the search hit and show `enrichment: "failed"` with `enrichment_error`.
 -   `fully_verified` is `true` when every criterion is confirmed by the person's own profile or posts. `unverified_criteria` lists up to five that are not: `(unknown)`, `(not met)`, or a disqualifier that `(applies)`. Both are information only: the person still qualified. Results scored before 2026-10-20 have neither.
+
+### Company Search
+
+Company Search finds companies on the web that match a plain-language description. Company Enrich starts from domains you send. Both collect each company's public contact data: emails, phones, social profiles, and its leaders (`roles`: CEO, founders, CTO, and CFO by default) with their LinkedIn profiles and emails. Every contact keeps the page it came from (`source_url`). Company Search also scores how well each company fits (0–100); Company Enrich has no score (`score: null`).
+
+A task runs in the background, like a People Search:
+
+1. `company-search` or `company-enrich` starts a paid job billed to the user's Desearch balance and returns a `task_id` at once. Company Search reserves `count` companies at its per-company price, Company Enrich one company per domain sent at its own price (prices at https://desearch.ai/pricing). When the task ends you pay only for the companies it delivered (Company Search: a minimum of 2 when it delivers any; Company Enrich: a minimum of 1; a task that delivers none is free), and the rest of the reservation is returned. A company left out by `min_score` or `require` is not billed. Send the same `idempotency_key` to retry a call without starting, or paying for, a second task.
+2. `company-search-status` returns the task's status, progress, cost, and a page of companies. Each company goes through stages: `profile` (its homepage, and the fit score), `contacts` (its contact, about, team, and imprint pages), `people` (its leaders), `email_patterns` (inferred leader emails), and `email_check` (every email checked: `valid`, `invalid`, `risky`, or `unknown`). A company is delivered as soon as the stages the request needs have run, with `enrichment.status: "partial"`, and later stages fill it in until it is `complete`. Pass `next_cursor` back as `cursor` to get only new companies; call without `cursor` to read every company in its latest version. `stage: "enriching"` means every company is delivered and only later stages are left. The `next` hint says which to do, and reminds you to read once more without `cursor` after the task ends if you read companies while it ran.
+3. `company-search-pause`, `company-search-resume`, and `company-search-cancel` pause, resume, or cancel it. `company-search-tasks` lists your tasks, filtered by `type` (`search` or `enrich`), `status`, or `metadata`.
+
+A People Search `task_id` is a 404 on the company tools, and a company `task_id` is a 404 on the People Search tools. Companies stay readable for 30 days after a task ends.
+
+`require` keeps only companies that have all of the listed contacts: `email`, `phone`, `linkedin` (the company's LinkedIn page), `leader` (one of `roles`), `leader_email` (a leader with an email). A company that does not have them once the stage that can show them has run is not delivered and not billed. `roles` takes any of `ceo`, `founder`, `cto`, `cfo`, `coo`, `cmo`, `president`, `owner`, `managing_director`; a managing director (Geschäftsführer) counts as `ceo` when `ceo` is asked for. `infer_emails: false` skips the inferred leader emails and `verify_emails: false` skips the email checks.
+
+Prompt: find 25 Series A fintech startups in Berlin with a leader's email.
+
+```json
+{
+    "name": "company-search",
+    "arguments": {
+        "query": "Series A fintech startups in Berlin building payment infrastructure",
+        "count": 25,
+        "countries": ["DE"],
+        "require": ["leader_email"]
+    }
+}
+```
+
+Then poll with `{"task_id": "5b33f3ee-168b-4780-9c8e-63a626781872"}` on `company-search-status`:
+
+```json
+{
+    "task_id": "5b33f3ee-168b-4780-9c8e-63a626781872",
+    "search_type": "company_search",
+    "status": "running",
+    "stage": "processing",
+    "done": false,
+    "query": "Series A fintech startups in Berlin building payment infrastructure",
+    "count": 25,
+    "result_count": 3,
+    "progress": {
+        "candidates_found": 140,
+        "candidates_processed": 60,
+        "qualified": 3,
+        "filtered": { "not_a_company": 9, "below_min_score": 3 },
+        "enrichment": { "published": 3, "complete": 1, "pending": 2, "failed": 0 },
+        "email_checks": { "checked": 6, "valid": 3, "invalid": 1, "risky": 1, "unknown": 1 }
+    },
+    "reserved_cost_usd": 2.25,
+    "created_at": "2026-10-28T10:00:00Z",
+    "companies": [
+        {
+            "domain": "example.com",
+            "name": "Example Payments",
+            "url": "https://example.com/",
+            "industry": "Fintech",
+            "location": { "country": "DE", "city": "Berlin" },
+            "description": "Payment infrastructure for marketplaces.",
+            "score": 86,
+            "why": "Berlin payments infrastructure startup, Series A in 2025.",
+            "reasons": ["Payments infrastructure for marketplaces", "Based in Berlin"],
+            "fully_verified": false,
+            "unverified_criteria": ["Stage: Series A (unknown)"],
+            "primary_email": {
+                "value": "anna.schmidt@example.com",
+                "type": "personal",
+                "source": "inferred",
+                "person": "Anna Schmidt",
+                "confidence": "high",
+                "pattern": "first.last",
+                "verification": "valid"
+            },
+            "primary_contact": {
+                "name": "Anna Schmidt",
+                "title": "Co-founder & CEO",
+                "email": "anna.schmidt@example.com",
+                "linkedin_url": "https://www.linkedin.com/in/example-anna",
+                "reason": "CEO, email inferred from the company's pattern and verified"
+            },
+            "contact_coverage": { "email": true, "phone": true, "linkedin": true, "leader": true, "leader_email": true },
+            "emails": [
+                {
+                    "value": "hello@example.com",
+                    "type": "general",
+                    "source": "website",
+                    "source_url": "https://example.com/impressum",
+                    "verification": "valid"
+                }
+            ],
+            "phones": [{ "value": "+493012345678", "type": "main", "source_url": "https://example.com/impressum" }],
+            "socials": [
+                {
+                    "type": "linkedin",
+                    "url": "https://www.linkedin.com/company/example-payments",
+                    "source_url": "https://example.com/"
+                }
+            ],
+            "leaders": [
+                {
+                    "name": "Anna Schmidt",
+                    "title": "Co-founder & CEO",
+                    "roles": ["ceo", "founder"],
+                    "verified": true,
+                    "linkedin_url": "https://www.linkedin.com/in/example-anna",
+                    "emails": [
+                        {
+                            "value": "anna.schmidt@example.com",
+                            "type": "personal",
+                            "source": "inferred",
+                            "confidence": "high",
+                            "pattern": "first.last",
+                            "verification": "valid"
+                        }
+                    ],
+                    "evidence_url": "https://example.com/impressum"
+                }
+            ],
+            "enrichment": {
+                "status": "complete",
+                "stages": { "profile": "done", "contacts": "done", "people": "done", "email_patterns": "done", "email_check": "done" }
+            }
+        }
+    ],
+    "next_cursor": "3",
+    "has_more": false,
+    "next": "Still running. Wait 15 to 30 seconds, then call company-search-status again with cursor \"3\" to get only the companies delivered since this call. Companies with enrichment status \"partial\" are still being filled in; when the task is done, call company-search-status without cursor to read every company in its latest version."
+}
+```
+
+The output above is shortened to one company.
+
+-   `score` is the fit score (0–100) for Company Search and `null` for Company Enrich. `why` and up to three `reasons` say why it matched; `fully_verified` and `unverified_criteria` say what the company's own pages confirm (information only: the company still qualified).
+-   Each email has `type` (`personal`, `leadership`, `sales`, `general`, `press`, `support`, `careers`, `legal`, `other`), `source` (`website`, `search`, `linkedin`, `inferred`), `source_url` (none for inferred ones), and `verification` (`valid`, `invalid`, `risky`, `unknown`; left out until the email checks ran). Inferred emails carry `confidence` (`high`: the pattern was learned from this company's own addresses; `low`: a common pattern) and `pattern`.
+-   `primary_email` is never a `support`, `legal`, `careers`, `press`, or `other` address, and an inferred one only when `valid`. `primary_contact` is the leader to reach first, with why.
+-   Each leader has `roles` (from the request's `roles`), `verified` (a quote on the company's own site or their current LinkedIn position shows the role), and `evidence_url` (the page that shows it).
+-   `completion_reason` adds `all_domains_processed` (Company Enrich read every domain) to People Search's values. `warnings` keep their `code` and `message`, for example `enrichment_time_limit` when some companies were not fully enriched before the task's time limit.
+
+CSV and JSON Lines downloads (`GET /desearch/companies/tasks/{task_id}/export`) are not MCP tools; call the API directly for a file.
 
 ## Prerequisites 📋
 

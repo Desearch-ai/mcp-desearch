@@ -1,8 +1,8 @@
 {
     "name": "desearch-mcp-server",
-    "version": "0.5.0",
+    "version": "0.6.0",
     "mcpName": "io.github.Desearch-ai/mcp-desearch",
-    "description": "AI search (web, Reddit, Hacker News, arXiv, Wikipedia, and Twitter), X (Twitter) search, web search, page extraction, X data, and People Search (find people and creators on X, YouTube, LinkedIn, and TikTok) tools for AI agents.",
+    "description": "AI search (web, Reddit, Hacker News, arXiv, Wikipedia, and Twitter), X (Twitter) search, web search, page extraction, X data, People Search (find people and creators on X, YouTube, LinkedIn, and TikTok), and Company Search (find companies and their public contacts and leaders, or enrich domains you send) tools for AI agents.",
     "license": "MIT",
     "homepage": "https://desearch.ai",
     "type": "module",
@@ -45,6 +45,9 @@
         "creator-search",
         "influencer-search",
         "lead-generation",
+        "company-search",
+        "company-enrich",
+        "company-enrichment",
         "youtube",
         "tiktok",
         "linkedin"
