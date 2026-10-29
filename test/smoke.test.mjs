@@ -228,6 +228,7 @@ test("stdio initializes and lists tools", async () => {
             assert.deepEqual(tool.inputSchema.properties.format.enum, ["html", "text"]);
             assert.equal(typeof tool.inputSchema.properties.js, "object");
             assert.equal(typeof tool.inputSchema.properties.wait, "object");
+            assert.equal(tool.inputSchema.properties.full_page.type, "boolean");
         }
         const webCrawl = listed.tools.find((entry) => entry.name === "web-crawl");
         assert.match(webCrawl.description, /deprecated/i);

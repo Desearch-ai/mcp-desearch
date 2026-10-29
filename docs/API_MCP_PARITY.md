@@ -41,7 +41,7 @@ Phase 4 covers the remaining public `desearch-js` 1.5 methods. Every method in t
 | `xUserReplies` | `GET /twitter/replies` | `x-user-replies` | done (Phase 3) | `user`, optional `count` (1–100), optional `query`. |
 | `xPostReplies` | `GET /twitter/replies/post` | `x-post-replies` | done (Phase 3) | `post_id`, optional `count` (1–100), optional `query`. |
 | `xTrends` | `GET /twitter/trends` | `x-trends` | done (Phase 4) | Args match `XTrendsParams`: `woeid` (required integer), optional `count` (30–100). |
-| `extract` | `GET /web/extract` | `extract` | done (Phase 4) | Args match `ExtractParams`: `url`, optional `format` (`html` \| `text`), `js`, `wait` (milliseconds). Preferred over crawl for new integrations. |
+| `extract` | `GET /web/extract` | `extract` | done (Phase 4) | Args match `ExtractParams`: `url`, optional `format` (`html` \| `text`), `js`, `wait` (milliseconds), `full_page`. Preferred over crawl for new integrations. |
 | `webCrawl` | `GET /web/crawl` | `web-crawl` | done (Phase 4) | Same params as `extract` (`WebCrawlParams` extends `ExtractParams`). SDK marks `webCrawl` deprecated and keeps it only for the legacy route. The MCP tool description says to prefer `extract`. |
 
 Tool handlers return the SDK payload as pretty-printed JSON text. They do not pass `includeMetadata: true`, same as `ai-search` and `x-search`.
