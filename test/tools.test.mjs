@@ -370,6 +370,13 @@ test("phase 4 extract, web-crawl, and x-trends call the matching desearch-js met
             },
         });
         assert.equal(extracted.isError, undefined);
+
+        const markdown = await client.callTool({
+            name: "extract",
+            arguments: { url: "https://desearch.ai/docs", format: "markdown" },
+        });
+        assert.equal(markdown.isError, undefined);
+        assert.equal(extracted.isError, undefined);
         assert.equal(JSON.parse(textOf(extracted)), "page text");
 
         const extractedDefaults = await client.callTool({
@@ -410,7 +417,7 @@ test("phase 4 extract, web-crawl, and x-trends call the matching desearch-js met
 
         const rejectedFormat = await client.callTool({
             name: "extract",
-            arguments: { url: "https://desearch.ai", format: "markdown" },
+            arguments: { url: "https://desearch.ai", format: "pdf" },
         });
         assert.equal(rejectedFormat.isError, true);
 
@@ -437,6 +444,10 @@ test("phase 4 extract, web-crawl, and x-trends call the matching desearch-js met
         [
             "extract",
             { url: "https://desearch.ai", format: "text", js: true, wait: 1500, full_page: true },
+        ],
+        [
+            "extract",
+            { url: "https://desearch.ai/docs", format: "markdown", js: undefined, wait: undefined, full_page: undefined },
         ],
         [
             "extract",

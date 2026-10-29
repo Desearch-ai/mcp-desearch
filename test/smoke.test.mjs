@@ -225,7 +225,7 @@ test("stdio initializes and lists tools", async () => {
 
         for (const name of ["extract", "web-crawl"]) {
             const tool = listed.tools.find((entry) => entry.name === name);
-            assert.deepEqual(tool.inputSchema.properties.format.enum, ["html", "text"]);
+            assert.deepEqual(tool.inputSchema.properties.format.enum, ["html", "text", "markdown"]);
             assert.equal(typeof tool.inputSchema.properties.js, "object");
             assert.equal(typeof tool.inputSchema.properties.wait, "object");
             assert.equal(tool.inputSchema.properties.full_page.type, "boolean");

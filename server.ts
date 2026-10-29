@@ -30,7 +30,7 @@ import {
 import { AI_SEARCH_TOOLS, WEB_LINK_TOOLS, toolIdSchema } from "./tool-sources.js";
 
 export const SERVER_NAME = "Desearch";
-export const SERVER_VERSION = "0.4.0";
+export const SERVER_VERSION = "0.5.0";
 export const SERVER_TITLE = "Desearch";
 export const SERVER_WEBSITE_URL = "https://www.desearch.ai";
 
@@ -62,7 +62,7 @@ interface XSearchPayload {
 
 interface PageContentPayload {
     url: string;
-    format?: "html" | "text";
+    format?: "html" | "text" | "markdown";
     js?: boolean;
     wait?: number;
     full_page?: boolean;
@@ -180,9 +180,9 @@ function pageContentFields(): Record<string, z.ZodTypeAny> {
     return {
         url: z.string().describe("Public URL to read, example: 'https://desearch.ai'"),
         format: z
-            .enum(["html", "text"])
+            .enum(["html", "text", "markdown"])
             .optional()
-            .describe("Content format to return: 'html' or 'text'."),
+            .describe("Content format to return: 'text' (default), 'markdown' (headings, lists, tables and code) or 'html'."),
         js: z.boolean().optional().describe("Render JavaScript before reading the page."),
         wait: z
             .number()
@@ -192,7 +192,7 @@ function pageContentFields(): Record<string, z.ZodTypeAny> {
             .boolean()
             .optional()
             .describe(
-                "With format 'text', return all visible text of the page (every section, table and notice) instead of only its main content."
+                "Only with format 'text': return all visible text of the page (every section, table and notice) instead of only its main content."
             ),
     };
 }
@@ -937,7 +937,7 @@ export function createDesearchMcpServer(
         apiKey,
         "extract",
         "Extract Page Content",
-        "Extract a public URL and return its content as plain text or HTML using Desearch. Text is the page's main content; set full_page for every section, such as opening hours or fee tables. A js_required error means the page needs js: true; blocked means the site refused or showed a bot check. Preferred over web-crawl for new integrations. API docs: https://www.desearch.ai/docs/api-reference/get-web-extract",
+        "Extract a public URL and return its content as plain text, markdown or HTML using Desearch. Markdown keeps headings, lists and tables. Text is the page's main content; set full_page for every section, such as opening hours or fee tables. A js_required error means the page needs js: true; blocked means the site refused or showed a bot check. Preferred over web-crawl for new integrations. API docs: https://www.desearch.ai/docs/api-reference/get-web-extract",
         pageContentFields(),
         async ({ url, format, js, wait, full_page }) => {
             try {
