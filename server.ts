@@ -30,7 +30,7 @@ import {
 import { AI_SEARCH_TOOLS, WEB_LINK_TOOLS, toolIdSchema } from "./tool-sources.js";
 
 export const SERVER_NAME = "Desearch";
-export const SERVER_VERSION = "0.3.3";
+export const SERVER_VERSION = "0.4.0";
 export const SERVER_TITLE = "Desearch";
 export const SERVER_WEBSITE_URL = "https://www.desearch.ai";
 
@@ -65,6 +65,7 @@ interface PageContentPayload {
     format?: "html" | "text";
     js?: boolean;
     wait?: number;
+    full_page?: boolean;
 }
 
 interface DesearchClient {
@@ -187,6 +188,12 @@ function pageContentFields(): Record<string, z.ZodTypeAny> {
             .number()
             .optional()
             .describe("Post-load wait in milliseconds when JavaScript rendering is enabled."),
+        full_page: z
+            .boolean()
+            .optional()
+            .describe(
+                "With format 'text', return all visible text of the page (every section, table and notice) instead of only its main content."
+            ),
     };
 }
 
@@ -930,11 +937,11 @@ export function createDesearchMcpServer(
         apiKey,
         "extract",
         "Extract Page Content",
-        "Extract a public URL and return its content as plain text or HTML using Desearch. Preferred over web-crawl for new integrations. API docs: https://www.desearch.ai/docs/api-reference/get-web-extract",
+        "Extract a public URL and return its content as plain text or HTML using Desearch. Text is the page's main content; set full_page for every section, such as opening hours or fee tables. A js_required error means the page needs js: true; blocked means the site refused or showed a bot check. Preferred over web-crawl for new integrations. API docs: https://www.desearch.ai/docs/api-reference/get-web-extract",
         pageContentFields(),
-        async ({ url, format, js, wait }) => {
+        async ({ url, format, js, wait, full_page }) => {
             try {
-                return ok(await desearch.extract({ url, format, js, wait }));
+                return ok(await desearch.extract({ url, format, js, wait, full_page }));
             } catch (error) {
                 return fail("Extract error", error);
             }
@@ -948,9 +955,9 @@ export function createDesearchMcpServer(
         "Crawl Web Page (Legacy)",
         "Crawl a public URL and return its content as plain text or HTML on the legacy Desearch /web/crawl route. The SDK marks webCrawl deprecated in favor of extract; this tool stays for parity with that route. Prefer extract for new integrations. API docs: https://www.desearch.ai/docs/guide/apis/extract-api",
         pageContentFields(),
-        async ({ url, format, js, wait }) => {
+        async ({ url, format, js, wait, full_page }) => {
             try {
-                return ok(await desearch.webCrawl({ url, format, js, wait }));
+                return ok(await desearch.webCrawl({ url, format, js, wait, full_page }));
             } catch (error) {
                 return fail("Web Crawl error", error);
             }

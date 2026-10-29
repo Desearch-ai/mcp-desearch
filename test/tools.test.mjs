@@ -366,6 +366,7 @@ test("phase 4 extract, web-crawl, and x-trends call the matching desearch-js met
                 format: "text",
                 js: true,
                 wait: 1500,
+                full_page: true,
             },
         });
         assert.equal(extracted.isError, undefined);
@@ -435,19 +436,19 @@ test("phase 4 extract, web-crawl, and x-trends call the matching desearch-js met
     assert.deepEqual(calls, [
         [
             "extract",
-            { url: "https://desearch.ai", format: "text", js: true, wait: 1500 },
+            { url: "https://desearch.ai", format: "text", js: true, wait: 1500, full_page: true },
         ],
         [
             "extract",
-            { url: "https://desearch.ai/docs", format: undefined, js: undefined, wait: undefined },
+            { url: "https://desearch.ai/docs", format: undefined, js: undefined, wait: undefined, full_page: undefined },
         ],
         [
             "webCrawl",
-            { url: "https://desearch.ai", format: "html", js: false, wait: 0 },
+            { url: "https://desearch.ai", format: "html", js: false, wait: 0, full_page: undefined },
         ],
         ["xTrends", { woeid: 23424977, count: 30 }],
         ["xTrends", { woeid: 1, count: undefined }],
-        ["extract", { url: "https://fail.example", format: undefined, js: undefined, wait: undefined }],
+        ["extract", { url: "https://fail.example", format: undefined, js: undefined, wait: undefined, full_page: undefined }],
     ]);
 });
 
