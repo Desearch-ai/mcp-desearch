@@ -2,7 +2,7 @@
 
 Plugin bundle for the Desearch MCP server. It is meant to move to a public `Desearch-ai/desearch-plugin` repository after founder approval. This folder is the bundle. It does not publish itself.
 
-The server is the npm package `desearch-mcp-server`. The tools call Desearch for AI search, X search, web search, page extraction, X trends, and People Search.
+The server is the npm package `desearch-mcp-server`. The tools call Desearch for AI search, X search, web search, the Search API, page extraction, X trends, public TikTok, Facebook, and Instagram data, and People Search.
 
 ## Requirements
 
