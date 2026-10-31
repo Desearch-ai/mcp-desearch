@@ -1,5 +1,7 @@
 # Desearch API ↔ MCP parity
 
+Version 0.7.0 exposes 36 tools.
+
 The product rule is that every public Desearch API / SDK method is exposed as an MCP tool. This file is the inventory for that work. It tracks `desearch-js` **1.5.0** (current) against the MCP server. HTTP paths are the ones the SDK calls on `https://api.desearch.ai`.
 
 Auth is unchanged: stdio reads `DESEARCH_API_KEY`; Streamable HTTP builds one client per request from `Authorization: Bearer <key>` or `x-api-key`.
@@ -14,8 +16,11 @@ Auth is unchanged: stdio reads `DESEARCH_API_KEY`; Streamable HTTP builds one cl
 | Phase 4 | `extract`, legacy `webCrawl` (`web-crawl`), and `xTrends` | Done. |
 | People Search | `people-search`, `people-search-status`, `people-search-pause`, `people-search-resume`, `people-search-cancel`, `people-search-tasks`, `people-profiles` | Done in 0.2.0. Merge after People Search is live on `api.desearch.ai`. |
 | Company Search | `company-search`, `company-enrich`, `company-search-status`, `company-search-pause`, `company-search-resume`, `company-search-cancel`, `company-search-tasks` | Done in 0.6.0. Company Search is live on `api.desearch.ai` since 2026-10-29. |
+| Full API coverage | `search-api` (`POST /search`), `tiktok`, `facebook`, `instagram` (the 19 social routes), `people-search-export` (both People Search `/export` routes) | Done in 0.7.0. These routes are not in `desearch-js` 1.5, so the tools call them directly (`desearch-api.ts`). |
 
 Phase 4 covers the remaining public `desearch-js` 1.5 methods. Every method in the table below has an MCP tool. The intentional gap is `latestTweets`: desearch-js 1.0.1 called `GET /twitter/latest`, and 1.5 removed that method, so there is no MCP tool for it. `web-crawl` stays even though the SDK deprecates `webCrawl` in favor of `extract`.
+
+The network stats routes (`GET /network/stats`, `/network/stats/history`, `/network/stats/stream`) are the other intentional gap: they describe the Desearch network rather than search data, and they are covered by the SDKs only.
 
 ## Tool source ids
 
@@ -49,7 +54,7 @@ Tool handlers return the SDK payload as pretty-printed JSON text. They do not pa
 
 ## People Search routes
 
-People Search is not in `desearch-js` 1.5. `people.ts` calls the routes directly with the same base URL (`https://api.desearch.ai`), the same `Authorization: <key>` header, and the same `HTTP <status>: <detail>` error text as desearch-js. The contract is `desearch-public-api` `src/model/people.py`, `src/routers/people.py`, and `src/utils/people_filters.py`.
+People Search is not in `desearch-js` 1.5. `people.ts` calls the routes directly (through the shared request helper in `desearch-api.ts`) with the same base URL (`https://api.desearch.ai`), the same `Authorization: <key>` header, and the same `HTTP <status>: <detail>` error text as desearch-js. The contract is `desearch-public-api` `src/model/people.py`, `src/routers/people.py`, and `src/utils/people_filters.py`.
 
 | HTTP endpoint | MCP tool | Billed | Notes |
 | --- | --- | --- | --- |
@@ -61,8 +66,44 @@ People Search is not in `desearch-js` 1.5. `people.ts` calls the routes directly
 | `POST /desearch/people/tasks/{task_id}/cancel` | `people-search-cancel` | No | Takes only `task_id`. Cannot be undone. A 409 is returned as a tool error with the API detail and the task's current status. |
 | `GET /desearch/people/tasks` | `people-search-tasks` | No | `platform`, `status` (list, sent comma-separated), `limit`, `cursor`, and `metadata` (up to 3 pairs, each sent as `metadata.<key>=<value>`). Each task carries the same `completion_reason`, `coverage_limited`, and `warnings` as `people-search-status`. |
 | `GET /desearch/people/profiles` | `people-profiles` | No | `platform`, `q`, `sort`, `limit` (MCP default 25), `cursor`, and the result filters `has` (list, sent comma-separated), `min_audience`, `max_audience`, `min_score`, `location`, `verified`. Each profile keeps `found_by`. |
-| `GET /desearch/people/tasks/{task_id}/export` | — | No | Not a tool. It streams a whole CSV or JSON Lines file. Read pages with `people-search-status` or `people-profiles`, or call the API for a file. |
-| `GET /desearch/people/profiles/export` | — | No | Not a tool, for the same reason. |
+| `GET /desearch/people/tasks/{task_id}/export` | `people-search-export` (with `task_id`) | No | `format` (`csv` default, or `jsonl`) and the result filters `has` (list, sent comma-separated), `min_audience`, `max_audience`, `min_score`, `location`, `verified`. `platform`, `q`, and `sort` are refused with a `task_id`. The tool returns two text blocks: a note (rows in the file, rows shown, rows cut and why, and the API URL for the whole file), then the file text cut at a record boundary to `max_rows` rows (1–1000, default 100) and 50,000 characters. CSV keeps its header row; a CSV field with a line break stays one row. 404 and 410 are tool errors with the API detail. |
+| `GET /desearch/people/profiles/export` | `people-search-export` (with `platform`, no `task_id`) | No | `platform` (required here), `format`, `q`, `sort`, and the same result filters. Same note, cut, and errors as the task export. The API caps this file at 10,000 people. |
+
+## TikTok, Facebook, and Instagram routes
+
+Not in `desearch-js` 1.5. `social.ts` calls them with the same base URL, `Authorization: <key>` header, and `HTTP <status>: <detail>` error text as the other direct calls. The contract is the production OpenAPI spec (`TikTokSearchRequest`, `FacebookSearchRequest`, `InstagramSearchRequest`, and the route parameters) and desearch-public-api `docs/social-pagination.md`.
+
+One tool per platform; `action` picks the route. Each action needs the arguments in bold and accepts the others listed; anything else is refused before a request is sent (`tiktok action "trending" does not take cursor. trending takes: region, count. No request was sent.`). The tools also reject argument names they do not list. Path arguments are URL-encoded (`{id:path}` routes still receive an id that contains `/` as one value). A leading `@` on a username and `#` on a tag are removed; a cursor is never changed.
+
+| HTTP endpoint | MCP tool and action | Arguments | Pages |
+| --- | --- | --- | --- |
+| `POST /desearch/tiktok/search` | `tiktok` `search` | **`query`**, `count` (1–100, API default 10), `sort`, `cursor` (all in the body) | Yes |
+| `GET /desearch/tiktok/post/{id}` | `tiktok` `post` | **`id`** | — |
+| `GET /desearch/tiktok/profile/{username}` | `tiktok` `profile` | **`username`** | — |
+| `GET /desearch/tiktok/profile/{username}/posts` | `tiktok` `profile_posts` | **`username`**, `count` (API default 20), `cursor` | Yes |
+| `GET /desearch/tiktok/comments/{video_id}` | `tiktok` `comments` | **`video_id`**, `count`, `cursor` | Yes |
+| `GET /desearch/tiktok/hashtag/{tag}` | `tiktok` `hashtag` | **`tag`**, `count`, `cursor` | Yes |
+| `GET /desearch/tiktok/trending` | `tiktok` `trending` | `region` (two letters, API default `US`), `count` | No cursor |
+| `POST /desearch/facebook/search` | `facebook` `search` | **`query`**, `count`, `cursor` (body). Meta Ad Library ads. | Yes |
+| `GET /desearch/facebook/post/{id}` | `facebook` `post` | **`id`** | — |
+| `GET /desearch/facebook/profile/{profile_id}` | `facebook` `profile` | **`profile_id`** | — |
+| `GET /desearch/facebook/profile/{profile_id}/posts` | `facebook` `profile_posts` | **`profile_id`**, `count`, `cursor` | Yes |
+| `GET /desearch/facebook/comments/{post_id}` | `facebook` `comments` | **`post_id`**, `count`, `cursor` | Yes |
+| `GET /desearch/facebook/hashtag/{tag}` | `facebook` `hashtag` | **`tag`**, `count`, `cursor`. Meta Ad Library ads. | Yes |
+| `POST /desearch/instagram/search` | `instagram` `search` | **`query`**, `count`. The API answers 422 to any cursor, so the tool does not take one. | No cursor |
+| `GET /desearch/instagram/media/{id}` | `instagram` `media` | **`id`** (shortcode, numeric ID, or URL) | — |
+| `GET /desearch/instagram/profile/{username}` | `instagram` `profile` | **`username`** | — |
+| `GET /desearch/instagram/profile/{username}/posts` | `instagram` `profile_posts` | **`username`**, `count`, `cursor` | Yes |
+| `GET /desearch/instagram/comments/{shortcode}` | `instagram` `comments` | **`shortcode`**, `count`, `cursor` | Yes |
+| `GET /desearch/instagram/hashtag/{tag}` | `instagram` `hashtag` | **`tag`**, `count`, `cursor` | Yes |
+
+Single-item actions (`post`, `profile`, `media`) return the API body unchanged. List actions return `{ results, next_cursor, next }`: `results` is the API's JSON array, `next_cursor` is the `x-desearch-next-cursor` response header (`null` when the API leaves it out, which it does on the last page and on routes that do not page), and `next` is one sentence on how to ask for the next page. The caller sends `next_cursor` back as `cursor` on the same action with the same target; the API answers 422 (not charged) to a cursor from another route or target, or one older than 24 hours.
+
+## Search API
+
+| HTTP endpoint | MCP tool | Notes |
+| --- | --- | --- |
+| `POST /search` | `search-api` | Body `SearchRequest`: `query` (1–2000 characters), `mode` (`fast` \| `balanced`), `count` (10, 15, or 20: integer, multiple of 5), `start_date` and `end_date` (YYYY-MM-DD), `highlights`, `page_text`. Fields the caller leaves out are not sent, so the API defaults apply. Returns the `SearchResponse` body (`results` with `url`, `title`, `published_date`, `highlights`, `page_text`, plus `cost_usd`, `usage_count`, `service`, `currency`) as pretty-printed JSON. Not the same as `search`, which wraps `GET /web` for page lookup clients. |
 
 People tools reject unknown arguments. Without that, an argument the schema does not list (for example the API's nested `filters` object) would be dropped and the billed search would run without it.
 
@@ -76,7 +117,7 @@ Company Search and Company Enrich are not in `desearch-js` 1.5. `companies.ts` c
 | `POST /desearch/companies/enrich` | `company-enrich` | Yes | Body is `domains` (1–200 domains or URLs; the API normalizes and deduplicates them, and `count` is the number left), optional `roles`, `infer_emails`, `verify_emails`, and `metadata`. `idempotency_key` and the 200 replay work as on `company-search`. |
 | `GET /desearch/companies/tasks/{task_id}` | `company-search-status` | No | Status, stage (including `enriching`), progress (passed through without its copy of `warnings`), errors, and cost. `search_type` (`company_search` or `company_enrich`) is kept and `platform` is dropped. Once it has ended: `completion_reason` (People Search's values plus `all_domains_processed`), `coverage_limited` (only when `true`), and `warnings` (each `code` and `message`; company warnings are short). |
 | `GET /desearch/companies/tasks/{task_id}/results` | `company-search-status` | No | Called in the same tool when `result_count > 0` and the task has not expired. `cursor` and `limit` (MCP default 10, max 100; API default 100, max 500) pass through. Each company is reduced to `domain`, `name`, `url`, `industry`, `location`, `description` (up to 300 characters), `score` (always present: the fit score, or `null` for Company Enrich), `why` (`score.summary`), up to three `reasons`, `fully_verified`, `unverified_criteria` (the People Search rule, from `score.criteria_checks`), `primary_email`, `primary_contact`, `contact_coverage`, `emails` (`value`, `type`, `source`, `source_url`, `person`, `confidence`, `pattern`, and `verification` as the check's status), `phones` and `socials` (each with `source_url`), `leaders` (from `people`: `name`, `title`, `roles`, `verified`, `linkedin_url`, `x_url`, `github_url`, `emails`, `phones`, `evidence_url`), and `enrichment` (`status`, `stages`, `errors`). The `next` hint knows that results are filled in place: while a task runs, or is `enriching`, it says when to read again without `cursor` to get the latest version of companies already returned, and after the task ends it says how many companies on the page stayed `partial`. |
-| `GET /desearch/companies/tasks/{task_id}/export` | — | No | Not a tool, the same precedent as People Search's export routes. It streams a whole CSV or JSON Lines file (`format=csv` or `format=jsonl`). Read pages with `company-search-status`, or call the API for a file. |
+| `GET /desearch/companies/tasks/{task_id}/export` | — | No | Not a tool; People Search exports are available through `people-search-export`. It streams a whole CSV or JSON Lines file (`format=csv` or `format=jsonl`). Read pages with `company-search-status`, or call the API for a file. |
 | `POST /desearch/companies/tasks/{task_id}/pause` | `company-search-pause` | No | Takes only `task_id`. A 409 is returned as a tool error with the API detail and the task's current status. |
 | `POST /desearch/companies/tasks/{task_id}/resume` | `company-search-resume` | No | Takes only `task_id`. A 409 is returned as a tool error with the API detail and the task's current status. |
 | `POST /desearch/companies/tasks/{task_id}/cancel` | `company-search-cancel` | No | Takes only `task_id`. Cannot be undone. A 409 is returned as a tool error with the API detail and the task's current status. |

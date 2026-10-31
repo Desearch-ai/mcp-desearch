@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.7.0
+
+Full Desearch API coverage: five new tools (36 in total) for the routes `desearch-js` 1.5 does not cover. They call the API directly through `desearch-api.ts`, the request helper `people.ts` used, now shared, with the same `Authorization: <key>` header and `HTTP <status>: <detail>` errors. The network stats routes stay out of MCP.
+
+- `tiktok`: public TikTok data. `action` picks one of 7 routes: `search` (`POST /desearch/tiktok/search`), `post`, `profile`, `profile_posts`, `comments`, `hashtag`, and `trending`.
+- `facebook`: public Facebook data, 6 routes: `search` and `hashtag` (Meta Ad Library ads, not organic posts), `post`, `profile`, `profile_posts`, and `comments`.
+- `instagram`: public Instagram data, 6 routes: `search` (profiles, one page), `media`, `profile`, `profile_posts`, `comments` (by shortcode), and `hashtag`.
+- Each social action needs and accepts its own arguments (`query`, `id`, `username`, `profile_id`, `post_id`, `video_id`, `shortcode`, `tag`, `region`, `sort`, `count` 1–100, `cursor`). A missing argument, or one the action does not take (for example a `cursor` on TikTok `trending` or Instagram `search`), is refused before any request with a message that lists what the action takes. Path arguments are URL-encoded; a leading `@` on a username and `#` on a tag are removed.
+- Social paging: list actions return `{ results, next_cursor, next }`. `next_cursor` is the API's `x-desearch-next-cursor` header, `null` on the last page; send it back unchanged as `cursor` with the same action and target. Single items (`post`, `profile`, `media`) come back as the API sends them.
+- `search-api`: `POST /search`, ranked pages with the passage that best matches the query. Arguments: `query`, `mode` (`fast` or `balanced`), `count` (10, 15, or 20), `start_date`, `end_date`, `highlights`, `page_text`. Unset fields are not sent.
+- `people-search-export`: `GET /desearch/people/tasks/{task_id}/export` (with `task_id`) or `GET /desearch/people/profiles/export` (with `platform`), as CSV or JSON Lines text with the `people-profiles` filters. The reply is a note (rows in the file, rows shown, rows cut and why, and the API URL for the whole file), then the file text cut at a row boundary to `max_rows` rows (1–1000, default 100) and 50,000 characters. CSV keeps its header, and a quoted field with a line break stays one row. Free.
+- All five are lookups: `readOnlyHint: true`, `destructiveHint: false`, `openWorldHint: true`. The server instructions, README, parity doc, `llms-install.md`, `GEMINI.md`, the plugin skill, and the manifest descriptions name them.
+- `scripts/e2e-full-coverage.mjs` calls each new tool action once against the live API over stdio (`DESEARCH_API_KEY` required; `--with-people` to also start one small paid People Search job and export it).
+
+
 ## 0.6.0
 
 Company Search and Company Enrich tools. Company Search is live on `api.desearch.ai` since 2026-10-29.

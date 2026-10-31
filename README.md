@@ -51,19 +51,20 @@ Example output:
 
 The tool returns that JSON as pretty-printed text: `{ "content": [{ "type": "text", "text": "<json above>" }] }`.
 
-AI search, X search and web search for AI agents, plus page extraction, X data tools, People Search (find people and creators on X, YouTube, LinkedIn, and TikTok), and Company Search (find companies on the web, or enrich domains you have, with their public contacts and leaders). Bring your own Desearch API key.
+AI search, X search and web search for AI agents, plus the Search API (ranked pages with the best-matching passage), public TikTok, Facebook, and Instagram data, and page extraction, X data tools, People Search (find people and creators on X, YouTube, LinkedIn, and TikTok), and Company Search (find companies on the web, or enrich domains you have, with their public contacts and leaders). Bring your own Desearch API key. Version 0.7.0 exposes 36 tools.
 
 ## Tools
 
 The Desearch MCP server includes the following tools.
 
-Lookup tools, including `search` and `fetch`, set `readOnlyHint: true`, `destructiveHint: false`, and `openWorldHint: true`. `people-search-status`, `people-search-tasks`, and `people-profiles` are lookups too. `people-search` starts a paid job billed to the user's Desearch balance, so `readOnlyHint` is false; it creates a new task and does not delete or overwrite anything, so `destructiveHint` is false. `people-search-pause` and `people-search-resume` change a task's state and undo each other, so `readOnlyHint` and `destructiveHint` are false and `idempotentHint` is true. Pausing loses no data (people found so far stay readable and the search keeps its progress) and changes no billing (nothing is charged or refunded; the reservation stays until the search ends), and resume continues from where the search stopped with no new charge. The caveat: the API cancels a search paused for more than 7 days, and a cancelled search cannot be resumed, so a pause is reversible only within those 7 days. `people-search-cancel` cannot be undone, so `readOnlyHint` is false and `destructiveHint` and `idempotentHint` are true. The Company Search tools follow the same rules: `company-search` and `company-enrich` start paid jobs (`readOnlyHint: false`, `destructiveHint: false`, `idempotentHint: false`), `company-search-status` and `company-search-tasks` are lookups, `company-search-pause` and `company-search-resume` set `destructiveHint: false` and `idempotentHint: true` (with the same 7-day caveat), and `company-search-cancel` sets `destructiveHint: true` and `idempotentHint: true`. `openWorldHint` is true on every tool because the call reaches a live external source.
+Lookup tools, including `search` and `fetch`, set `readOnlyHint: true`, `destructiveHint: false`, and `openWorldHint: true`. `search-api`, `tiktok`, `facebook`, `instagram`, `people-search-export`, `people-search-status`, `people-search-tasks`, and `people-profiles` are lookups too. `people-search` starts a paid job billed to the user's Desearch balance, so `readOnlyHint` is false; it creates a new task and does not delete or overwrite anything, so `destructiveHint` is false. `people-search-pause` and `people-search-resume` change a task's state and undo each other, so `readOnlyHint` and `destructiveHint` are false and `idempotentHint` is true. Pausing loses no data (people found so far stay readable and the search keeps its progress) and changes no billing (nothing is charged or refunded; the reservation stays until the search ends), and resume continues from where the search stopped with no new charge. The caveat: the API cancels a search paused for more than 7 days, and a cancelled search cannot be resumed, so a pause is reversible only within those 7 days. `people-search-cancel` cannot be undone, so `readOnlyHint` is false and `destructiveHint` and `idempotentHint` are true. The Company Search tools follow the same rules: `company-search` and `company-enrich` start paid jobs (`readOnlyHint: false`, `destructiveHint: false`, `idempotentHint: false`), `company-search-status` and `company-search-tasks` are lookups, `company-search-pause` and `company-search-resume` set `destructiveHint: false` and `idempotentHint: true` (with the same 7-day caveat), and `company-search-cancel` sets `destructiveHint: true` and `idempotentHint: true`. `openWorldHint` is true on every tool because the call reaches a live external source.
 
 -   **AI Search** (`ai-search`): Performs AI Twitter and web searches with relevant links and summary. `tools` uses short source ids (`web`, `twitter`, `arxiv`, `wikipedia`, `hackernews`, `reddit`). Older labels such as `Web Search`, `ArXiv Search`, `Wikipedia Search`, `Hacker News Search`, and `Reddit Search` are still accepted and sent as the short id. `youtube` is not accepted. Default is `["web", "twitter"]`.
 -   **X Search** (`x-search`): Tweet search on X. Arguments: `query` (required), `count` (optional, default 20). Sort stays Top. Optional filters: `user`, `start_date`, `end_date` (YYYY-MM-DD), `lang`, `verified`, `blue_verified`, `is_quote`, `is_video`, `is_image`, `min_retweets`, `min_replies`, `min_likes`.
 -   **Search** (`search`): Web search that returns `{ results: [{ id, title, url }] }`. Argument: `query` (required). `id` is the result URL.
 -   **Fetch Page** (`fetch`): Read a public page as text. Argument: `id` (required, an `http` or `https` URL from `search`).
 -   **Web Search** (`web-search`): SERP-style web search. Arguments: `query` (required), `start` (optional pagination offset).
+-   **Search API** (`search-api`): Ranked web pages, each with its title, URL, publication date when known, and the passage that best matches the query (`POST /search`). Arguments: `query` (required, 1–2000 characters), `mode` (optional, `fast` or `balanced`, API default `balanced`), `count` (optional, 10, 15, or 20), `start_date` and `end_date` (optional, YYYY-MM-DD), `highlights` (optional, default `true`), `page_text` (optional, default `false`; adds each page's full text). Returns `results` plus `cost_usd`, `usage_count`, `service`, and `currency`.
 -   **Web Links Search** (`web-links-search`): Web link search. Arguments: `prompt` (required), `tools` (optional, only `web`, default `["web"]`; `Web Search` is accepted and rewritten to `web`), `count` (optional, 10–200). The links/web API rejects other sources, so they are not in the enum.
 -   **Extract** (`extract`): Read a public URL as text or HTML. Preferred over crawl. Arguments: `url` (required), `format` (optional, `text`, `markdown` or `html`), `js` (optional), `wait` (optional milliseconds), `full_page` (optional, `text` only: every visible section of the page instead of its main content). Errors carry an `error_code`: `js_required` (retry with `js: true`), `blocked` (the site refused or showed a bot check), `page_not_found`.
 -   **Web Crawl** (`web-crawl`): Same arguments as `extract`, on the legacy `/web/crawl` route. The SDK marks `webCrawl` deprecated in favor of `extract`; this tool stays so that route remains reachable. Prefer `extract` for new integrations.
@@ -76,6 +77,9 @@ Lookup tools, including `search` and `fetch`, set `readOnlyHint: true`, `destruc
 -   **X User Replies** (`x-user-replies`): Posts and replies by a user. Arguments: `user` (required), `count` (optional, 1–100), `query` (optional).
 -   **X Post Replies** (`x-post-replies`): Replies to a post. Arguments: `post_id` (required), `count` (optional, 1–100), `query` (optional).
 -   **X Trends** (`x-trends`): Trending topics for a location. Arguments: `woeid` (required), `count` (optional, 30–100).
+-   **TikTok** (`tiktok`): Public TikTok data. `action` (required) picks the route: `search` (`query`; optional `count`, `sort`, `cursor`), `post` (`id`), `profile` (`username`), `profile_posts` (`username`; optional `count`, `cursor`), `comments` (`video_id`; optional `count`, `cursor`), `hashtag` (`tag`; optional `count`, `cursor`), `trending` (optional `region`, `count`). See [TikTok, Facebook, and Instagram](#tiktok-facebook-and-instagram).
+-   **Facebook** (`facebook`): Public Facebook data. `action` (required): `search` (`query`; optional `count`, `cursor`) and `hashtag` (`tag`; optional `count`, `cursor`) return Meta Ad Library ads, not organic posts; `post` (`id`), `profile` (`profile_id`, a page or profile ID or public handle), `profile_posts` (`profile_id`; optional `count`, `cursor`), `comments` (`post_id`; optional `count`, `cursor`).
+-   **Instagram** (`instagram`): Public Instagram data. `action` (required): `search` (`query`; optional `count`; profiles, one page, no cursor), `media` (`id`: shortcode, numeric ID, or URL), `profile` (`username`), `profile_posts` (`username`; optional `count`, `cursor`), `comments` (`shortcode`, the code in the post URL; optional `count`, `cursor`), `hashtag` (`tag`; optional `count`, `cursor`).
 -   **People Search** (`people-search`): Start a paid job billed to the user's Desearch balance: a search for people who match a plain-language description. Arguments: `platform` (required: `x`, `youtube`, `linkedin`, or `tiktok`), `query` (required, 3–1000 characters), `count` (optional, 5–200, API default 25), `min_score` (optional, 0–100), `exclude` (optional handles), `metadata` (optional labels, below), `idempotency_key` (optional), and that platform's filters (below). Returns the `task_id`, status, and `reserved_cost_usd` (`count` times the platform's per-person price at the time of the call; prices at https://desearch.ai/pricing); the ended task carries `final_cost_usd`. Public data only: public X posts and profile fields, public YouTube channel pages plus the creator's own website for publicly listed contact details, public LinkedIn posts and profiles, and public TikTok videos and profiles. Contacts are only those the person lists publicly.
 -   **People Search Status** (`people-search-status`): A task's status, progress, and cost, plus a page of the people found so far. Arguments: `task_id` (required), `cursor` (optional, `next_cursor` from the previous call), `limit` (optional, 1–100, default 25), `include_people` (optional, default `true`). Free; it reads a search you already started (people come from public profiles and posts).
 -   **Pause People Search** (`people-search-pause`): Pause a task. A queued search pauses at once; a running one finishes its current batch first. No data is lost and billing does not change; `people-search-resume` continues where it stopped with no new charge. A search paused for more than 7 days is cancelled by the API and can no longer be resumed. Argument: `task_id` (required). Free.
@@ -91,7 +95,41 @@ Lookup tools, including `search` and `fetch`, set `readOnlyHint: true`, `destruc
 -   **Cancel Company Search** (`company-search-cancel`): Stop a task for good. You pay only for the companies it already delivered; the rest of the reservation is returned. Cannot be undone. Argument: `task_id` (required). Free.
 -   **List Company Search Tasks** (`company-search-tasks`): Your Company Search and Company Enrich tasks, newest first. Arguments: `type` (optional, `search` or `enrich`), `status` (optional list), `limit` (optional, 1–100), `cursor` (optional), `metadata` (optional, up to 3 labels, exact match). Free; People Search tasks are not listed here.
 
-The full SDK method → endpoint → MCP tool map is in [docs/API_MCP_PARITY.md](docs/API_MCP_PARITY.md). Every public `desearch-js` 1.5 method is a tool. `latestTweets` was removed from the SDK (`GET /twitter/latest` in 1.0.1) and is not exposed. People Search and Company Search are not in `desearch-js` 1.5; their tools call the `/desearch/people/*` and `/desearch/companies/*` routes directly, and the parity doc lists them too.
+-   **Export People Found** (`people-search-export`): The people your searches found as CSV or JSON Lines text. Pass `task_id` to export one search, or `platform` (without `task_id`) to export everyone found on that platform, with the same `q`, `sort`, and filters as `people-profiles`. Arguments: `task_id` or `platform`, `format` (optional, `csv` or `jsonl`, default `csv`), `has`, `min_audience`, `max_audience`, `min_score`, `location`, `verified`, `q` and `sort` (platform export only), `max_rows` (optional, 1–1000, default 100). The reply is a note, then the file text cut at a row boundary to `max_rows` rows and 50,000 characters; the note says how many rows were cut. Free.
+
+The full SDK method → endpoint → MCP tool map is in [docs/API_MCP_PARITY.md](docs/API_MCP_PARITY.md). Every public `desearch-js` 1.5 method is a tool. `latestTweets` was removed from the SDK (`GET /twitter/latest` in 1.0.1) and is not exposed. People Search, Company Search, the TikTok, Facebook, and Instagram routes, and `POST /search` are not in `desearch-js` 1.5; those tools call the routes directly, and the parity doc lists them too. The network stats routes (`/network/stats`) are not MCP tools.
+
+### TikTok, Facebook, and Instagram
+
+`tiktok`, `facebook`, and `instagram` each take an `action` that picks one public route, plus that route's arguments. A missing argument, or one the action does not take, is refused before any request, with a message that lists what the action takes:
+
+```text
+TikTok error: tiktok action "comments" needs video_id. comments takes: video_id (required), count, cursor. No request was sent.
+```
+
+`post`, `profile`, and `media` return the item as the API sends it. List actions return `{ "results": [...], "next_cursor": ..., "next": ... }`. `next_cursor` is the API's `x-desearch-next-cursor` header; it is `null` on the last page. `count` (1–100) is a maximum: one page may hold fewer.
+
+Prompt: show me the latest TikTok videos tagged #ai, then the next page.
+
+```json
+{ "name": "tiktok", "arguments": { "action": "hashtag", "tag": "ai", "count": 2 } }
+```
+
+```json
+{
+    "results": [
+        { "id": "7620891413932166433", "url": "https://www.tiktok.com/@tiktok/video/7620891413932166433", "text": "caption text", "hashtags": ["ai"] }
+    ],
+    "next_cursor": "eyJ2IjoxLCJyb3V0ZSI6...",
+    "next": "More results: call tiktok again with action \"hashtag\", the same tag, and cursor set to next_cursor, unchanged. A cursor works for 24 hours."
+}
+```
+
+```json
+{ "name": "tiktok", "arguments": { "action": "hashtag", "tag": "ai", "count": 2, "cursor": "eyJ2IjoxLCJyb3V0ZSI6..." } }
+```
+
+The cursor is opaque: send it back unchanged, on the same action with the same target (`query`, `username`, `profile_id`, `video_id`, `post_id`, `shortcode`, or `tag`), within 24 hours. Any other value returns HTTP 422 and is not charged. TikTok `trending` and Instagram `search` return one page and take no cursor. Facebook `search` and `hashtag` read the Meta Ad Library (ads), not organic posts. Instagram `comments` takes the post shortcode (`DeuOR-CjKE9` in `https://www.instagram.com/p/DeuOR-CjKE9/`); a numeric media ID returns 404. A leading `@` on a username and `#` on a tag are removed.
 
 ### People Search
 
@@ -188,7 +226,11 @@ Then poll with `{"task_id": "3f1c2b9e-8d4a-4c1e-9b7a-2e5f6a7b8c9d"}` on `people-
 }
 ```
 
-The output above is shortened to one person. CSV and JSON Lines downloads (`/export` routes) are not MCP tools; call the API directly for a file.
+The output above is shortened to one person. `people-search-export` returns the same people as CSV or JSON Lines text (`GET /desearch/people/tasks/{task_id}/export`), cut to `max_rows` rows (default 100) and 50,000 characters, with a note first that says how many rows were cut:
+
+```text
+CSV export of task 3f1c2b9e-8d4a-4c1e-9b7a-2e5f6a7b8c9d: 250 rows. Showing the first 100 rows; 150 rows were cut by max_rows 100. For the whole file, call GET https://api.desearch.ai/desearch/people/tasks/3f1c2b9e-8d4a-4c1e-9b7a-2e5f6a7b8c9d/export?format=csv (plus the same filters) with your API key, or page through people with people-search-status or people-profiles.
+```
 
 When the search has ended, the task also says why and how complete it is, and each person says what their own profile confirms (0.3.2 and later):
 
