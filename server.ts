@@ -9,7 +9,12 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import DesearchImport from "desearch-js";
 import { z } from "zod";
+import { createDesearchApi, type DesearchApi } from "./desearch-api.js";
 import {
+    PEOPLE_EXPORT_DEFAULT_ROWS,
+    PEOPLE_EXPORT_FORMATS,
+    PEOPLE_EXPORT_MAX_CHARS,
+    PEOPLE_EXPORT_MAX_ROWS,
     PEOPLE_FILTER_CHANNELS,
     PEOPLE_METADATA_KEY_PATTERN,
     PEOPLE_METADATA_MAX_FILTERS,
@@ -20,9 +25,10 @@ import {
     PEOPLE_SEARCH_FILTERS,
     PEOPLE_TASK_STATUSES,
     controlPeopleTask,
-    createPeopleClient,
+    exportPeople,
     listPeopleProfiles,
     listPeopleTasks,
+    peopleClientFor,
     readPeopleStatus,
     startPeopleSearch,
     type PeopleClient,
@@ -43,10 +49,11 @@ import {
     startCompanySearch,
     type CompanyClient,
 } from "./companies.js";
+import { runSocialAction, socialActionNames, type SocialPlatform } from "./social.js";
 import { AI_SEARCH_TOOLS, WEB_LINK_TOOLS, toolIdSchema } from "./tool-sources.js";
 
 export const SERVER_NAME = "Desearch";
-export const SERVER_VERSION = "0.6.0";
+export const SERVER_VERSION = "0.7.0";
 export const SERVER_TITLE = "Desearch";
 export const SERVER_WEBSITE_URL = "https://www.desearch.ai";
 
@@ -107,7 +114,7 @@ interface DesearchClient {
 const Desearch = DesearchImport as unknown as new (apiKey: string) => DesearchClient;
 
 type ToolResult = {
-    content: [{ type: "text"; text: string }];
+    content: { type: "text"; text: string }[];
     structuredContent?: Record<string, unknown>;
     isError?: boolean;
 };
@@ -232,6 +239,55 @@ const peoplePlatform = z
 function strictArgs(shape: Record<string, z.ZodTypeAny>): z.AnyZodObject {
     return z.object(shape).strict();
 }
+
+// Social tool arguments. A new schema per field, like peopleKeywordList: one shared
+// instance in a tool's schema would serialize as a JSON Schema $ref.
+function socialTarget(description: string) {
+    return z.string().min(1).max(2048).optional().describe(description);
+}
+
+function socialCount() {
+    return z
+        .number()
+        .int()
+        .min(1)
+        .max(100)
+        .optional()
+        .describe(
+            "Most items to return (1-100). API default: 10 for search, 20 for the other list actions. One page may hold fewer."
+        );
+}
+
+function socialCursor() {
+    return z
+        .string()
+        .min(1)
+        .max(4096)
+        .optional()
+        .describe(
+            "next_cursor from the previous page of the same action and target, sent back unchanged. Omit it for the first page."
+        );
+}
+
+function socialQuery(example: string) {
+    return z
+        .string()
+        .min(1)
+        .max(1000)
+        .optional()
+        .describe(`search: keyword or phrase, example: '${example}'.`);
+}
+
+function socialTag() {
+    return socialTarget("hashtag: the hashtag without #, example: 'ai'. A leading # is removed.");
+}
+
+function socialAction(platform: SocialPlatform, description: string) {
+    return z.enum(socialActionNames(platform)).describe(description);
+}
+
+const SOCIAL_PAGING =
+    "List actions return { results, next_cursor, next }. For the next page, call again with the same action and target and cursor set to next_cursor, unchanged; next_cursor is null on the last page. A cursor lasts 24 hours.";
 
 // A new schema per field: one shared instance would serialize as a JSON Schema $ref.
 function peopleKeywordList() {
@@ -597,6 +653,8 @@ function registerTool(
  * `client`, `peopleClient`, and `companyClient` are test seams. Production callers omit
  * them and the server builds a desearch-js client, a People Search client (people.ts), and
  * a Company Search client (companies.ts) from `apiKey`.
+ * The routes desearch-js 1.5 does not cover (People Search, TikTok, Facebook, Instagram,
+ * `POST /search`) share one direct API caller (desearch-api.ts) for that key.
  */
 export function createDesearchMcpServer(
     apiKey: string,
@@ -605,7 +663,8 @@ export function createDesearchMcpServer(
     companyClient?: CompanyClient
 ): McpServer {
     const desearch = client ?? new Desearch(apiKey);
-    const people = peopleClient ?? createPeopleClient(apiKey);
+    const api: DesearchApi = createDesearchApi(apiKey);
+    const people = peopleClient ?? peopleClientFor(api);
     const companies = companyClient ?? createCompanyClient(apiKey);
     const serverInfo: Implementation = {
         name: SERVER_NAME,
@@ -618,7 +677,7 @@ export function createDesearchMcpServer(
         serverInfo,
         {
             instructions:
-                "Search the public web and X with Desearch. Use search for titles and links, then fetch with a result URL to read the page. Other tools cover AI search, X posts, and page extraction. People Search finds people and creators on X, YouTube, LinkedIn, and TikTok: people-search starts a paid job billed to the user's Desearch balance, people-search-status reads progress, and people-search-pause, people-search-resume, and people-search-cancel pause, resume, or cancel it. Company Search finds companies on the web from a description and Company Enrich reads the domains you send; both collect public emails, phones, social profiles, and leaders (CEO, founders, CTO, CFO): company-search and company-enrich start paid jobs billed to the user's Desearch balance, company-search-status reads progress and the companies, and company-search-pause, company-search-resume, and company-search-cancel pause, resume, or cancel a task. Calls need a Desearch API key.",
+                "Search the public web and X with Desearch. Use search for titles and links, then fetch with a result URL to read the page. search-api returns ranked pages with matching passages. tiktok, facebook, and instagram read public social data with cursor pagination. people-search-export returns CSV or JSON Lines. Other tools cover AI search, X posts, and page extraction. People Search finds people and creators on X, YouTube, LinkedIn, and TikTok: people-search starts a paid job billed to the user's Desearch balance, people-search-status reads progress, and people-search-pause, people-search-resume, and people-search-cancel pause, resume, or cancel it. Company Search finds companies on the web from a description and Company Enrich reads the domains you send; both collect public emails, phones, social profiles, and leaders (CEO, founders, CTO, CFO): company-search and company-enrich start paid jobs billed to the user's Desearch balance, company-search-status reads progress and the companies, and company-search-pause, company-search-resume, and company-search-cancel pause, resume, or cancel a task. Calls need a Desearch API key.",
         }
     );
 
@@ -1060,6 +1119,147 @@ export function createDesearchMcpServer(
                 return ok(await desearch.xTrends({ woeid, count }));
             } catch (error) {
                 return fail("X Trends error", error);
+            }
+        }
+    );
+
+    registerTool(
+        server,
+        apiKey,
+        "search-api",
+        "Search API",
+        "Search the web with the Desearch Search API and return ranked pages, each with its title, URL, publication date when known, and the passage that best matches the query. Set page_text to add each page's full text. Returns { results, cost_usd, usage_count, service, currency }. Use search for titles and links only, and web-search for SERP-style snippets.",
+        {
+            query: z.string().min(1).max(2000).describe("Search query, example: 'Who won the 2024 Nobel Prize in Physics?'"),
+            mode: z
+                .enum(["fast", "balanced"])
+                .optional()
+                .describe("'fast' returns results sooner; 'balanced' (API default) favors relevance."),
+            count: z
+                .number()
+                .int()
+                .min(10)
+                .max(20)
+                .multipleOf(5)
+                .optional()
+                .describe("Number of results: 10 (API default), 15, or 20."),
+            start_date: z
+                .string()
+                .regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD")
+                .optional()
+                .describe("Only pages published on or after this date (YYYY-MM-DD)."),
+            end_date: z
+                .string()
+                .regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD")
+                .optional()
+                .describe("Only pages published on or before this date (YYYY-MM-DD)."),
+            highlights: z
+                .boolean()
+                .optional()
+                .describe("Include the passage that best matches the query (API default true)."),
+            page_text: z.boolean().optional().describe("Include each page's full text (API default false)."),
+        },
+        async ({ query, mode, count, start_date, end_date, highlights, page_text }) => {
+            try {
+                const body = { query, ...definedFields({ mode, count, start_date, end_date, highlights, page_text }) };
+                return ok((await api("POST", "/search", { body })).data);
+            } catch (error) {
+                return fail("Search API error", error);
+            }
+        }
+    );
+
+    registerTool(
+        server,
+        apiKey,
+        "tiktok",
+        "TikTok",
+        "Read public TikTok data with Desearch. Set action and that action's arguments. search (query; optional count, sort, cursor): videos that match a keyword. post (id): one video by its ID. profile (username): one profile. profile_posts (username; optional count, cursor): a user's videos. comments (video_id; optional count, cursor): a video's comments. hashtag (tag; optional count, cursor): videos with a hashtag. trending (optional region, count): trending videos for a region, one page. A video id from search can be passed to post or comments. post and profile return the item itself. " +
+            SOCIAL_PAGING,
+        strictArgs({
+            action: socialAction(
+                "tiktok",
+                "What to read: 'search', 'post', 'profile', 'profile_posts', 'comments', 'hashtag', or 'trending'."
+            ),
+            query: socialQuery("bittensor"),
+            sort: socialTarget("search: sort option, when TikTok supports one."),
+            id: socialTarget("post: the TikTok video ID, example: '7620891413932166433'."),
+            username: socialTarget("profile, profile_posts: TikTok username, example: 'tiktok'. A leading @ is removed."),
+            video_id: socialTarget("comments: the TikTok video ID."),
+            tag: socialTag(),
+            region: z
+                .string()
+                .length(2)
+                .optional()
+                .describe("trending: two-letter region code, example: 'US' (API default)."),
+            count: socialCount(),
+            cursor: socialCursor(),
+        }),
+        async (args) => {
+            try {
+                return ok(await runSocialAction(api, "tiktok", args));
+            } catch (error) {
+                return fail("TikTok error", error);
+            }
+        }
+    );
+
+    registerTool(
+        server,
+        apiKey,
+        "facebook",
+        "Facebook",
+        "Read public Facebook data with Desearch. Set action and that action's arguments. search (query; optional count, cursor) and hashtag (tag; optional count, cursor) return Meta Ad Library ads that match, not organic posts. post (id): one public post. profile (profile_id): a page or profile by ID or public handle. profile_posts (profile_id; optional count, cursor): its posts. comments (post_id; optional count, cursor): a post's comments, about 10 per page. post and profile return the item itself. " +
+            SOCIAL_PAGING,
+        strictArgs({
+            action: socialAction(
+                "facebook",
+                "What to read: 'search', 'post', 'profile', 'profile_posts', 'comments', or 'hashtag'."
+            ),
+            query: socialQuery("running shoes"),
+            id: socialTarget("post: the public Facebook post or media ID."),
+            profile_id: socialTarget("profile, profile_posts: page or profile ID, or its public handle, example: 'facebook'."),
+            post_id: socialTarget("comments: the public Facebook post or media ID."),
+            tag: socialTag(),
+            count: socialCount(),
+            cursor: socialCursor(),
+        }),
+        async (args) => {
+            try {
+                return ok(await runSocialAction(api, "facebook", args));
+            } catch (error) {
+                return fail("Facebook error", error);
+            }
+        }
+    );
+
+    registerTool(
+        server,
+        apiKey,
+        "instagram",
+        "Instagram",
+        "Read public Instagram data with Desearch. Set action and that action's arguments. search (query; optional count): profiles that match, one page with no cursor. media (id): one post by shortcode, numeric ID, or URL. profile (username): one profile. profile_posts (username; optional count, cursor): a user's posts. comments (shortcode; optional count, cursor): a post's comments. hashtag (tag; optional count, cursor): posts with a hashtag. media and profile return the item itself. " +
+            SOCIAL_PAGING,
+        strictArgs({
+            action: socialAction(
+                "instagram",
+                "What to read: 'search', 'media', 'profile', 'profile_posts', 'comments', or 'hashtag'."
+            ),
+            query: socialQuery("desearch"),
+            id: socialTarget("media: the post shortcode, numeric media ID, or public URL."),
+            username: socialTarget("profile, profile_posts: Instagram username, example: 'instagram'. A leading @ is removed."),
+            shortcode: socialTarget(
+                "comments: the code in the post URL, such as 'DeuOR-CjKE9' in https://www.instagram.com/p/DeuOR-CjKE9/. Numeric media IDs return 404."
+            ),
+            tag: socialTag(),
+            count: socialCount(),
+            cursor: socialCursor(),
+        }),
+        async (args) => {
+            try {
+                return ok(await runSocialAction(api, "instagram", args));
+            } catch (error) {
+                return fail("Instagram error", error);
             }
         }
     );
@@ -1680,6 +1880,72 @@ export function createDesearchMcpServer(
                 return ok(await listCompanyTasks(companies, args));
             } catch (error) {
                 return fail("Company Search Tasks error", error);
+            }
+        },
+        undefined,
+        READ_ONLY_OPEN_WORLD
+    );
+
+    registerTool(
+        server,
+        apiKey,
+        "people-search-export",
+        "Export People Found",
+        `The people your own People Searches found, as CSV or JSON Lines text: one search (task_id), or everyone found on one platform (platform, with the same q, sort, and filters as people-profiles). Free: it reads people your earlier searches found and runs no new search. The reply is a note with the row count, then the file text cut at a row boundary to max_rows rows and ${PEOPLE_EXPORT_MAX_CHARS.toLocaleString("en-US")} characters; the note says how many rows were cut and where to get the whole file. CSV keeps its header row. The data came from public profiles and posts, with only the contacts each person lists publicly.`,
+        strictArgs({
+            task_id: z
+                .string()
+                .uuid()
+                .optional()
+                .describe(
+                    "Export one search: the task_id returned by people-search. Omit it and set platform to export everyone your searches found on that platform."
+                ),
+            platform: z
+                .enum(PEOPLE_PLATFORMS)
+                .optional()
+                .describe("Without task_id: export everyone found on 'x', 'youtube', 'linkedin', or 'tiktok'."),
+            format: z
+                .enum(PEOPLE_EXPORT_FORMATS)
+                .default("csv")
+                .describe("'csv' (default) or 'jsonl' (one JSON object per line)."),
+            q: z
+                .string()
+                .max(200)
+                .optional()
+                .describe("Platform export only: text in the name, handle, bio, or location."),
+            sort: z
+                .enum(PEOPLE_PROFILE_SORTS)
+                .optional()
+                .describe("Platform export only: 'score' (API default), 'recent', or 'audience'."),
+            has: z
+                .array(z.enum(PEOPLE_FILTER_CHANNELS))
+                .optional()
+                .describe("Channels every person must have, example: ['email']. 'email' is a public email; the others are a link of that type."),
+            min_audience: z.number().int().min(0).optional().describe("Minimum followers (subscribers on YouTube)."),
+            max_audience: z.number().int().min(0).optional().describe("Maximum followers (subscribers on YouTube)."),
+            min_score: z.number().int().min(0).max(100).optional().describe("Minimum fit score (0-100)."),
+            location: z.string().max(100).optional().describe("Text in the location, example: 'united states'."),
+            verified: z.boolean().optional().describe("Only verified accounts. Only X and TikTok people carry a verified flag."),
+            max_rows: z
+                .number()
+                .int()
+                .min(1)
+                .max(PEOPLE_EXPORT_MAX_ROWS)
+                .default(PEOPLE_EXPORT_DEFAULT_ROWS)
+                .describe(
+                    `Most rows to return (1-${PEOPLE_EXPORT_MAX_ROWS}, default ${PEOPLE_EXPORT_DEFAULT_ROWS}). The reply also stops before ${PEOPLE_EXPORT_MAX_CHARS.toLocaleString("en-US")} characters of file text.`
+                ),
+        }),
+        async (args) => {
+            try {
+                const exported = await exportPeople(people, args);
+                const content: ToolResult["content"] = [{ type: "text", text: exported.note }];
+                if (exported.text) {
+                    content.push({ type: "text", text: exported.text });
+                }
+                return { content };
+            } catch (error) {
+                return fail("People Search Export error", error);
             }
         },
         undefined,

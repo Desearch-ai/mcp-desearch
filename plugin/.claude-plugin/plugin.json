@@ -1,8 +1,8 @@
 {
   "name": "desearch",
   "displayName": "Desearch",
-  "version": "0.6.0",
-  "description": "AI search, X search, web search, page extraction, X trends, People Search, and Company Search.",
+  "version": "0.7.0",
+  "description": "AI search, X search, web search, the Search API, public TikTok, Facebook, and Instagram data, People Search exports, page extraction, X trends, People Search, and Company Search. Includes 36 tools.",
   "author": {
     "name": "Desearch AI",
     "url": "https://www.desearch.ai"

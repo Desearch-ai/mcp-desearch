@@ -1,13 +1,15 @@
 ---
 name: desearch
-description: Choose which Desearch MCP tool to call. Use when the task needs AI search, web search, a page as text or HTML, X posts, X trends, finding people and creators on X, YouTube, LinkedIn, or TikTok, or finding companies and their public contacts and leaders (or enriching domains you already have).
+description: Choose Desearch tools for AI and web search, page extraction, X data, public TikTok, Facebook and Instagram data, finding people and creators, or finding companies and their public contacts and leaders and enriching domains.
 ---
 
 # Desearch
 
+Version 0.7.0 exposes 36 tools.
+
 Pick one Desearch tool from this list. Do not call a tool that is not registered.
 
-Set `DESEARCH_API_KEY` before the server starts. The plugin launches `npx -y desearch-mcp-server` and passes that variable through. The search and X tools send read requests. They do not post, follow, delete, or change an account. `people-search` starts a billed background search, and `people-search-pause`, `people-search-resume`, and `people-search-cancel` pause, resume, or cancel one. `company-search` and `company-enrich` start billed background company tasks, and `company-search-pause`, `company-search-resume`, and `company-search-cancel` pause, resume, or cancel one.
+Set `DESEARCH_API_KEY` before the server starts. The plugin launches `npx -y desearch-mcp-server` and passes that variable through. The search, X, TikTok, Facebook, and Instagram tools send read requests. They do not post, follow, delete, or change an account. `people-search` starts a billed background search, and `people-search-pause`, `people-search-resume`, and `people-search-cancel` pause, resume, or cancel one. `company-search` and `company-enrich` start billed background company tasks, and `company-search-pause`, `company-search-resume`, and `company-search-cancel` pause, resume, or cancel one.
 
 ## Which tool
 
@@ -15,6 +17,7 @@ Set `DESEARCH_API_KEY` before the server starts. The plugin launches `npx -y des
 - **Search** (`search`): Web search that returns `results` with `id`, `title`, and `url`. Argument: `query` (required). Use this when a client asks for a search tool.
 - **Fetch Page** (`fetch`): Read one public page as text. Argument: `id` (required, an `http` or `https` URL, usually a `search` result URL).
 - **Web Search** (`web-search`): Web search. Returns titles, links, and snippets. Arguments: `query` (required), `start` (optional offset: 0, 10, 20, ...).
+- **Search API** (`search-api`): Ranked web pages, each with the passage that best matches the query. Arguments: `query` (required), `mode` (optional, `fast` or `balanced`), `count` (optional, 10, 15, or 20), `start_date` and `end_date` (optional, YYYY-MM-DD), `highlights` (optional), `page_text` (optional, adds each page's full text).
 - **Web Links Search** (`web-links-search`): Link search. Arguments: `prompt` (required), `tools` (optional, only `web`, default `["web"]`), `count` (optional, 10 to 200). `Web Search` is accepted and rewritten to `web`. Other sources are rejected. This tool does not accept X.
 - **Extract** (`extract`): Read one public URL as text or HTML. Arguments: `url` (required), `format` (optional, `text`, `markdown` or `html`), `js` (optional), `wait` (optional milliseconds), `full_page` (optional, `text` only: every visible section of the page instead of its main content). Errors carry an `error_code`: `js_required` (retry with `js: true`), `blocked` (the site refused or showed a bot check), `page_not_found`.
 - **Web Crawl** (`web-crawl`): Same arguments as Extract, on the legacy `/web/crawl` route. The SDK marks `webCrawl` deprecated in favor of `extract`. This tool stays so that route remains reachable.
@@ -28,6 +31,10 @@ Set `DESEARCH_API_KEY` before the server starts. The plugin launches `npx -y des
 - **X Post Replies** (`x-post-replies`): Replies to one post. Arguments: `post_id` (required), `count` (optional, 1 to 100), `query` (optional).
 - **X Post Retweeters** (`x-post-retweeters`): Users who retweeted a post. Arguments: `id` (required), `cursor` (optional).
 - **X Trends** (`x-trends`): Trends for a location WOEID. Arguments: `woeid` (required), `count` (optional, 30 to 100).
+- **TikTok** (`tiktok`): Public TikTok data. `action` (required): `search` (`query`; optional `count`, `sort`, `cursor`), `post` (`id`), `profile` (`username`), `profile_posts` (`username`; optional `count`, `cursor`), `comments` (`video_id`; optional `count`, `cursor`), `hashtag` (`tag`; optional `count`, `cursor`), `trending` (optional `region`, `count`).
+- **Facebook** (`facebook`): Public Facebook data. `action` (required): `search` (`query`) and `hashtag` (`tag`) return Meta Ad Library ads; `post` (`id`), `profile` (`profile_id`), `profile_posts` (`profile_id`), `comments` (`post_id`). List actions take optional `count` and `cursor`.
+- **Instagram** (`instagram`): Public Instagram data. `action` (required): `search` (`query`; optional `count`; no cursor), `media` (`id`), `profile` (`username`), `profile_posts` (`username`), `comments` (`shortcode` from the post URL), `hashtag` (`tag`). List actions take optional `count` and `cursor`.
+- Paging for `tiktok`, `facebook`, and `instagram`: list actions return `results` and `next_cursor`. For the next page, call the same action with the same target and `cursor` set to `next_cursor`, unchanged. `next_cursor` is null on the last page; a cursor lasts 24 hours.
 - **People Search** (`people-search`): Start a billed background search for people who match a plain-language description. It reserves `count` people at the platform's per-person price and bills only the people it delivers; a search that finds no one is free. Arguments: `platform` (required: `x`, `youtube`, `linkedin`, `tiktok`), `query` (required), `count` (optional, 5 to 200), `min_score` (optional, 0 to 100), `exclude` (optional handles), `metadata` (optional labels such as `{"campaign": "q4-outbound"}`: up to 10 keys of a-z, 0-9, `_`, `.`, `-`, string values up to 200 characters; returned on the task), `idempotency_key` (optional; reuse it on a retry so the search is not started twice). Filters by platform: x `min_followers`, `max_followers`, `verified_only`, `countries`, `keywords`, `exclude_keywords`; youtube `min_subscribers`, `max_subscribers`, `countries`, `require_contact`, `keywords`, `exclude_keywords`; linkedin `min_followers`, `max_followers`, `countries`, `keywords`, `exclude_keywords`; tiktok `min_followers`, `max_followers`, `require_contact`, `keywords`, `exclude_keywords`.
 - **People Search Status** (`people-search-status`): Status, progress, cost, and a page of people for one task. Searches usually take 1 to 5 minutes. Arguments: `task_id` (required), `cursor` (optional, the previous `next_cursor`, to get only new people), `limit` (optional, 1 to 100, default 25), `include_people` (optional).
 - **Pause People Search** (`people-search-pause`): Pause a task. Argument: `task_id` (required).
@@ -42,6 +49,8 @@ Set `DESEARCH_API_KEY` before the server starts. The plugin launches `npx -y des
 - **Resume Company Search** (`company-search-resume`): Resume a paused task with no new charge. Argument: `task_id` (required).
 - **Cancel Company Search** (`company-search-cancel`): Stop a task for good; only companies already delivered are billed. Argument: `task_id` (required). Cancel cannot be undone.
 - **List Company Search Tasks** (`company-search-tasks`): Your Company Search and Company Enrich tasks, newest first. Arguments: `type` (`search` or `enrich`), `status` (list), `limit`, `cursor`, `metadata` (up to 3 labels a task must have, exact match), all optional.
+
+- **Export People Found** (`people-search-export`): The people found as CSV or JSON Lines text, after a note with the row count. Arguments: `task_id` (one search) or `platform` (everyone found there), `format` (`csv` or `jsonl`), the `people-profiles` filters, and `max_rows` (1 to 1000, default 100). Free.
 
 Before `people-search`, check `people-profiles` when the user may already have searched for these people. Start a new search only when the user asks to find people. Use `company-search` only when the user asks to find companies, and `company-enrich` when they already have the domains; both are billed. A People Search `task_id` does not work on the company tools, and a company `task_id` does not work on the People Search tools.
 
