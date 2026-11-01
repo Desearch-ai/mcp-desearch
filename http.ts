@@ -1,6 +1,8 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { PUBLIC_ICONS } from "./icons.js";
+import { AGENT_TOOLS_ORG_TOKEN } from "./agent-tools-org.js";
+import { AGENT_TOOLS_VERIFY_TOKEN } from "./agent-tools-verify.js";
 import { openaiAppsChallengeToken } from "./openai-apps-challenge.js";
 import { DIRECT_CLIENT_IP_HEADER } from "./oauth/client-ip.js";
 import { OAuthConfigError } from "./oauth/errors.js";
@@ -310,6 +312,32 @@ export async function handleMcpHttpRequest(request: Request): Promise<Response> 
                 },
             }));
         }
+    }
+
+    if (pathname === "/.well-known/agent-tools-verify.txt" || pathname === "/api/agent-tools-verify") {
+        if (request.method !== "GET" && request.method !== "HEAD") {
+            return withCors(jsonRpcError(405, -32000, "Method not allowed.", { Allow: "GET, HEAD" }));
+        }
+        return withCors(new Response(request.method === "HEAD" ? null : AGENT_TOOLS_VERIFY_TOKEN + "\n", {
+            status: 200,
+            headers: {
+                "Content-Type": "text/plain; charset=utf-8",
+                "Cache-Control": "no-store",
+            },
+        }));
+    }
+
+    if (pathname === "/.well-known/agent-tools.txt" || pathname === "/api/agent-tools") {
+        if (request.method !== "GET" && request.method !== "HEAD") {
+            return withCors(jsonRpcError(405, -32000, "Method not allowed.", { Allow: "GET, HEAD" }));
+        }
+        return withCors(new Response(request.method === "HEAD" ? null : AGENT_TOOLS_ORG_TOKEN, {
+            status: 200,
+            headers: {
+                "Content-Type": "text/plain; charset=utf-8",
+                "Cache-Control": "no-store",
+            },
+        }));
     }
 
     const icon = PUBLIC_ICONS.get(pathname);

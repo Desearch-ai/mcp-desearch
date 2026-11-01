@@ -217,7 +217,7 @@ export function peopleSearchBody(args: PeopleSearchArgs): Record<string, unknown
     return body;
 }
 
-function compact(fields: Record<string, unknown>): Record<string, unknown> {
+export function compact(fields: Record<string, unknown>): Record<string, unknown> {
     const out: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(fields)) {
         if (value === undefined || value === null || value === "") continue;
@@ -228,19 +228,19 @@ function compact(fields: Record<string, unknown>): Record<string, unknown> {
     return out;
 }
 
-function objectOf(value: unknown): Record<string, unknown> {
+export function objectOf(value: unknown): Record<string, unknown> {
     return isPlainObject(value) ? value : {};
 }
 
-function arrayOf(value: unknown): unknown[] {
+export function arrayOf(value: unknown): unknown[] {
     return Array.isArray(value) ? value : [];
 }
 
-function numberOf(value: unknown): number | undefined {
+export function numberOf(value: unknown): number | undefined {
     return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
-function stringOf(value: unknown): string | undefined {
+export function stringOf(value: unknown): string | undefined {
     return typeof value === "string" && value.trim() !== "" ? value : undefined;
 }
 

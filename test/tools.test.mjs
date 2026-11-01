@@ -333,6 +333,13 @@ test("phase 4 extract, web-crawl, and x-trends call the matching desearch-js met
             listed.tools.map((tool) => tool.name).sort(),
             [
                 "ai-search",
+                "company-enrich",
+                "company-search",
+                "company-search-cancel",
+                "company-search-pause",
+                "company-search-resume",
+                "company-search-status",
+                "company-search-tasks",
                 "extract",
                 "facebook",
                 "fetch",
@@ -371,8 +378,16 @@ test("phase 4 extract, web-crawl, and x-trends call the matching desearch-js met
                 format: "text",
                 js: true,
                 wait: 1500,
+                full_page: true,
             },
         });
+        assert.equal(extracted.isError, undefined);
+
+        const markdown = await client.callTool({
+            name: "extract",
+            arguments: { url: "https://desearch.ai/docs", format: "markdown" },
+        });
+        assert.equal(markdown.isError, undefined);
         assert.equal(extracted.isError, undefined);
         assert.equal(JSON.parse(textOf(extracted)), "page text");
 
@@ -414,7 +429,7 @@ test("phase 4 extract, web-crawl, and x-trends call the matching desearch-js met
 
         const rejectedFormat = await client.callTool({
             name: "extract",
-            arguments: { url: "https://desearch.ai", format: "markdown" },
+            arguments: { url: "https://desearch.ai", format: "pdf" },
         });
         assert.equal(rejectedFormat.isError, true);
 
@@ -440,19 +455,23 @@ test("phase 4 extract, web-crawl, and x-trends call the matching desearch-js met
     assert.deepEqual(calls, [
         [
             "extract",
-            { url: "https://desearch.ai", format: "text", js: true, wait: 1500 },
+            { url: "https://desearch.ai", format: "text", js: true, wait: 1500, full_page: true },
         ],
         [
             "extract",
-            { url: "https://desearch.ai/docs", format: undefined, js: undefined, wait: undefined },
+            { url: "https://desearch.ai/docs", format: "markdown", js: undefined, wait: undefined, full_page: undefined },
+        ],
+        [
+            "extract",
+            { url: "https://desearch.ai/docs", format: undefined, js: undefined, wait: undefined, full_page: undefined },
         ],
         [
             "webCrawl",
-            { url: "https://desearch.ai", format: "html", js: false, wait: 0 },
+            { url: "https://desearch.ai", format: "html", js: false, wait: 0, full_page: undefined },
         ],
         ["xTrends", { woeid: 23424977, count: 30 }],
         ["xTrends", { woeid: 1, count: undefined }],
-        ["extract", { url: "https://fail.example", format: undefined, js: undefined, wait: undefined }],
+        ["extract", { url: "https://fail.example", format: undefined, js: undefined, wait: undefined, full_page: undefined }],
     ]);
 });
 
@@ -487,9 +506,17 @@ test("every listed tool has a title and annotations", async () => {
         tiktok: "TikTok",
         facebook: "Facebook",
         instagram: "Instagram",
+        "company-search": "Company Search",
+        "company-enrich": "Company Enrich",
+        "company-search-status": "Get Company Search Status",
+        "company-search-pause": "Pause Company Search",
+        "company-search-resume": "Resume Company Search",
+        "company-search-cancel": "Cancel Company Search",
+        "company-search-tasks": "List Company Search Tasks",
     };
-    // people-search spends the user's balance but deletes nothing; pause and resume undo
-    // each other; only cancel cannot be undone. status, tasks, profiles, and export only read.
+    // people-search, company-search, and company-enrich spend the user's balance but delete
+    // nothing; pause and resume undo each other; only cancel cannot be undone. status, tasks,
+    // profiles, and export only read.
     const people = {
         "people-search": { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
         "people-search-status": { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
@@ -499,10 +526,17 @@ test("every listed tool has a title and annotations", async () => {
         "people-search-pause": { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
         "people-search-resume": { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
         "people-search-cancel": { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
+        "company-search": { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+        "company-enrich": { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+        "company-search-status": { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+        "company-search-tasks": { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+        "company-search-pause": { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+        "company-search-resume": { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+        "company-search-cancel": { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
     };
     await withFakeClient({}, async (client) => {
         const listed = await client.listTools();
-        assert.equal(listed.tools.length, 29);
+        assert.equal(listed.tools.length, 36);
         assert.equal(listed.tools.some((tool) => tool.name === "people-search-control"), false);
         for (const name of Object.keys(people)) {
             assert.ok(listed.tools.some((tool) => tool.name === name), name);
@@ -598,13 +632,29 @@ test("web-search accepts start: null as 0 and still accepts an omitted start", a
             };
         },
     };
-    const server = createDesearchMcpServer("test-key", fake, people);
+    const companies = {
+        async startSearch(body, idempotencyKey) {
+            calls.push(["startCompanySearch", body, idempotencyKey]);
+            return {
+                status: 202,
+                data: { task_id: "5b33f3ee-168b-4780-9c8e-63a626781872", search_type: "company_search", status: "queued" },
+            };
+        },
+        async startEnrich(body, idempotencyKey) {
+            calls.push(["startCompanyEnrich", body, idempotencyKey]);
+            return {
+                status: 202,
+                data: { task_id: "5b33f3ee-168b-4780-9c8e-63a626781872", search_type: "company_enrich", status: "queued" },
+            };
+        },
+    };
+    const server = createDesearchMcpServer("test-key", fake, people, companies);
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     const client = new Client({ name: "null-optionals", version: "0.0.1" });
     try {
         await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
         const listed = await client.listTools();
-        assert.equal(listed.tools.length, 29);
+        assert.equal(listed.tools.length, 36);
         const webSearch = listed.tools.find((tool) => tool.name === "web-search");
         assert.equal(webSearch.inputSchema.properties.start.type, "integer");
         assert.equal(webSearch.inputSchema.properties.start.minimum, 0);
@@ -647,6 +697,27 @@ test("web-search accepts start: null as 0 and still accepts an omitted start", a
             },
         });
         assert.equal(peopleSearch.isError, undefined, textOf(peopleSearch));
+
+        const companySearch = await client.callTool({
+            name: "company-search",
+            arguments: {
+                query: "fintech startups",
+                count: null,
+                roles: null,
+                countries: null,
+                require: null,
+                infer_emails: null,
+                metadata: null,
+                idempotency_key: null,
+            },
+        });
+        assert.equal(companySearch.isError, undefined, textOf(companySearch));
+
+        const companyEnrich = await client.callTool({
+            name: "company-enrich",
+            arguments: { domains: ["acme.com"], roles: null, verify_emails: null },
+        });
+        assert.equal(companyEnrich.isError, undefined, textOf(companyEnrich));
     } finally {
         await client.close();
         await server.close();
@@ -657,6 +728,8 @@ test("web-search accepts start: null as 0 and still accepts an omitted start", a
         ["webSearch", { query: "desearch", start: undefined }],
         ["xSearch", { query: "bittensor", sort: "Top", count: 20 }],
         ["startSearch", "x", { query: "skincare creators" }, undefined],
+        ["startCompanySearch", { query: "fintech startups" }, undefined],
+        ["startCompanyEnrich", { domains: ["acme.com"] }, undefined],
     ]);
 });
 
@@ -673,7 +746,7 @@ test("an empty API key does not call Desearch", async () => {
             },
         }
     );
-    const server = createDesearchMcpServer("", fake, fake);
+    const server = createDesearchMcpServer("", fake, fake, fake);
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     const client = new Client({ name: "tools", version: "0.0.1" });
     try {
@@ -690,6 +763,14 @@ test("an empty API key does not call Desearch", async () => {
         });
         assert.equal(people.isError, true);
         assert.match(textOf(people), /API key required/);
+        for (const [name, args] of [
+            ["company-search", { query: "should-not-run" }],
+            ["company-enrich", { domains: ["should-not-run.com"] }],
+        ]) {
+            const company = await client.callTool({ name, arguments: args });
+            assert.equal(company.isError, true, name);
+            assert.match(textOf(company), /API key required/, name);
+        }
         assert.equal(called, false);
     } finally {
         await client.close();

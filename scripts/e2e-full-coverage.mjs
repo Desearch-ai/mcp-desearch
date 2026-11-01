@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Live smoke test for the tools added in 0.4.0: search-api, tiktok, facebook,
+ * Live smoke test for the full API coverage tools: search-api, tiktok, facebook,
  * instagram, and people-search-export. It starts the built server over stdio,
  * connects with the MCP SDK client, and calls each new tool action once against
  * the real Desearch API with the smallest counts. Each call is billed to the key's
@@ -161,7 +161,7 @@ async function main() {
         stderr: "pipe",
     });
     transport.stderr?.on("data", () => {});
-    const client = new Client({ name: "e2e-full-coverage", version: "0.4.0" });
+    const client = new Client({ name: "e2e-full-coverage", version: "0.6.0" });
     await client.connect(transport);
     try {
         const { tools } = await client.listTools();

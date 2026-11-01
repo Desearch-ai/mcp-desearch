@@ -1,8 +1,8 @@
 # Changelog
 
-## 0.4.0
+## Unreleased
 
-Full Desearch API coverage: five new tools (29 in total) for the routes `desearch-js` 1.5 does not cover. They call the API directly through `desearch-api.ts`, the request helper `people.ts` used, now shared, with the same `Authorization: <key>` header and `HTTP <status>: <detail>` errors. The network stats routes stay out of MCP.
+Full Desearch API coverage: five new tools (36 in total) for the routes `desearch-js` 1.5 does not cover. They call the API directly through `desearch-api.ts`, the request helper `people.ts` and `companies.ts` used, now in its own module, with the same `Authorization: <key>` header and `HTTP <status>: <detail>` errors. The network stats routes stay out of MCP.
 
 - `tiktok`: public TikTok data. `action` picks one of 7 routes: `search` (`POST /desearch/tiktok/search`), `post`, `profile`, `profile_posts`, `comments`, `hashtag`, and `trending`.
 - `facebook`: public Facebook data, 6 routes: `search` and `hashtag` (Meta Ad Library ads, not organic posts), `post`, `profile`, `profile_posts`, and `comments`.
@@ -13,8 +13,41 @@ Full Desearch API coverage: five new tools (29 in total) for the routes `desearc
 - `people-search-export`: `GET /desearch/people/tasks/{task_id}/export` (with `task_id`) or `GET /desearch/people/profiles/export` (with `platform`), as CSV or JSON Lines text with the `people-profiles` filters. The reply is a note (rows in the file, rows shown, rows cut and why, and the API URL for the whole file), then the file text cut at a row boundary to `max_rows` rows (1–1000, default 100) and 50,000 characters. CSV keeps its header, and a quoted field with a line break stays one row. Free.
 - All five are lookups: `readOnlyHint: true`, `destructiveHint: false`, `openWorldHint: true`. The server instructions, README, parity doc, `llms-install.md`, `GEMINI.md`, the plugin skill, and the manifest descriptions name them.
 - `scripts/e2e-full-coverage.mjs` calls each new tool action once against the live API over stdio (`DESEARCH_API_KEY` required; `--with-people` to also start one small paid People Search job and export it).
+- The Company Search export route (`GET /desearch/companies/tasks/{task_id}/export`) is still not a tool.
 
-Also in this release (unreleased on main before 0.4.0):
+## 0.6.0
+
+Company Search and Company Enrich tools. Company Search is live on `api.desearch.ai` since 2026-10-29.
+
+Company Search finds companies on the web from a plain-language description; Company Enrich starts from the domains you send. Both collect each company's public emails, phones, and social profiles, and its leaders (CEO, founders, CTO, and CFO by default) with their LinkedIn profiles and emails, and every contact keeps the page it came from. They run as background tasks on the People Search engine. desearch-js 1.5 has no Company Search methods, so `companies.ts` calls the `/desearch/companies/*` routes directly with the same key header and error text as `people.ts` (the request helper is now shared).
+
+| Tool | Route | Billed |
+| --- | --- | --- |
+| `company-search` | `POST /desearch/companies/search` | Yes. Reserves `count` companies at the Company Search per-company price and settles to the companies delivered (a minimum of 2 when it delivers any; nothing when it delivers none). |
+| `company-enrich` | `POST /desearch/companies/enrich` | Yes. Reserves one company per domain sent at the Company Enrich per-company price and settles to the companies delivered (a minimum of 1); duplicate domains are returned. |
+| `company-search-status` | `GET /desearch/companies/tasks/{id}` and `GET /desearch/companies/tasks/{id}/results` | No |
+| `company-search-pause` | `POST /desearch/companies/tasks/{id}/pause` | No |
+| `company-search-resume` | `POST /desearch/companies/tasks/{id}/resume` | No |
+| `company-search-cancel` | `POST /desearch/companies/tasks/{id}/cancel` | No |
+| `company-search-tasks` | `GET /desearch/companies/tasks` | No |
+
+- `company-search` takes `query`, `count`, `min_score`, `exclude` (domains or URLs), `countries` and `require` (sent as `filters.countries` and `filters.require`), `roles`, `infer_emails`, `verify_emails`, `metadata`, and `idempotency_key`. `company-enrich` takes `domains` (1-200), `roles`, `infer_emails`, `verify_emails`, `metadata`, and `idempotency_key`. Only the arguments the caller set are sent. `idempotency_key` is sent as `Idempotency-Key`; a replay is returned with `existing_task: true` and is not charged again. Metadata labels follow the People Search rules and are checked before the billed call.
+- `company-search-status` returns compact companies: domain, name, url, industry, location, a short description, `score` (always present; `null` for Company Enrich), `why`, up to three `reasons`, `fully_verified` and `unverified_criteria` (Company Search), `primary_email`, `primary_contact`, `contact_coverage`, emails, phones, and socials with their `source_url`, leaders with `roles`, `title`, `verified`, LinkedIn profile, and emails (each email with its `verification` status, and inferred ones with `confidence` and `pattern`), and `enrichment` (`status` and `stages`). Its page size defaults to 10 (max 100).
+- The `next` hint understands results that fill in place: it says to read again without `cursor` while the task is `enriching`, to read once more without `cursor` after the task ends when companies were read while it ran, and how many companies on the page stayed `partial` when a task ended before every stage ran. Completed tasks name `all_domains_processed`, a budget stop, `no_candidates`, and `zero_qualified`.
+- `company-search-tasks` filters by `type` (`search` or `enrich`), `status`, and up to 3 `metadata` pairs. Task summaries keep `search_type` (`company_search` or `company_enrich`), `completion_reason`, `coverage_limited: true` when a budget stopped the task before `count`, and `warnings` with their `code` and `message`.
+- Pause, resume, and cancel take only `task_id`; a 409 is returned as a tool error with the API detail and the task's status. Errors are titled `Company Search error`, `Company Enrich error`, `Company Search Status error`, `Company Search Pause error`, `Company Search Resume error`, `Company Search Cancel error`, and `Company Search Tasks error`.
+- Company tools reject unknown arguments, so a nested `filters` object or a misspelled argument is not dropped from a billed task.
+- The `GET /desearch/companies/tasks/{id}/export` CSV and JSON Lines route is not a tool, like People Search's export routes.
+- Annotations follow People Search: `company-search` and `company-enrich` set `readOnlyHint: false`, `destructiveHint: false`, `idempotentHint: false`; `company-search-status` and `company-search-tasks` set `readOnlyHint: true`, `destructiveHint: false`; `company-search-pause` and `company-search-resume` set `destructiveHint: false`, `idempotentHint: true`; `company-search-cancel` sets `destructiveHint: true`, `idempotentHint: true`. `openWorldHint` is `true` on every tool.
+- The server instructions, README, `docs/API_MCP_PARITY.md`, `llms-install.md`, `GEMINI.md`, the plugin skill, and the manifest descriptions mention Company Search. The server lists 31 tools.
+
+## 0.5.0
+
+- `extract` and `web-crawl` accept `format: "markdown"` (headings, lists, tables and code). `full_page` is described as `text`-only.
+
+## 0.4.0
+
+- `extract` and `web-crawl` take `full_page` (boolean). With `format: "text"` it returns all visible text of the page, every section, table and notice, instead of only the main content. The `extract` description says what the `js_required` and `blocked` errors mean.
 
 - Server icon for connector UIs such as the ChatGPT mention chip. The `initialize` result `serverInfo` now has `title` ("Desearch"), `websiteUrl` (https://www.desearch.ai), and `icons`: `https://mcp.desearch.ai/icon-512.png` (512x512) and `https://mcp.desearch.ai/icon-64.png` (64x64), both `image/png`. The `MCP_PUBLIC_BASE_URL` environment variable changes the icon origin. `/icon-512.png`, `/icon-64.png`, `/favicon.png` (64x64), and `/favicon.ico` (16, 32, 48, 64) are served with no auth, `Cache-Control: public, max-age=86400`, `Access-Control-Allow-Origin: *`, and `Cross-Origin-Resource-Policy: cross-origin`. On Vercel they are static files in `public/`, served before any rewrite, with those headers and an explicit `Content-Type` set in `vercel.json`. The Node HTTP server (`npm run start:http`) serves the same bytes from `icons-data.ts` on GET and HEAD; other methods return 405. The icon matches the logo in the www.desearch.ai site header: the official Desearch glyph in black (`#000000`) centered on an opaque white (`#FFFFFF`) square, as the header renders it with CSS `brightness-0` on its white bar. Only the square glyph is used, since the header wordmark is wide. `scripts/gen-icons.py` composes each size separately with Pillow from `assets/desearch-mark-white.png` (byte-identical to https://www.desearch.ai/logo.png), recolors the glyph to black from its alpha channel, and only ever downscales it, writes them to `public/`, and embeds the same bytes in `icons-data.ts`.
 
