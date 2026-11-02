@@ -45,8 +45,10 @@ const TOOL_NAMES = [
     "people-search-resume",
     "people-search-status",
     "people-search-tasks",
+    "reddit",
     "search",
     "search-api",
+    "threads",
     "tiktok",
     "web-crawl",
     "web-links-search",
@@ -61,6 +63,7 @@ const TOOL_NAMES = [
     "x-trends",
     "x-user-posts",
     "x-user-replies",
+    "youtube",
 ];
 
 const TOOL_TITLES = {
@@ -100,6 +103,9 @@ const TOOL_TITLES = {
     tiktok: "TikTok",
     facebook: "Facebook",
     instagram: "Instagram",
+    youtube: "YouTube",
+    reddit: "Reddit",
+    threads: "Threads",
 };
 
 // Every People Search and Company Search tool, explicitly. Tools not listed here are read-only lookups.
@@ -124,7 +130,7 @@ const PEOPLE_ANNOTATIONS = {
 const UNSOURCED_SPEED = /real-?time|nova is|orbit is|\b10s\b|\b30s\b/i;
 
 function assertToolMetadata(tools) {
-    assert.equal(tools.length, 36);
+    assert.equal(tools.length, 39);
     assert.equal(tools.some((tool) => tool.name === "people-search-control"), false);
     for (const name of Object.keys(PEOPLE_ANNOTATIONS)) {
         assert.ok(tools.some((tool) => tool.name === name), name);
@@ -254,6 +260,9 @@ test("stdio initializes and lists tools", async () => {
             tiktok: ["action"],
             facebook: ["action"],
             instagram: ["action"],
+            youtube: ["action"],
+            reddit: ["action"],
+            threads: ["action"],
         };
         for (const [name, required] of Object.entries(requiredByTool)) {
             const tool = listed.tools.find((entry) => entry.name === name);
@@ -304,6 +313,30 @@ test("stdio initializes and lists tools", async () => {
             }
             assert.equal(JSON.stringify(tool.inputSchema).includes("$ref"), false, name);
         }
+        // YouTube, Reddit, and Threads take no count; only Threads has no cursor (it never pages).
+        const yrtActions = {
+            youtube: ["search", "video", "transcript", "comments", "channel", "channel_videos"],
+            reddit: ["search", "subreddit", "subreddit_posts", "post", "comments"],
+            threads: ["search", "search_users", "profile", "profile_posts", "post"],
+        };
+        for (const [name, enumValues] of Object.entries(yrtActions)) {
+            const tool = listed.tools.find((entry) => entry.name === name);
+            assert.deepEqual(tool.inputSchema.properties.action.enum, enumValues, name);
+            assert.equal(tool.inputSchema.additionalProperties, false, name);
+            assert.equal(tool.inputSchema.properties.count, undefined, name);
+            assert.equal(tool.inputSchema.properties.cursor?.type, name === "threads" ? undefined : "string", name);
+            assert.match(tool.description, /next_cursor/, name);
+            for (const action of enumValues) {
+                assert.ok(tool.description.includes(action), `${name} ${action}`);
+            }
+            assert.equal(JSON.stringify(tool.inputSchema).includes("$ref"), false, name);
+        }
+        const youtube = listed.tools.find((entry) => entry.name === "youtube");
+        assert.deepEqual(youtube.inputSchema.properties.type.enum, ["videos", "shorts", "channels", "playlists"]);
+        assert.deepEqual(youtube.inputSchema.properties.duration.enum, ["under_3_min", "between_3_and_20_min", "over_20_min"]);
+        assert.deepEqual(youtube.inputSchema.properties.sort.enum, ["latest", "popular"]);
+        const reddit = listed.tools.find((entry) => entry.name === "reddit");
+        assert.deepEqual(reddit.inputSchema.properties.timeframe.enum, ["all", "day", "week", "month", "year"]);
         const searchApi = listed.tools.find((entry) => entry.name === "search-api");
         assert.deepEqual(searchApi.inputSchema.properties.mode.enum, ["fast", "balanced"]);
         assert.equal(searchApi.inputSchema.properties.count.multipleOf, 5);

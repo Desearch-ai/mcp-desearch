@@ -352,8 +352,10 @@ test("phase 4 extract, web-crawl, and x-trends call the matching desearch-js met
                 "people-search-resume",
                 "people-search-status",
                 "people-search-tasks",
+                "reddit",
                 "search",
                 "search-api",
+                "threads",
                 "tiktok",
                 "web-crawl",
                 "web-links-search",
@@ -368,6 +370,7 @@ test("phase 4 extract, web-crawl, and x-trends call the matching desearch-js met
                 "x-trends",
                 "x-user-posts",
                 "x-user-replies",
+                "youtube",
             ]
         );
 
@@ -513,6 +516,9 @@ test("every listed tool has a title and annotations", async () => {
         tiktok: "TikTok",
         facebook: "Facebook",
         instagram: "Instagram",
+        youtube: "YouTube",
+        reddit: "Reddit",
+        threads: "Threads",
     };
     // people-search, company-search, and company-enrich spend the user's balance but delete
     // nothing; pause and resume undo each other; only cancel cannot be undone. status, tasks,
@@ -536,7 +542,7 @@ test("every listed tool has a title and annotations", async () => {
     };
     await withFakeClient({}, async (client) => {
         const listed = await client.listTools();
-        assert.equal(listed.tools.length, 36);
+        assert.equal(listed.tools.length, 39);
         assert.equal(listed.tools.some((tool) => tool.name === "people-search-control"), false);
         for (const name of Object.keys(people)) {
             assert.ok(listed.tools.some((tool) => tool.name === name), name);
@@ -654,7 +660,7 @@ test("web-search accepts start: null as 0 and still accepts an omitted start", a
     try {
         await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
         const listed = await client.listTools();
-        assert.equal(listed.tools.length, 36);
+        assert.equal(listed.tools.length, 39);
         const webSearch = listed.tools.find((tool) => tool.name === "web-search");
         assert.equal(webSearch.inputSchema.properties.start.type, "integer");
         assert.equal(webSearch.inputSchema.properties.start.minimum, 0);

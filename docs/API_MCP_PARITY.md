@@ -1,6 +1,6 @@
 # Desearch API ↔ MCP parity
 
-Version 0.7.0 exposes 36 tools.
+Version 0.8.0 exposes 39 tools.
 
 The product rule is that every public Desearch API / SDK method is exposed as an MCP tool. This file is the inventory for that work. It tracks `desearch-js` **1.5.0** (current) against the MCP server. HTTP paths are the ones the SDK calls on `https://api.desearch.ai`.
 
@@ -17,6 +17,7 @@ Auth is unchanged: stdio reads `DESEARCH_API_KEY`; Streamable HTTP builds one cl
 | People Search | `people-search`, `people-search-status`, `people-search-pause`, `people-search-resume`, `people-search-cancel`, `people-search-tasks`, `people-profiles` | Done in 0.2.0. Merge after People Search is live on `api.desearch.ai`. |
 | Company Search | `company-search`, `company-enrich`, `company-search-status`, `company-search-pause`, `company-search-resume`, `company-search-cancel`, `company-search-tasks` | Done in 0.6.0. Company Search is live on `api.desearch.ai` since 2026-10-29. |
 | Full API coverage | `search-api` (`POST /search`), `tiktok`, `facebook`, `instagram` (the 19 social routes), `people-search-export` (both People Search `/export` routes) | Done in 0.7.0. These routes are not in `desearch-js` 1.5, so the tools call them directly (`desearch-api.ts`). |
+| YouTube, Reddit, Threads | `youtube`, `reddit`, `threads` (the 16 routes tagged YouTube Search, Reddit Search, and Threads Search) | Done in 0.8.0. Not in `desearch-js` 1.5; same direct calls and `action` pattern as `tiktok`. Merge after the routes are live on `api.desearch.ai` (they are on `api-dev.desearch.ai` now). |
 
 Phase 4 covers the remaining public `desearch-js` 1.5 methods. Every method in the table below has an MCP tool. The intentional gap is `latestTweets`: desearch-js 1.0.1 called `GET /twitter/latest`, and 1.5 removed that method, so there is no MCP tool for it. `web-crawl` stays even though the SDK deprecates `webCrawl` in favor of `extract`.
 
@@ -98,6 +99,31 @@ One tool per platform; `action` picks the route. Each action needs the arguments
 | `GET /desearch/instagram/hashtag/{tag}` | `instagram` `hashtag` | **`tag`**, `count`, `cursor` | Yes |
 
 Single-item actions (`post`, `profile`, `media`) return the API body unchanged. List actions return `{ results, next_cursor, next }`: `results` is the API's JSON array, `next_cursor` is the `x-desearch-next-cursor` response header (`null` when the API leaves it out, which it does on the last page and on routes that do not page), and `next` is one sentence on how to ask for the next page. The caller sends `next_cursor` back as `cursor` on the same action with the same target; the API answers 422 (not charged) to a cursor from another route or target, or one older than 24 hours.
+
+## YouTube, Reddit, and Threads routes
+
+Not in `desearch-js` 1.5. Same `social.ts` table, `action` pattern, argument checks, and `{ results, next_cursor, next }` list shape as TikTok. The contract is the OpenAPI spec on `https://api-dev.desearch.ai/openapi.json` (tags YouTube Search, Reddit Search, and Threads Search: `YouTubeSearchRequest`, `RedditSearchRequest`, `ThreadsSearchRequest`, `ThreadsUserSearchRequest`, and the route parameters). None of these routes takes `count`. Every request is billed as one unit, including an empty page; a 404, a 422, and a 5xx are not charged. A leading `@` on a Threads username and `r/` on a subreddit name are removed; a YouTube handle is sent as given (the API takes it with or without `@`).
+
+| HTTP endpoint | MCP tool and action | Arguments | Pages |
+| --- | --- | --- | --- |
+| `POST /desearch/youtube/search` | `youtube` `search` | **`query`** (1–500), `type` (`videos`, `shorts`, `channels`, `playlists`), `upload_date` (`today`, `this_week`, `this_month`, `this_year`), `sort_by` (`relevance`, `popular`), `duration` (`under_3_min`, `between_3_and_20_min`, `over_20_min`), `cursor` (all in the body) | Yes |
+| `GET /desearch/youtube/video/{id}` | `youtube` `video` | **`id`** (video or Short ID, or URL) | — |
+| `GET /desearch/youtube/transcript/{video_id}` | `youtube` `transcript` | **`video_id`**, `language` (`en`, `es`, `pt-BR`, ...). 404 when the video has no captions. | — |
+| `GET /desearch/youtube/comments/{video_id}` | `youtube` `comments` | **`video_id`**, `order` (`top`, `newest`), `cursor` | Yes |
+| `GET /desearch/youtube/channel/{handle}` | `youtube` `channel` | **`handle`** (with or without `@`, or a `UC...` channel ID) | — |
+| `GET /desearch/youtube/channel/{handle}/videos` | `youtube` `channel_videos` | **`handle`**, `sort` (`latest`, `popular`), `cursor` | Yes |
+| `POST /desearch/reddit/search` | `reddit` `search` | **`query`** (1–500), `sort` (`relevance`, `new`, `top`, `comment_count`), `timeframe` (`all`, `day`, `week`, `month`, `year`), `cursor` (body) | Yes |
+| `GET /desearch/reddit/subreddit/{name}` | `reddit` `subreddit` | **`name`** (case-sensitive) | — |
+| `GET /desearch/reddit/subreddit/{name}/posts` | `reddit` `subreddit_posts` | **`name`**, `sort` (`best`, `hot`, `new`, `top`, `rising`), `timeframe` (for `top`), `cursor` | Yes |
+| `GET /desearch/reddit/post/{id}` | `reddit` `post` | **`id`** (post ID with or without `t3_`, or URL) | — |
+| `GET /desearch/reddit/comments/{post_id}` | `reddit` `comments` | **`post_id`**, `cursor` | Yes |
+| `POST /desearch/threads/search` | `threads` `search` | **`query`** (1–500), `start_date`, `end_date` (YYYY-MM-DD). One page. | No cursor |
+| `POST /desearch/threads/search/users` | `threads` `search_users` | **`query`** (1–100) | No cursor |
+| `GET /desearch/threads/profile/{username}` | `threads` `profile` | **`username`** | — |
+| `GET /desearch/threads/profile/{username}/posts` | `threads` `profile_posts` | **`username`**. Only the latest posts (Threads shows no older ones). | No cursor |
+| `GET /desearch/threads/post/{id}` | `threads` `post` | **`id`** (post URL or shortcode). Returns `comments` and `threadItems` with the post. | — |
+
+The two `sort` lists on `reddit` differ by action; a value from the other list is refused before the request (`reddit action "search" takes sort relevance, new, top, comment_count, not "hot".`). The `threads` tool has no `cursor` argument at all.
 
 ## Search API
 
