@@ -12,8 +12,6 @@ import { DESEARCH_API_BASE_URL, createDesearchApi, type DesearchApi, type QueryV
  * - Every other route (tasks, results, pause/resume/cancel, profiles, exports) is free.
  */
 
-export { createDesearchApi as createApiCall, withQuery, type QueryValue, type DesearchApi as ApiCall } from "./desearch-api.js";
-
 export const PEOPLE_API_BASE_URL = DESEARCH_API_BASE_URL;
 
 export const PEOPLE_PLATFORMS = ["x", "youtube", "linkedin", "tiktok"] as const;
