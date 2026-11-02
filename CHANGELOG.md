@@ -1,8 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.7.0
 
-Full Desearch API coverage: five new tools (36 in total) for the routes `desearch-js` 1.5 does not cover. They call the API directly through `desearch-api.ts`, the request helper `people.ts` and `companies.ts` used, now in its own module, with the same `Authorization: <key>` header and `HTTP <status>: <detail>` errors. The network stats routes stay out of MCP.
+Full Desearch API coverage: five new tools (36 in total: the 31 tools of 0.6.0 plus these five) for the routes `desearch-js` 1.5 does not cover. They call the API directly through `desearch-api.ts`, the request helper `people.ts` and `companies.ts` used, now in its own module, with the same `Authorization: <key>` header and `HTTP <status>: <detail>` errors. The network stats routes stay out of MCP.
 
 - `tiktok`: public TikTok data. `action` picks one of 7 routes: `search` (`POST /desearch/tiktok/search`), `post`, `profile`, `profile_posts`, `comments`, `hashtag`, and `trending`.
 - `facebook`: public Facebook data, 6 routes: `search` and `hashtag` (Meta Ad Library ads, not organic posts), `post`, `profile`, `profile_posts`, and `comments`.
@@ -14,6 +14,7 @@ Full Desearch API coverage: five new tools (36 in total) for the routes `desearc
 - All five are lookups: `readOnlyHint: true`, `destructiveHint: false`, `openWorldHint: true`. The server instructions, README, parity doc, `llms-install.md`, `GEMINI.md`, the plugin skill, and the manifest descriptions name them.
 - `scripts/e2e-full-coverage.mjs` calls each new tool action once against the live API over stdio (`DESEARCH_API_KEY` required; `--with-people` to also start one small paid People Search job and export it).
 - The Company Search export route (`GET /desearch/companies/tasks/{task_id}/export`) is still not a tool.
+- Every version (package, `server.json`, the Gemini extension, the plugin manifests, and the server's `SERVER_VERSION`) is 0.7.0, and the docs and manifest descriptions say the server exposes 36 tools.
 
 ## 0.6.0
 

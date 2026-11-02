@@ -51,7 +51,7 @@ Example output:
 
 The tool returns that JSON as pretty-printed text: `{ "content": [{ "type": "text", "text": "<json above>" }] }`.
 
-AI search, X search and web search for AI agents, plus the Search API (ranked pages with the best-matching passage), page extraction, X data tools, public TikTok, Facebook, and Instagram data, People Search (find people and creators on X, YouTube, LinkedIn, and TikTok), and Company Search (find companies on the web, or enrich domains you have, with their public contacts and leaders). Bring your own Desearch API key.
+AI search, X search and web search for AI agents, plus the Search API (ranked pages with the best-matching passage), page extraction, X data tools, public TikTok, Facebook, and Instagram data, People Search (find people and creators on X, YouTube, LinkedIn, and TikTok), and Company Search (find companies on the web, or enrich domains you have, with their public contacts and leaders). Bring your own Desearch API key. Version 0.7.0 exposes 36 tools.
 
 ## Tools
 

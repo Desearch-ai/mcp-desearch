@@ -1,5 +1,7 @@
 # Desearch API ↔ MCP parity
 
+Version 0.7.0 exposes 36 tools.
+
 The product rule is that every public Desearch API / SDK method is exposed as an MCP tool. This file is the inventory for that work. It tracks `desearch-js` **1.5.0** (current) against the MCP server. HTTP paths are the ones the SDK calls on `https://api.desearch.ai`.
 
 Auth is unchanged: stdio reads `DESEARCH_API_KEY`; Streamable HTTP builds one client per request from `Authorization: Bearer <key>` or `x-api-key`.
@@ -14,7 +16,7 @@ Auth is unchanged: stdio reads `DESEARCH_API_KEY`; Streamable HTTP builds one cl
 | Phase 4 | `extract`, legacy `webCrawl` (`web-crawl`), and `xTrends` | Done. |
 | People Search | `people-search`, `people-search-status`, `people-search-pause`, `people-search-resume`, `people-search-cancel`, `people-search-tasks`, `people-profiles` | Done in 0.2.0. Merge after People Search is live on `api.desearch.ai`. |
 | Company Search | `company-search`, `company-enrich`, `company-search-status`, `company-search-pause`, `company-search-resume`, `company-search-cancel`, `company-search-tasks` | Done in 0.6.0. Company Search is live on `api.desearch.ai` since 2026-10-29. |
-| Full API coverage | `search-api` (`POST /search`), `tiktok`, `facebook`, `instagram` (the 19 social routes), `people-search-export` (both People Search `/export` routes) | Done, unreleased. These routes are not in `desearch-js` 1.5, so the tools call them directly (`desearch-api.ts`). |
+| Full API coverage | `search-api` (`POST /search`), `tiktok`, `facebook`, `instagram` (the 19 social routes), `people-search-export` (both People Search `/export` routes) | Done in 0.7.0. These routes are not in `desearch-js` 1.5, so the tools call them directly (`desearch-api.ts`). |
 
 Phase 4 covers the remaining public `desearch-js` 1.5 methods. Every method in the table below has an MCP tool. The intentional gap is `latestTweets`: desearch-js 1.0.1 called `GET /twitter/latest`, and 1.5 removed that method, so there is no MCP tool for it. `web-crawl` stays even though the SDK deprecates `webCrawl` in favor of `extract`.
 

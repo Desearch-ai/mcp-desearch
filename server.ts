@@ -53,7 +53,7 @@ import { runSocialAction, socialActionNames, type SocialPlatform } from "./socia
 import { AI_SEARCH_TOOLS, WEB_LINK_TOOLS, toolIdSchema } from "./tool-sources.js";
 
 export const SERVER_NAME = "Desearch";
-export const SERVER_VERSION = "0.6.0";
+export const SERVER_VERSION = "0.7.0";
 export const SERVER_TITLE = "Desearch";
 export const SERVER_WEBSITE_URL = "https://www.desearch.ai";
 

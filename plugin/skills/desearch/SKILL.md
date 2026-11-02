@@ -5,6 +5,8 @@ description: Choose which Desearch MCP tool to call. Use when the task needs AI 
 
 # Desearch
 
+Version 0.7.0 exposes 36 tools.
+
 Pick one Desearch tool from this list. Do not call a tool that is not registered.
 
 Set `DESEARCH_API_KEY` before the server starts. The plugin launches `npx -y desearch-mcp-server` and passes that variable through. The search, X, TikTok, Facebook, and Instagram tools send read requests. They do not post, follow, delete, or change an account. `people-search` starts a billed background search, and `people-search-pause`, `people-search-resume`, and `people-search-cancel` pause, resume, or cancel one. `company-search` and `company-enrich` start billed background company tasks, and `company-search-pause`, `company-search-resume`, and `company-search-cancel` pause, resume, or cancel one.
