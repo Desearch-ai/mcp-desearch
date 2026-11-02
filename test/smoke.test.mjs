@@ -88,6 +88,11 @@ const TOOL_TITLES = {
     "people-search-cancel": "Cancel People Search",
     "people-search-tasks": "List People Search Tasks",
     "people-profiles": "List People Found",
+    "people-search-export": "Export People Found",
+    "search-api": "Search API",
+    tiktok: "TikTok",
+    facebook: "Facebook",
+    instagram: "Instagram",
     "company-search": "Company Search",
     "company-enrich": "Company Enrich",
     "company-search-status": "Get Company Search Status",
@@ -95,11 +100,6 @@ const TOOL_TITLES = {
     "company-search-resume": "Resume Company Search",
     "company-search-cancel": "Cancel Company Search",
     "company-search-tasks": "List Company Search Tasks",
-    "people-search-export": "Export People Found",
-    "search-api": "Search API",
-    tiktok: "TikTok",
-    facebook: "Facebook",
-    instagram: "Instagram",
 };
 
 // Every People Search and Company Search tool, explicitly. Tools not listed here are read-only lookups.
@@ -244,16 +244,16 @@ test("stdio initializes and lists tools", async () => {
             "people-search-resume": ["task_id"],
             "people-search-cancel": ["task_id"],
             "people-profiles": ["platform"],
+            "search-api": ["query"],
+            tiktok: ["action"],
+            facebook: ["action"],
+            instagram: ["action"],
             "company-search": ["query"],
             "company-enrich": ["domains"],
             "company-search-status": ["task_id"],
             "company-search-pause": ["task_id"],
             "company-search-resume": ["task_id"],
             "company-search-cancel": ["task_id"],
-            "search-api": ["query"],
-            tiktok: ["action"],
-            facebook: ["action"],
-            instagram: ["action"],
         };
         for (const [name, required] of Object.entries(requiredByTool)) {
             const tool = listed.tools.find((entry) => entry.name === name);

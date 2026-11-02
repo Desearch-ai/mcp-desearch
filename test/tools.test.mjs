@@ -501,6 +501,11 @@ test("every listed tool has a title and annotations", async () => {
         "people-search-cancel": "Cancel People Search",
         "people-search-tasks": "List People Search Tasks",
         "people-profiles": "List People Found",
+        "people-search-export": "Export People Found",
+        "search-api": "Search API",
+        tiktok: "TikTok",
+        facebook: "Facebook",
+        instagram: "Instagram",
         "company-search": "Company Search",
         "company-enrich": "Company Enrich",
         "company-search-status": "Get Company Search Status",
@@ -508,15 +513,10 @@ test("every listed tool has a title and annotations", async () => {
         "company-search-resume": "Resume Company Search",
         "company-search-cancel": "Cancel Company Search",
         "company-search-tasks": "List Company Search Tasks",
-        "people-search-export": "Export People Found",
-        "search-api": "Search API",
-        tiktok: "TikTok",
-        facebook: "Facebook",
-        instagram: "Instagram",
     };
     // people-search, company-search, and company-enrich spend the user's balance but delete
     // nothing; pause and resume undo each other; only cancel cannot be undone. status, tasks,
-    // and profiles only read.
+    // profiles, and export only read.
     const people = {
         "people-search": { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
         "people-search-status": { readOnlyHint: true, destructiveHint: false, openWorldHint: true },

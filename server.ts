@@ -41,8 +41,8 @@ import {
     COMPANY_ROLES,
     COMPANY_TASK_STATUSES,
     COMPANY_TASK_TYPES,
+    companyClientFor,
     controlCompanyTask,
-    createCompanyClient,
     listCompanyTasks,
     readCompanyStatus,
     startCompanyEnrich,
@@ -653,8 +653,9 @@ function registerTool(
  * `client`, `peopleClient`, and `companyClient` are test seams. Production callers omit
  * them and the server builds a desearch-js client, a People Search client (people.ts), and
  * a Company Search client (companies.ts) from `apiKey`.
- * The routes desearch-js 1.5 does not cover (People Search, TikTok, Facebook, Instagram,
- * `POST /search`) share one direct API caller (desearch-api.ts) for that key.
+ * The routes desearch-js 1.5 does not cover (People Search, Company Search, TikTok,
+ * Facebook, Instagram, `POST /search`) share one direct API caller (desearch-api.ts)
+ * for that key.
  */
 export function createDesearchMcpServer(
     apiKey: string,
@@ -665,7 +666,7 @@ export function createDesearchMcpServer(
     const desearch = client ?? new Desearch(apiKey);
     const api: DesearchApi = createDesearchApi(apiKey);
     const people = peopleClient ?? peopleClientFor(api);
-    const companies = companyClient ?? createCompanyClient(apiKey);
+    const companies = companyClient ?? companyClientFor(api);
     const serverInfo: Implementation = {
         name: SERVER_NAME,
         version: SERVER_VERSION,
@@ -677,7 +678,7 @@ export function createDesearchMcpServer(
         serverInfo,
         {
             instructions:
-                "Search the public web and X with Desearch. Use search for titles and links, then fetch with a result URL to read the page. search-api returns ranked pages with matching passages. tiktok, facebook, and instagram read public social data with cursor pagination. people-search-export returns CSV or JSON Lines. Other tools cover AI search, X posts, and page extraction. People Search finds people and creators on X, YouTube, LinkedIn, and TikTok: people-search starts a paid job billed to the user's Desearch balance, people-search-status reads progress, and people-search-pause, people-search-resume, and people-search-cancel pause, resume, or cancel it. Company Search finds companies on the web from a description and Company Enrich reads the domains you send; both collect public emails, phones, social profiles, and leaders (CEO, founders, CTO, CFO): company-search and company-enrich start paid jobs billed to the user's Desearch balance, company-search-status reads progress and the companies, and company-search-pause, company-search-resume, and company-search-cancel pause, resume, or cancel a task. Calls need a Desearch API key.",
+                "Search the public web and X with Desearch. Use search for titles and links, then fetch with a result URL to read the page. search-api returns ranked pages with the passage that best matches the query. Other tools cover AI search, X posts, and page extraction. tiktok, facebook, and instagram read public posts, profiles, comments, and hashtags; their list actions return next_cursor for the next page. People Search finds people and creators on X, YouTube, LinkedIn, and TikTok: people-search starts a paid job billed to the user's Desearch balance, people-search-status reads progress, people-search-pause, people-search-resume, and people-search-cancel pause, resume, or cancel it, and people-search-export returns the people found as CSV or JSON Lines. Company Search finds companies on the web from a description and Company Enrich reads the domains you send; both collect public emails, phones, social profiles, and leaders (CEO, founders, CTO, CFO): company-search and company-enrich start paid jobs billed to the user's Desearch balance, company-search-status reads progress and the companies, and company-search-pause, company-search-resume, and company-search-cancel pause, resume, or cancel a task. Calls need a Desearch API key.",
         }
     );
 
@@ -1648,6 +1649,72 @@ export function createDesearchMcpServer(
     registerTool(
         server,
         apiKey,
+        "people-search-export",
+        "Export People Found",
+        `The people your own People Searches found, as CSV or JSON Lines text: one search (task_id), or everyone found on one platform (platform, with the same q, sort, and filters as people-profiles). Free: it reads people your earlier searches found and runs no new search. The reply is a note with the row count, then the file text cut at a row boundary to max_rows rows and ${PEOPLE_EXPORT_MAX_CHARS.toLocaleString("en-US")} characters; the note says how many rows were cut and where to get the whole file. CSV keeps its header row. The data came from public profiles and posts, with only the contacts each person lists publicly.`,
+        strictArgs({
+            task_id: z
+                .string()
+                .uuid()
+                .optional()
+                .describe(
+                    "Export one search: the task_id returned by people-search. Omit it and set platform to export everyone your searches found on that platform."
+                ),
+            platform: z
+                .enum(PEOPLE_PLATFORMS)
+                .optional()
+                .describe("Without task_id: export everyone found on 'x', 'youtube', 'linkedin', or 'tiktok'."),
+            format: z
+                .enum(PEOPLE_EXPORT_FORMATS)
+                .default("csv")
+                .describe("'csv' (default) or 'jsonl' (one JSON object per line)."),
+            q: z
+                .string()
+                .max(200)
+                .optional()
+                .describe("Platform export only: text in the name, handle, bio, or location."),
+            sort: z
+                .enum(PEOPLE_PROFILE_SORTS)
+                .optional()
+                .describe("Platform export only: 'score' (API default), 'recent', or 'audience'."),
+            has: z
+                .array(z.enum(PEOPLE_FILTER_CHANNELS))
+                .optional()
+                .describe("Channels every person must have, example: ['email']. 'email' is a public email; the others are a link of that type."),
+            min_audience: z.number().int().min(0).optional().describe("Minimum followers (subscribers on YouTube)."),
+            max_audience: z.number().int().min(0).optional().describe("Maximum followers (subscribers on YouTube)."),
+            min_score: z.number().int().min(0).max(100).optional().describe("Minimum fit score (0-100)."),
+            location: z.string().max(100).optional().describe("Text in the location, example: 'united states'."),
+            verified: z.boolean().optional().describe("Only verified accounts. Only X and TikTok people carry a verified flag."),
+            max_rows: z
+                .number()
+                .int()
+                .min(1)
+                .max(PEOPLE_EXPORT_MAX_ROWS)
+                .default(PEOPLE_EXPORT_DEFAULT_ROWS)
+                .describe(
+                    `Most rows to return (1-${PEOPLE_EXPORT_MAX_ROWS}, default ${PEOPLE_EXPORT_DEFAULT_ROWS}). The reply also stops before ${PEOPLE_EXPORT_MAX_CHARS.toLocaleString("en-US")} characters of file text.`
+                ),
+        }),
+        async (args) => {
+            try {
+                const exported = await exportPeople(people, args);
+                const content: ToolResult["content"] = [{ type: "text", text: exported.note }];
+                if (exported.text) {
+                    content.push({ type: "text", text: exported.text });
+                }
+                return { content };
+            } catch (error) {
+                return fail("People Search Export error", error);
+            }
+        },
+        undefined,
+        READ_ONLY_OPEN_WORLD
+    );
+
+    registerTool(
+        server,
+        apiKey,
         "company-search",
         "Company Search",
         "Start a paid job billed to the user's Desearch balance: find companies on the web that match a plain-language description, and collect each one's public contact data. Returns a task_id at once, with the task's status and reserved_cost_usd. " +
@@ -1880,72 +1947,6 @@ export function createDesearchMcpServer(
                 return ok(await listCompanyTasks(companies, args));
             } catch (error) {
                 return fail("Company Search Tasks error", error);
-            }
-        },
-        undefined,
-        READ_ONLY_OPEN_WORLD
-    );
-
-    registerTool(
-        server,
-        apiKey,
-        "people-search-export",
-        "Export People Found",
-        `The people your own People Searches found, as CSV or JSON Lines text: one search (task_id), or everyone found on one platform (platform, with the same q, sort, and filters as people-profiles). Free: it reads people your earlier searches found and runs no new search. The reply is a note with the row count, then the file text cut at a row boundary to max_rows rows and ${PEOPLE_EXPORT_MAX_CHARS.toLocaleString("en-US")} characters; the note says how many rows were cut and where to get the whole file. CSV keeps its header row. The data came from public profiles and posts, with only the contacts each person lists publicly.`,
-        strictArgs({
-            task_id: z
-                .string()
-                .uuid()
-                .optional()
-                .describe(
-                    "Export one search: the task_id returned by people-search. Omit it and set platform to export everyone your searches found on that platform."
-                ),
-            platform: z
-                .enum(PEOPLE_PLATFORMS)
-                .optional()
-                .describe("Without task_id: export everyone found on 'x', 'youtube', 'linkedin', or 'tiktok'."),
-            format: z
-                .enum(PEOPLE_EXPORT_FORMATS)
-                .default("csv")
-                .describe("'csv' (default) or 'jsonl' (one JSON object per line)."),
-            q: z
-                .string()
-                .max(200)
-                .optional()
-                .describe("Platform export only: text in the name, handle, bio, or location."),
-            sort: z
-                .enum(PEOPLE_PROFILE_SORTS)
-                .optional()
-                .describe("Platform export only: 'score' (API default), 'recent', or 'audience'."),
-            has: z
-                .array(z.enum(PEOPLE_FILTER_CHANNELS))
-                .optional()
-                .describe("Channels every person must have, example: ['email']. 'email' is a public email; the others are a link of that type."),
-            min_audience: z.number().int().min(0).optional().describe("Minimum followers (subscribers on YouTube)."),
-            max_audience: z.number().int().min(0).optional().describe("Maximum followers (subscribers on YouTube)."),
-            min_score: z.number().int().min(0).max(100).optional().describe("Minimum fit score (0-100)."),
-            location: z.string().max(100).optional().describe("Text in the location, example: 'united states'."),
-            verified: z.boolean().optional().describe("Only verified accounts. Only X and TikTok people carry a verified flag."),
-            max_rows: z
-                .number()
-                .int()
-                .min(1)
-                .max(PEOPLE_EXPORT_MAX_ROWS)
-                .default(PEOPLE_EXPORT_DEFAULT_ROWS)
-                .describe(
-                    `Most rows to return (1-${PEOPLE_EXPORT_MAX_ROWS}, default ${PEOPLE_EXPORT_DEFAULT_ROWS}). The reply also stops before ${PEOPLE_EXPORT_MAX_CHARS.toLocaleString("en-US")} characters of file text.`
-                ),
-        }),
-        async (args) => {
-            try {
-                const exported = await exportPeople(people, args);
-                const content: ToolResult["content"] = [{ type: "text", text: exported.note }];
-                if (exported.text) {
-                    content.push({ type: "text", text: exported.text });
-                }
-                return { content };
-            } catch (error) {
-                return fail("People Search Export error", error);
             }
         },
         undefined,

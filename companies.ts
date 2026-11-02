@@ -1,26 +1,24 @@
+import { createDesearchApi, withQuery, type DesearchApi, type QueryValue } from "./desearch-api.js";
 import {
     PEOPLE_API_BASE_URL,
     PEOPLE_ENDED_STATUSES,
     PEOPLE_TASK_STATUSES,
     arrayOf,
     compact,
-    createApiCall,
     numberOf,
     objectOf,
     stringOf,
     unverifiedCriteria,
-    withQuery,
     type PeopleApiResponse,
     type PeopleControlAction,
-    type QueryValue,
 } from "./people.js";
 
 /**
  * Company Search and Company Enrich on the Desearch API (`/desearch/companies/*`).
  *
  * desearch-js 1.5 has no Company Search methods, so this module calls the routes
- * directly with the same base URL, `Authorization: <key>` header, and
- * `HTTP <status>: <detail>` error text as People Search (people.ts).
+ * directly through `desearch-api.ts`, with the same base URL, `Authorization: <key>`
+ * header, and `HTTP <status>: <detail>` error text as People Search (people.ts).
  *
  * - `POST /desearch/companies/search` finds companies from a description and
  *   `POST /desearch/companies/enrich` reads the domains you send. Both are billed:
@@ -97,7 +95,11 @@ export interface CompanyClient {
 }
 
 export function createCompanyClient(apiKey: string, baseUrl: string = PEOPLE_API_BASE_URL): CompanyClient {
-    const call = createApiCall(apiKey, baseUrl);
+    return companyClientFor(createDesearchApi(apiKey, baseUrl));
+}
+
+/** A Company Search client on an existing API caller, so the server shares one per key. */
+export function companyClientFor(call: DesearchApi): CompanyClient {
     const taskPath = (taskId: string) => `/desearch/companies/tasks/${encodeURIComponent(taskId)}`;
     const start = (path: string, body: Record<string, unknown>, idempotencyKey?: string) =>
         call("POST", path, {

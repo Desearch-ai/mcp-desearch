@@ -166,6 +166,8 @@ async function main() {
     try {
         const { tools } = await client.listTools();
         const names = new Set(tools.map((tool) => tool.name));
+        if (names.size === 36) pass("tools/list", "36 tools");
+        else fail("tools/list", `${names.size} tools, expected 36`);
         for (const name of ["search-api", "tiktok", "facebook", "instagram", "people-search-export"]) {
             if (names.has(name)) pass(`tools/list ${name}`);
             else fail(`tools/list ${name}`, "not listed");
