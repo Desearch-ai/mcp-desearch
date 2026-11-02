@@ -2,13 +2,21 @@ import { fetch } from "undici";
 
 /**
  * Direct calls to the Desearch API for routes desearch-js 1.5 does not cover
- * (People Search, the TikTok, Facebook and Instagram routes, `POST /search`).
+ * (People Search, the TikTok, Facebook, Instagram, YouTube, Reddit and Threads routes,
+ * `POST /search`).
  *
  * Same base URL, `Authorization: <key>` header, and `HTTP <status>: <detail>`
  * error text that desearch-js uses, so every tool reports API errors the same way.
  */
 
-export const DESEARCH_API_BASE_URL = "https://api.desearch.ai";
+/**
+ * `DESEARCH_API_BASE` (the host the OAuth key check also uses) points these direct calls
+ * at another Desearch API, such as a staging deploy. The desearch-js tools ignore it.
+ */
+export const DESEARCH_API_BASE_URL = (process.env.DESEARCH_API_BASE?.trim() || "https://api.desearch.ai").replace(
+    /\/+$/,
+    ""
+);
 
 export type QueryValue = string | number | boolean | undefined;
 

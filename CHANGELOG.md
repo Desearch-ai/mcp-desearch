@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.8.0
+
+YouTube, Reddit, and Threads: three new tools (39 in total) for the 16 public routes tagged YouTube Search, Reddit Search, and Threads Search. They are not in `desearch-js` 1.5, so they use the same `social.ts` action table and direct API calls (`desearch-api.ts`) as `tiktok`, `facebook`, and `instagram`. Each request is billed as one unit (an empty page included; a 404, a 422, and a 5xx are free).
+
+- `youtube`: 6 routes. `search` (`POST /desearch/youtube/search`: `query`, `type`, `upload_date`, `sort_by`, `duration`, `cursor`), `video`, `transcript` (`language`), `comments` (`order`, `cursor`), `channel`, and `channel_videos` (`sort`, `cursor`). Video ids may be full YouTube URLs.
+- `reddit`: 5 routes. `search` (`POST /desearch/reddit/search`: `query`, `sort`, `timeframe`, `cursor`), `subreddit`, `subreddit_posts` (`sort`, `timeframe`, `cursor`), `post`, and `comments` (`cursor`; a tree with the replies Reddit loaded). The two `sort` lists differ by action, and a value from the other list is refused before the request. A leading `r/` on a subreddit name is removed.
+- `threads`: 5 routes. `search` (`query`, `start_date`, `end_date`), `search_users`, `profile`, `profile_posts`, and `post` (with its replies and thread continuation). Threads returns one page, so the tool has no `cursor`.
+- Paging: `youtube` `search`, `comments`, `channel_videos` and `reddit` `search`, `subreddit_posts`, `comments` return `{ results, next_cursor, next }` with `next_cursor` from the `x-desearch-next-cursor` header, exactly as the TikTok actions do.
+- All three are lookups: `readOnlyHint: true`, `destructiveHint: false`, `openWorldHint: true`. The server instructions, README, parity doc, `llms-install.md`, `GEMINI.md`, the plugin skill, and the manifest descriptions name them.
+- `scripts/e2e-youtube-reddit-threads.mjs` calls every new action once over stdio against a live API (`--base-url`, `--key-env`), plus a second page on each action that pages.
+- `DESEARCH_API_BASE`, which already set the OAuth key-check host, now also sets the host for the routes the server calls directly (People Search, Company Search, `search-api`, `people-search-export`, and the social tools), so a staging API can be tested end to end. Tools built on `desearch-js` still call `https://api.desearch.ai`.
+
 ## 0.7.0
 
 Full Desearch API coverage: five new tools (36 in total: the 31 tools of 0.6.0 plus these five) for the routes `desearch-js` 1.5 does not cover. They call the API directly through `desearch-api.ts`, the request helper `people.ts` and `companies.ts` used, now in its own module, with the same `Authorization: <key>` header and `HTTP <status>: <detail>` errors. The network stats routes stay out of MCP.

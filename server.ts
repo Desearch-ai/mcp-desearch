@@ -53,7 +53,7 @@ import { runSocialAction, socialActionNames, type SocialPlatform } from "./socia
 import { AI_SEARCH_TOOLS, WEB_LINK_TOOLS, toolIdSchema } from "./tool-sources.js";
 
 export const SERVER_NAME = "Desearch";
-export const SERVER_VERSION = "0.7.0";
+export const SERVER_VERSION = "0.8.0";
 export const SERVER_TITLE = "Desearch";
 export const SERVER_WEBSITE_URL = "https://www.desearch.ai";
 
@@ -269,13 +269,21 @@ function socialCursor() {
         );
 }
 
-function socialQuery(example: string) {
+function socialQuery(example: string, maxLength = 1000, note = "") {
     return z
         .string()
         .min(1)
-        .max(1000)
+        .max(maxLength)
         .optional()
-        .describe(`search: keyword or phrase, example: '${example}'.`);
+        .describe(`search: keyword or phrase, example: '${example}'.${note}`);
+}
+
+function socialDate(description: string) {
+    return z
+        .string()
+        .regex(/^\d{4}-\d{2}-\d{2}$/)
+        .optional()
+        .describe(description);
 }
 
 function socialTag() {
@@ -654,7 +662,7 @@ function registerTool(
  * them and the server builds a desearch-js client, a People Search client (people.ts), and
  * a Company Search client (companies.ts) from `apiKey`.
  * The routes desearch-js 1.5 does not cover (People Search, Company Search, TikTok,
- * Facebook, Instagram, `POST /search`) share one direct API caller (desearch-api.ts)
+ * Facebook, Instagram, YouTube, Reddit, Threads, `POST /search`) share one direct API caller (desearch-api.ts)
  * for that key.
  */
 export function createDesearchMcpServer(
@@ -678,7 +686,7 @@ export function createDesearchMcpServer(
         serverInfo,
         {
             instructions:
-                "Search the public web and X with Desearch. Use search for titles and links, then fetch with a result URL to read the page. search-api returns ranked pages with the passage that best matches the query. Other tools cover AI search, X posts, and page extraction. tiktok, facebook, and instagram read public posts, profiles, comments, and hashtags; their list actions return next_cursor for the next page. People Search finds people and creators on X, YouTube, LinkedIn, and TikTok: people-search starts a paid job billed to the user's Desearch balance, people-search-status reads progress, people-search-pause, people-search-resume, and people-search-cancel pause, resume, or cancel it, and people-search-export returns the people found as CSV or JSON Lines. Company Search finds companies on the web from a description and Company Enrich reads the domains you send; both collect public emails, phones, social profiles, and leaders (CEO, founders, CTO, CFO): company-search and company-enrich start paid jobs billed to the user's Desearch balance, company-search-status reads progress and the companies, and company-search-pause, company-search-resume, and company-search-cancel pause, resume, or cancel a task. Calls need a Desearch API key.",
+                "Search the public web and X with Desearch. Use search for titles and links, then fetch with a result URL to read the page. search-api returns ranked pages with the passage that best matches the query. Other tools cover AI search, X posts, and page extraction. tiktok, facebook, instagram, youtube, reddit, and threads read public social data (posts, profiles, comments, hashtags, YouTube transcripts and channels, subreddits); list actions return next_cursor for the next page where the platform has one. People Search finds people and creators on X, YouTube, LinkedIn, and TikTok: people-search starts a paid job billed to the user's Desearch balance, people-search-status reads progress, people-search-pause, people-search-resume, and people-search-cancel pause, resume, or cancel it, and people-search-export returns the people found as CSV or JSON Lines. Company Search finds companies on the web from a description and Company Enrich reads the domains you send; both collect public emails, phones, social profiles, and leaders (CEO, founders, CTO, CFO): company-search and company-enrich start paid jobs billed to the user's Desearch balance, company-search-status reads progress and the companies, and company-search-pause, company-search-resume, and company-search-cancel pause, resume, or cancel a task. Calls need a Desearch API key.",
         }
     );
 
@@ -1261,6 +1269,121 @@ export function createDesearchMcpServer(
                 return ok(await runSocialAction(api, "instagram", args));
             } catch (error) {
                 return fail("Instagram error", error);
+            }
+        }
+    );
+
+    registerTool(
+        server,
+        apiKey,
+        "youtube",
+        "YouTube",
+        "Read public YouTube data with Desearch. Set action and that action's arguments. search (query; optional type, upload_date, sort_by, duration, cursor): videos, Shorts, live streams, channels, and playlists that match a keyword; each result has a type. video (id): one video or Short by ID or URL, with its channel, counts, chapters, and caption languages. transcript (video_id; optional language): its captions as plain text and timestamped segments; a video without captions returns 404. comments (video_id; optional order, cursor): its top-level comments. channel (handle): one channel by handle or channel ID. channel_videos (handle; optional sort, cursor): the channel's videos. A video id from search or channel_videos can be passed to video, transcript, or comments. video, transcript, and channel return the item itself. " +
+            SOCIAL_PAGING,
+        strictArgs({
+            action: socialAction(
+                "youtube",
+                "What to read: 'search', 'video', 'transcript', 'comments', 'channel', or 'channel_videos'."
+            ),
+            query: socialQuery("bittensor", 500, " Use intitle:\"...\" for stricter title matching."),
+            type: z
+                .enum(["videos", "shorts", "channels", "playlists"])
+                .optional()
+                .describe("search: only this kind of result. Omit for mixed results."),
+            upload_date: z
+                .enum(["today", "this_week", "this_month", "this_year"])
+                .optional()
+                .describe("search: only videos uploaded in this window."),
+            sort_by: z.enum(["relevance", "popular"]).optional().describe("search: result order."),
+            duration: z
+                .enum(["under_3_min", "between_3_and_20_min", "over_20_min"])
+                .optional()
+                .describe("search: video length. Applies to videos, not Shorts."),
+            id: socialTarget("video: YouTube video or Short ID, or its full URL, example: 'dQw4w9WgXcQ'."),
+            video_id: socialTarget("transcript, comments: YouTube video or Short ID, or its full URL."),
+            language: z
+                .string()
+                .regex(/^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,4})?$/)
+                .optional()
+                .describe("transcript: caption language code, example: 'en' or 'es'. Omit for YouTube's default track."),
+            order: z.enum(["top", "newest"]).optional().describe("comments: comment order."),
+            handle: socialTarget(
+                "channel, channel_videos: channel handle (with or without @) or channel ID (UC...), example: '@MrBeast'."
+            ),
+            sort: z.enum(["latest", "popular"]).optional().describe("channel_videos: video order (API default latest)."),
+            cursor: socialCursor(),
+        }),
+        async (args) => {
+            try {
+                return ok(await runSocialAction(api, "youtube", args));
+            } catch (error) {
+                return fail("YouTube error", error);
+            }
+        }
+    );
+
+    registerTool(
+        server,
+        apiKey,
+        "reddit",
+        "Reddit",
+        "Read public Reddit data with Desearch. Set action and that action's arguments. search (query; optional sort, timeframe, cursor): posts across all subreddits that match a keyword. subreddit (name): a subreddit's description, rules, and weekly activity; the name is case-sensitive ('AskReddit', not 'askreddit'). subreddit_posts (name; optional sort, timeframe, cursor): its posts. post (id): one post by ID or URL, without comments. comments (post_id; optional cursor): a post's comments as a tree, with the replies Reddit loaded alongside them. A post id from search or subreddit_posts can be passed to post or comments. subreddit and post return the item itself. " +
+            SOCIAL_PAGING,
+        strictArgs({
+            action: socialAction("reddit", "What to read: 'search', 'subreddit', 'subreddit_posts', 'post', or 'comments'."),
+            query: socialQuery("bittensor", 500),
+            sort: z
+                .enum(["relevance", "new", "top", "comment_count", "best", "hot", "rising"])
+                .optional()
+                .describe(
+                    "search: 'relevance', 'new', 'top', or 'comment_count'. subreddit_posts: 'best', 'hot', 'new', 'top', or 'rising'."
+                ),
+            timeframe: z
+                .enum(["all", "day", "week", "month", "year"])
+                .optional()
+                .describe(
+                    "search: only posts from this window. subreddit_posts: the window for sort 'top' (ignored with another sort; without a sort it means top)."
+                ),
+            name: socialTarget(
+                "subreddit, subreddit_posts: subreddit name, case-sensitive, example: 'AskReddit'. A leading r/ is removed."
+            ),
+            id: socialTarget("post: Reddit post ID (example: '1q6pxwn', with or without t3_) or its full URL."),
+            post_id: socialTarget("comments: Reddit post ID (with or without t3_) or its full URL."),
+            cursor: socialCursor(),
+        }),
+        async (args) => {
+            try {
+                return ok(await runSocialAction(api, "reddit", args));
+            } catch (error) {
+                return fail("Reddit error", error);
+            }
+        }
+    );
+
+    registerTool(
+        server,
+        apiKey,
+        "threads",
+        "Threads",
+        "Read public Threads data with Desearch. Set action and that action's arguments. search (query; optional start_date, end_date): one page of posts that match a keyword. search_users (query): accounts that match a username or name. profile (username): one profile with bio, followers, and links. profile_posts (username): the account's latest public posts (Threads shows only the most recent ones). post (id): one post by URL or shortcode, with its replies (comments) and the author's own continuation posts (threadItems). profile and post return the item itself. List actions return { results, next_cursor, next }; Threads returns no further pages, so next_cursor is always null and no action takes a cursor.",
+        strictArgs({
+            action: socialAction(
+                "threads",
+                "What to read: 'search', 'search_users', 'profile', 'profile_posts', or 'post'."
+            ),
+            query: socialQuery("bittensor", 500, " search_users: username or name, up to 100 characters, example: 'zuck'."),
+            start_date: socialDate("search: only posts on or after this date (YYYY-MM-DD), example: '2026-01-01'."),
+            end_date: socialDate("search: only posts on or before this date (YYYY-MM-DD)."),
+            username: socialTarget("profile, profile_posts: Threads username, example: 'zuck'. A leading @ is removed."),
+            id: socialTarget(
+                "post: Threads post URL or shortcode, example: 'DK-BydcJHkF' or 'https://www.threads.com/@zuck/post/DK-BydcJHkF'."
+            ),
+        }),
+        async (args) => {
+            try {
+                return ok(await runSocialAction(api, "threads", args));
+            } catch (error) {
+                return fail("Threads error", error);
             }
         }
     );
