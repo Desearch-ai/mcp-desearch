@@ -5,17 +5,20 @@
  * Desearch API: create (run_now false, so no run is queued), get, list, update (rename and
  * pause), estimate, runs, items, webhook test, rotate-secret, and delete. It never calls
  * monitor-trigger, so it costs nothing. The monitor it creates is deleted at the end, also
- * after a failure.
+ * after a failure. --with-accounts also creates (and deletes) a monitor with the TikTok source
+ * and watched accounts on X, Reddit, YouTube and TikTok (desearch-public-api#635), and checks
+ * the names come back cleaned, a bad name is a 422, and monitor-update replaces the options.
  *
  *   npm run build
  *   DESEARCH_API_KEY=... node scripts/e2e-monitors.mjs
- *   node scripts/e2e-monitors.mjs --base-url https://api-dev.desearch.ai --key-env DESEARCH_DEV_API_KEY
+ *   node scripts/e2e-monitors.mjs --base-url https://api-dev.desearch.ai --key-env DESEARCH_DEV_API_KEY [--with-accounts]
  *
  * Options:
  *   --base-url <url>  Desearch API host (default https://api.desearch.ai). Passed to the
  *                     server as DESEARCH_API_BASE.
  *   --key-env <name>  environment variable that holds the key (default DESEARCH_API_KEY).
  *                     When it is not set, it is read from ~/.config/desearch/e2e.env.
+ *   --with-accounts   also check the TikTok source and watched accounts (free).
  *
  * Prints one line per check, `PASS name` or `FAIL name: error`, and exits 1 if any failed.
  * The key and the webhook secrets are never printed.
@@ -37,6 +40,7 @@ function option(name, fallback) {
 
 const baseUrl = option("--base-url", "https://api.desearch.ai").replace(/\/+$/, "");
 const keyEnv = option("--key-env", "DESEARCH_API_KEY");
+const withAccounts = args.includes("--with-accounts");
 
 function keyFromEnvFile(name) {
     const path = join(homedir(), ".config", "desearch", "e2e.env");
@@ -134,6 +138,103 @@ async function check(client, tool, toolArgs, test, label = tool) {
 function expect(condition, message) {
     if (!condition) {
         throw new Error(message);
+    }
+}
+
+const WATCHED = {
+    x_accounts: ["@OpenAI", "https://x.com/AnthropicAI"],
+    reddit_subreddits: ["r/LocalLLaMA"],
+    youtube_channels: ["https://www.youtube.com/@OpenAI"],
+    tiktok_accounts: ["@openai"],
+    tiktok_count: 20,
+};
+const CLEANED = {
+    x: ["OpenAI", "AnthropicAI"],
+    reddit: ["LocalLLaMA"],
+    youtube: ["@OpenAI"],
+    tiktok: ["openai"],
+};
+
+/** The TikTok source and watched accounts: estimate, create, a bad name, update, delete. */
+async function checkWatchedAccounts(client, stamp) {
+    const sources = ["x", "reddit", "youtube", "tiktok"];
+    await check(
+        client,
+        "monitor-estimate",
+        { sources, ...WATCHED },
+        (estimate) => {
+            expect(typeof estimate.breakdown?.tiktok === "number", `breakdown ${JSON.stringify(estimate.breakdown)}`);
+            return `$${estimate.max_run_cost_usd} per run, ${JSON.stringify(estimate.breakdown)}`;
+        },
+        "monitor-estimate tiktok + watched accounts"
+    );
+    const badName = await call(client, "monitor-estimate", { sources: ["x"], x_accounts: ["not a name!"] });
+    if (badName.error && /HTTP 422/.test(badName.error)) pass("monitor-estimate bad X username", "HTTP 422");
+    else fail("monitor-estimate bad X username", `expected HTTP 422, got ${JSON.stringify(badName).slice(0, 200)}`);
+
+    let monitorId;
+    try {
+        const created = await check(
+            client,
+            "monitor-create",
+            {
+                query: "OpenAI announcements",
+                name: `MCP e2e accounts ${stamp}`,
+                sources,
+                interval: "7d",
+                min_score: 0,
+                run_now: false,
+                ...WATCHED,
+            },
+            (monitor) => {
+                monitorId = monitor.monitor_id;
+                if (typeof monitor.webhook_secret === "string") secrets.push(monitor.webhook_secret);
+                expect(JSON.stringify(monitor.sources) === JSON.stringify(sources), `sources ${JSON.stringify(monitor.sources)}`);
+                const got = {
+                    x: monitor.options?.x?.accounts,
+                    reddit: monitor.options?.reddit?.subreddits,
+                    youtube: monitor.options?.youtube?.channels,
+                    tiktok: monitor.options?.tiktok?.accounts,
+                };
+                expect(JSON.stringify(got) === JSON.stringify(CLEANED), `names ${JSON.stringify(got)}`);
+                expect(monitor.options?.tiktok?.count === 20, `tiktok ${JSON.stringify(monitor.options?.tiktok)}`);
+                return `names cleaned: ${Object.values(got).flat().join(", ")}`;
+            },
+            "monitor-create tiktok + watched accounts"
+        );
+        if (!created) {
+            return;
+        }
+        await check(
+            client,
+            "monitor-update",
+            { monitor_id: monitorId, tiktok_count: 30, tiktok_accounts: ["openai"] },
+            (monitor) => {
+                expect(
+                    JSON.stringify(monitor.options?.tiktok) === '{"count":30,"accounts":["openai"]}',
+                    `tiktok ${JSON.stringify(monitor.options?.tiktok)}`
+                );
+                expect(!monitor.options?.x?.accounts?.length, `x kept ${JSON.stringify(monitor.options?.x)}`);
+                return "options replaced as a whole";
+            },
+            "monitor-update watched accounts"
+        );
+        await check(
+            client,
+            "monitor-items",
+            { monitor_id: monitorId, source: "tiktok", limit: 5 },
+            (page) => {
+                expect(Array.isArray(page.items) && page.items.length === 0, "items");
+                return "no items";
+            },
+            "monitor-items source tiktok"
+        );
+    } finally {
+        if (monitorId) {
+            const deleted = await call(client, "monitor-delete", { monitor_id: monitorId });
+            if (deleted.value?.deleted === true) pass("monitor-delete watched accounts");
+            else fail("monitor-delete watched accounts", deleted.error ?? JSON.stringify(deleted.value));
+        }
     }
 }
 
@@ -286,6 +387,10 @@ async function main() {
         const noHook = await call(client, "monitor-webhook-test", { monitor_id: monitorId });
         if (noHook.error && /HTTP 400/.test(noHook.error)) pass("monitor-webhook-test without a webhook", "HTTP 400");
         else fail("monitor-webhook-test without a webhook", `expected HTTP 400, got ${JSON.stringify(noHook).slice(0, 200)}`);
+
+        if (withAccounts) {
+            await checkWatchedAccounts(client, stamp);
+        }
     } finally {
         if (monitorId) {
             const deleted = await call(client, "monitor-delete", { monitor_id: monitorId });
