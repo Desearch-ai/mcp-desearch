@@ -374,6 +374,13 @@ test("stdio initializes and lists tools", async () => {
         const companySearch = listed.tools.find((entry) => entry.name === "company-search");
         assert.equal(companySearch.inputSchema.properties.count.minimum, 5);
         assert.equal(companySearch.inputSchema.properties.count.maximum, 200);
+        assert.equal(companySearch.inputSchema.properties.max_cost_usd.type, "number");
+        assert.equal(companySearch.inputSchema.properties.max_cost_usd.exclusiveMinimum, 0);
+        assert.equal(companySearch.inputSchema.properties.max_cost_usd.maximum, 100);
+        assert.match(companySearch.inputSchema.properties.max_cost_usd.description, /only when the user agreed/);
+        assert.equal(companySearch.inputSchema.properties.continue_from.format, "uuid");
+        assert.match(companySearch.description, /continue_from/);
+        assert.match(companySearch.description, /Restrict this search to/);
         const companyEnrich = listed.tools.find((entry) => entry.name === "company-enrich");
         assert.equal(companyEnrich.inputSchema.properties.domains.minItems, 1);
         assert.equal(companyEnrich.inputSchema.properties.domains.maxItems, 200);

@@ -276,14 +276,17 @@ test("company tools advertise the Company Search API enums", async () => {
         assert.deepEqual(byName["company-search"].require.items.enum, COMPANY_REQUIRE_ENUM);
         assert.equal(byName["company-search"].countries.maxItems, 20);
         assert.equal(byName["company-search"].exclude.maxItems, 1000);
+        assert.equal(byName["company-search"].max_cost_usd.maximum, 100);
         assert.deepEqual(
             Object.keys(byName["company-search"]).sort(),
             [
+                "continue_from",
                 "count",
                 "countries",
                 "exclude",
                 "idempotency_key",
                 "infer_emails",
+                "max_cost_usd",
                 "metadata",
                 "min_score",
                 "query",

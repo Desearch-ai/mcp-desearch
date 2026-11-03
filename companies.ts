@@ -23,6 +23,8 @@ import {
  * - `POST /desearch/companies/search` finds companies from a description and
  *   `POST /desearch/companies/enrich` reads the domains you send. Both are billed:
  *   they reserve companies at the route price and settle to what they deliver.
+ *   A search with `max_cost_usd` reserves that budget instead and also bills its
+ *   search effort where the companies it delivers do not cover it.
  * - Every other route (tasks, results, pause/resume/cancel) is free. Both kinds of task
  *   run on the People Search engine, but a People Search task_id is a 404 on these
  *   routes and a company task_id is a 404 on People Search's.
@@ -63,6 +65,10 @@ export type CompanyTaskType = (typeof COMPANY_TASK_TYPES)[number];
 export const COMPANY_DOMAINS_MAX = 200;
 export const COMPANY_COUNTRIES_MAX = 20;
 export const COMPANY_EXCLUDE_MAX = 1000;
+/** The largest `max_cost_usd` (model/companies.py COMPANY_SEARCH_MAX_BUDGET_USD). */
+export const COMPANY_SEARCH_MAX_BUDGET_USD = 100;
+/** `count` on `POST /desearch/companies/search` (model/people.py PEOPLE_COUNT_MIN). */
+export const COMPANY_COUNT_MIN = 5;
 
 interface CompanyTaskOptions {
     roles?: CompanyRole[];
@@ -79,6 +85,8 @@ export interface CompanySearchArgs extends CompanyTaskOptions {
     exclude?: string[];
     countries?: string[];
     require?: CompanyRequirement[];
+    max_cost_usd?: number;
+    continue_from?: string;
 }
 
 export interface CompanyEnrichArgs extends CompanyTaskOptions {
@@ -151,6 +159,8 @@ export function companySearchBody(args: CompanySearchArgs): Record<string, unkno
     if (args.count !== undefined) body.count = args.count;
     if (args.min_score !== undefined) body.min_score = args.min_score;
     if (args.exclude !== undefined) body.exclude = args.exclude;
+    if (args.max_cost_usd !== undefined) body.max_cost_usd = args.max_cost_usd;
+    if (args.continue_from !== undefined) body.continue_from = args.continue_from;
     leaderFields(args, body);
     const filters: Record<string, unknown> = {};
     if (args.countries !== undefined) filters.countries = args.countries;
@@ -307,10 +317,14 @@ function compactWarning(warning: unknown): Record<string, unknown> {
 /**
  * Task fields an agent polls on. `progress` is the worker's counters, passed through
  * without its copy of `warnings` (listed once, at the top). `completion_reason` appears
- * once the task has ended, `coverage_limited` only when true.
+ * once the task has ended, `coverage_limited` only when true. `max_cost_usd` and
+ * `continue_from` come from the stored request (a search with a budget, or one that continues
+ * an earlier search), `only_domains` from how the query was read (a search restricted to the
+ * domains it names).
  */
 export function compactCompanyTask(task: unknown, options: { progress?: boolean } = {}): Record<string, unknown> {
     const t = objectOf(task);
+    const request = objectOf(t.request);
     const status = typeof t.status === "string" ? t.status : undefined;
     let progress: Record<string, unknown> | undefined;
     if (options.progress) {
@@ -327,6 +341,9 @@ export function compactCompanyTask(task: unknown, options: { progress?: boolean 
         metadata: t.metadata,
         count: t.count,
         result_count: t.result_count,
+        max_cost_usd: numberOf(request.max_cost_usd),
+        continue_from: stringOf(request.continue_from),
+        only_domains: strings(objectOf(objectOf(t.interpreted).interpretation).only_domains),
         completion_reason: stringOf(t.completion_reason),
         coverage_limited: t.coverage_limited === true ? true : undefined,
         warnings: arrayOf(t.warnings).map(compactWarning),
@@ -343,10 +360,48 @@ export function compactCompanyTask(task: unknown, options: { progress?: boolean 
 
 const LATEST = "call company-search-status without cursor to read every company in its latest version";
 
+type NextTask = {
+    task_id?: unknown;
+    search_type?: unknown;
+    stage?: unknown;
+    completion_reason?: unknown;
+    coverage_limited?: unknown;
+    count?: unknown;
+    result_count?: unknown;
+    max_cost_usd?: unknown;
+};
+
+/**
+ * For a search a limit stopped before `count`: how to find more with `continue_from`, which
+ * leaves out every company this one delivered or held for review. A budget (`max_cost_usd`) is
+ * offered only as the user's choice, because it bills search effort even when little is found.
+ */
+function findMore(task: NextTask): string {
+    const id = typeof task.task_id === "string" ? `continue_from "${task.task_id}"` : "continue_from set to its task_id";
+    const count = numberOf(task.count);
+    const delivered = numberOf(task.result_count);
+    const left = count !== undefined && delivered !== undefined ? count - delivered : 0;
+    const wanted =
+        left >= COMPANY_COUNT_MIN
+            ? `count ${left} (the companies still wanted)`
+            : left > 0
+              ? `count ${COMPANY_COUNT_MIN} (the least it takes; ${left} still wanted)`
+              : "count set to the companies still wanted";
+    const offer = `To find more, offer the user a new company-search with the same query and filters, ${id}, and ${wanted}: it leaves out every company this search delivered or held for review.`;
+    if (typeof task.max_cost_usd === "number") {
+        return `${offer} Set max_cost_usd on it only if the user agrees to a new budget.`;
+    }
+    if (task.completion_reason === "time_limit") {
+        return offer;
+    }
+    return `${offer} The user may also set a budget (max_cost_usd): the search then goes on until it delivers count or spends the budget, and bills its search effort up to the budget even when it finds few companies or none, so set it only with the user's agreement to that amount.`;
+}
+
 /**
  * One sentence (or two) on what to do next, so an agent does not have to infer it from the status.
  * `nextCursor` is the results cursor when the caller just read a page of companies.
- * `task` adds the stage (`enriching`) and why an ended task stopped.
+ * `task` adds the stage (`enriching`), why an ended task stopped, and whether it had a budget
+ * (`max_cost_usd`): a search a limit stopped before `count` also says how to continue it.
  * `page.partial` counts the companies on this page whose enrichment is still `partial`;
  * `page.readAfterStart` is true when the caller passed a cursor, so it may hold older
  * versions of companies it read before.
@@ -355,7 +410,7 @@ export function companyNextStep(
     status: string | undefined,
     nextCursor?: string,
     hasMore = false,
-    task: { stage?: unknown; completion_reason?: unknown; coverage_limited?: unknown; count?: unknown } = {},
+    task: NextTask = {},
     page: { partial?: number; readAfterStart?: boolean } = {}
 ): string {
     const again =
@@ -366,7 +421,7 @@ export function companyNextStep(
     if (hasMore) {
         return `More companies are ready now: call ${again}.`;
     }
-    const ended = (first: string): string => {
+    const ended = (first: string, last?: string): string => {
         const notes = [first];
         if (partial > 0) {
             notes.push(
@@ -378,6 +433,7 @@ export function companyNextStep(
                 "If you read companies while it ran, call company-search-status without cursor to read every company in its final version."
             );
         }
+        if (last !== undefined) notes.push(last);
         return notes.join(" ");
     };
     switch (status) {
@@ -403,8 +459,17 @@ export function companyNextStep(
         case "completed":
             if (task.coverage_limited === true) {
                 const wanted = typeof task.count === "number" ? `${task.count} companies` : "the count you asked for";
+                const budget = numberOf(task.max_cost_usd);
+                const why =
+                    task.completion_reason !== "cost_limit"
+                        ? `a limit stopped it (${String(task.completion_reason)})`
+                        : budget !== undefined
+                          ? `it spent its search budget of $${budget} (max_cost_usd; cost_limit)`
+                          : "it stopped once its search cost more than the companies it found pay for (cost_limit)";
+                // continue_from takes a Company Search only.
                 return ended(
-                    `Finished early: a budget stopped it (${String(task.completion_reason)}) before it delivered ${wanted}, so more companies may match. You have every company it delivered.`
+                    `Finished early: ${why} before it delivered ${wanted}, so more companies may match. You have every company it delivered.`,
+                    task.search_type === "company_enrich" ? undefined : findMore(task)
                 );
             }
             if (task.completion_reason === "no_candidates") {
@@ -422,6 +487,11 @@ export function companyNextStep(
         case "failed":
             return "The task failed. See errors. A task that delivers no companies is not charged.";
         case "cancelled":
+            if (typeof task.max_cost_usd === "number") {
+                return ended(
+                    "Cancelled. A search with a budget pays for the companies it delivered or, when that is more, its search effort so far, up to max_cost_usd; the rest of the reservation is returned."
+                );
+            }
             return ended("Cancelled. You pay only for the companies it delivered; the rest of the reservation is returned.");
         case "expired":
             return "Results expired 30 days after the task ended.";
