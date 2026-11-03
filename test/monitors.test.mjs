@@ -793,3 +793,14 @@ test("monitorRunNextStep and monitorNextStep cover every status", () => {
     assert.match(monitorNextStep({ status: "active" }, { created: true, runNow: false }), /^Created\. No run/);
     assert.match(monitorNextStep({ webhook_secret: "whsec_x" }, { created: true }), /Store webhook_secret now/);
 });
+
+test("monitor-create says TikTok keyword monitors rank by relevance and points to tiktok_accounts", async () => {
+    await withServer(async (client) => {
+        const { tools } = await client.listTools();
+        const create = tools.find((tool) => tool.name === "monitor-create");
+        assert.match(create.description, /TikTok search has no working date filter and ranks by relevance/);
+        assert.match(create.description, /watch their accounts \(tiktok_accounts\)/);
+        const tiktok = tools.find((tool) => tool.name === "tiktok");
+        assert.equal(Object.hasOwn(tiktok.inputSchema.properties, "date_posted"), false);
+    });
+});

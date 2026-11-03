@@ -78,7 +78,7 @@ import {
     updateMonitor,
     type MonitorClient,
 } from "./monitors.js";
-import { TIKTOK_DATE_POSTED, runSocialAction, socialActionNames, type SocialPlatform } from "./social.js";
+import { runSocialAction, socialActionNames, type SocialPlatform } from "./social.js";
 import { AI_SEARCH_TOOLS, WEB_LINK_TOOLS, toolIdSchema } from "./tool-sources.js";
 
 export const SERVER_NAME = "Desearch";
@@ -621,6 +621,9 @@ const MONITOR_BILLING =
 
 const MONITOR_HOW =
     "Each run searches its sources inside a window that starts where the previous run ended (or, for a source with watched accounts, reads each account's newest posts), drops everything the monitor has already seen, and screens the new items: relevant (about what the query watches), new_info (news rather than an evergreen page), and one yes/no question per criterion. score is the lowest of relevant and the criteria x 100; an item is kept at min_score (0 keeps every new post). Read kept items with monitor-items or monitor-run; with a webhook they are also POSTed to it, signed with webhook_secret.";
+
+const MONITOR_TIKTOK_NOTE =
+    "TikTok search has no working date filter and ranks by relevance, so a TikTok keyword monitor finds a new video only when it reaches TikTok's top results; to follow creators, watch their accounts (tiktok_accounts).";
 
 function platformFilterList(): string {
     return Object.entries(PEOPLE_SEARCH_FILTERS)
@@ -1428,7 +1431,7 @@ export function createDesearchMcpServer(
         apiKey,
         "tiktok",
         "TikTok",
-        "Read public TikTok data with Desearch. Set action and that action's arguments. search (query; optional count, sort, date_posted, cursor): videos that match a keyword. post (id): one video by its ID. profile (username): one profile. profile_posts (username; optional count, cursor): a user's videos. comments (video_id; optional count, cursor): a video's comments. hashtag (tag; optional count, cursor): videos with a hashtag. trending (optional region, count): trending videos for a region, one page. A video id from search can be passed to post or comments. post and profile return the item itself. " +
+        "Read public TikTok data with Desearch. Set action and that action's arguments. search (query; optional count, sort, cursor): videos that match a keyword. post (id): one video by its ID. profile (username): one profile. profile_posts (username; optional count, cursor): a user's videos. comments (video_id; optional count, cursor): a video's comments. hashtag (tag; optional count, cursor): videos with a hashtag. trending (optional region, count): trending videos for a region, one page. A video id from search can be passed to post or comments. post and profile return the item itself. " +
             SOCIAL_PAGING,
         strictArgs({
             action: socialAction(
@@ -1437,12 +1440,6 @@ export function createDesearchMcpServer(
             ),
             query: socialQuery("bittensor"),
             sort: socialTarget("search: sort option, when TikTok supports one."),
-            date_posted: z
-                .enum(TIKTOK_DATE_POSTED)
-                .optional()
-                .describe(
-                    "search: only videos posted in this time frame: 'yesterday' (the last 24 hours), 'this-week', 'this-month', 'last-3-months', 'last-6-months', or 'all-time'."
-                ),
             id: socialTarget("post: the TikTok video ID, example: '7620891413932166433'."),
             username: socialTarget("profile, profile_posts: TikTok username, example: 'tiktok'. A leading @ is removed."),
             video_id: socialTarget("comments: the TikTok video ID."),
@@ -2336,6 +2333,8 @@ export function createDesearchMcpServer(
             MONITOR_BILLING +
             " " +
             MONITOR_HOW +
+            " " +
+            MONITOR_TIKTOK_NOTE +
             " Limits: 25 monitors per account (409 too_many_monitors); 402 when the balance cannot hold one run.",
         strictArgs({
             query: z

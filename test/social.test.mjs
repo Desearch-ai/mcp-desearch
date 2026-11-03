@@ -101,7 +101,7 @@ async function withServer(fn, apiKey = "test-key") {
 
 // Every route in the spec, with one call per action: [tool, arguments, method, path, query or body].
 const ROUTES = [
-    ["tiktok", { action: "search", query: "bittensor", count: 3, sort: "relevance", date_posted: "this-week" }, "POST", "/desearch/tiktok/search", { query: "bittensor", count: 3, sort: "relevance", date_posted: "this-week" }],
+    ["tiktok", { action: "search", query: "bittensor", count: 3, sort: "relevance" }, "POST", "/desearch/tiktok/search", { query: "bittensor", count: 3, sort: "relevance" }],
     ["tiktok", { action: "post", id: "7620891413932166433" }, "GET", "/desearch/tiktok/post/7620891413932166433", {}],
     ["tiktok", { action: "profile", username: "tiktok" }, "GET", "/desearch/tiktok/profile/tiktok", {}],
     ["tiktok", { action: "profile_posts", username: "tiktok", count: 2 }, "GET", "/desearch/tiktok/profile/tiktok/posts", { count: "2" }],
@@ -261,11 +261,6 @@ test("each action names the argument it is missing or does not take, before any 
                 'TikTok error: tiktok action "post" does not take count. post takes: id (required). No request was sent.',
             ],
             [
-                "tiktok",
-                { action: "hashtag", tag: "ai", date_posted: "this-week" },
-                'TikTok error: tiktok action "hashtag" does not take date_posted. hashtag takes: tag (required), count, cursor. No request was sent.',
-            ],
-            [
                 "facebook",
                 { action: "profile", post_id: "1525856912919657" },
                 'Facebook error: facebook action "profile" needs profile_id. facebook action "profile" does not take post_id. profile takes: profile_id (required). No request was sent.',
@@ -305,7 +300,6 @@ test("each action names the argument it is missing or does not take, before any 
             ["tiktok", { action: "hashtag", tag: "ai", cursor: "" }],
             ["tiktok", { action: "profile", username: "" }],
             ["tiktok", { action: "trending", region: "USA" }],
-            ["tiktok", { action: "search", query: "ai", date_posted: "last-week" }],
         ]) {
             const result = await client.callTool({ name: tool, arguments: args });
             assert.equal(result.isError, true, JSON.stringify(args));
