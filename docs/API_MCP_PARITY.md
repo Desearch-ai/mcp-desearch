@@ -1,6 +1,6 @@
 # Desearch API ↔ MCP parity
 
-Version 0.8.0 exposes 39 tools.
+Version 0.10.0 exposes 51 tools.
 
 The product rule is that every public Desearch API / SDK method is exposed as an MCP tool. This file is the inventory for that work. It tracks `desearch-js` **1.5.0** (current) against the MCP server. HTTP paths are the ones the SDK calls on `https://api.desearch.ai`.
 
@@ -18,6 +18,7 @@ Auth is unchanged: stdio reads `DESEARCH_API_KEY`; Streamable HTTP builds one cl
 | Company Search | `company-search`, `company-enrich`, `company-search-status`, `company-search-pause`, `company-search-resume`, `company-search-cancel`, `company-search-tasks` | Done in 0.6.0. Company Search is live on `api.desearch.ai` since 2026-10-29. |
 | Full API coverage | `search-api` (`POST /search`), `tiktok`, `facebook`, `instagram` (the 19 social routes), `people-search-export` (both People Search `/export` routes) | Done in 0.7.0. These routes are not in `desearch-js` 1.5, so the tools call them directly (`desearch-api.ts`). |
 | YouTube, Reddit, Threads | `youtube`, `reddit`, `threads` (the 16 routes tagged YouTube Search, Reddit Search, and Threads Search) | Done in 0.8.0. Not in `desearch-js` 1.5; same direct calls and `action` pattern as `tiktok`. The routes are live on `api.desearch.ai`. |
+| Monitors | `monitor-create`, `monitor-estimate`, `monitor-list`, `monitor-get`, `monitor-update`, `monitor-delete`, `monitor-trigger`, `monitor-runs`, `monitor-run`, `monitor-items`, `monitor-webhook-test`, `monitor-webhook-rotate-secret` (the 12 `/desearch/monitors` routes) | Done in 0.10.0. Not in `desearch-js` 1.5; direct calls (`monitors.ts`). On `api-dev.desearch.ai` since 2026-11-03; merge after Monitors is live on `api.desearch.ai`. |
 
 Phase 4 covers the remaining public `desearch-js` 1.5 methods. Every method in the table below has an MCP tool. The intentional gap is `latestTweets`: desearch-js 1.0.1 called `GET /twitter/latest`, and 1.5 removed that method, so there is no MCP tool for it. `web-crawl` stays even though the SDK deprecates `webCrawl` in favor of `extract`.
 
@@ -150,6 +151,27 @@ Company Search and Company Enrich are not in `desearch-js` 1.5. `companies.ts` c
 | `GET /desearch/companies/tasks` | `company-search-tasks` | No | `type` (`search` or `enrich`), `status` (list, sent comma-separated), `limit`, `cursor`, and `metadata` (up to 3 pairs, each sent as `metadata.<key>=<value>`). Each task carries the same `completion_reason`, `coverage_limited`, and `warnings` as `company-search-status`. People Search tasks are not listed. |
 
 Company tools reject unknown arguments, like the People tools.
+
+## Monitors routes
+
+Monitors are not in `desearch-js` 1.5. `monitors.ts` calls the `/desearch/monitors/*` routes directly with the same base URL, `Authorization: <key>` header, and `HTTP <status>: <detail>` error text as Company Search (the shared request helper in `desearch-api.ts`, which now also sends `PATCH` and `DELETE`). The contract is `desearch-public-api` `docs/monitors.md`, `src/model/monitors.py`, and `src/routers/monitors.py`. Every route is free; each run a monitor makes is billed when it ends (its searches at list price, Jev screening at the `/desearch/monitors` price per item screened, and the summary's LLM usage plus 50%), with its `max_run_cost_usd` held while it runs. `monitor_id` and `run_id` must be UUIDs and are URL-encoded into the path.
+
+| HTTP endpoint | MCP tool | Starts a billed run | Notes |
+| --- | --- | --- | --- |
+| `POST /desearch/monitors` | `monitor-create` | With `run_now` (API default `true`) | Body is `query` (3–500), optional `name` (≤ 120), `criteria` (≤ 5, each ≤ 300), `sources`, `interval`, `options`, `min_score` (0–100), `summary`, `webhook`, `metadata` (≤ 20 keys of 1–64 characters, values ≤ 500), and `run_now`. The tool takes the per-source options flat (`web_count`, `x_count`, `x_lang`, `x_min_likes`) and sends them as `options.web` and `options.x`, and takes `webhook_url` and `webhook_events` and sends them as `webhook` (events without a URL are refused before the request). Only the arguments the caller set are sent, so API defaults apply. The reply is the monitor as the API sent it (with `webhook_secret` when a webhook is set) plus a `next` hint. |
+| `POST /desearch/monitors/estimate` | `monitor-estimate` | No | Body is `sources`, `options` (from `web_count` and `x_count`, the options that change the cost), `summary`, and `interval`. Returned as the API sent it. |
+| `GET /desearch/monitors` | `monitor-list` | No | `status` (list of `active`, `paused`, sent comma-separated), `limit` (1–100), `cursor`. Returns `{ monitors, next_cursor }`, `next_cursor` `null` on the last page. |
+| `GET /desearch/monitors/{monitor_id}` | `monitor-get` | No | Returned as the API sent it. |
+| `PATCH /desearch/monitors/{monitor_id}` | `monitor-update` | No | The `monitor-create` settings except `run_now`, plus `status` (`active` or `paused`). `remove_webhook: true` sends `webhook: null` (null arguments are treated as omitted, so the removal needs its own flag); it cannot be combined with `webhook_url`. A call with nothing to change is refused before the request. `options` replace the monitor's options as a whole. A changed webhook URL returns a new `webhook_secret`. |
+| `DELETE /desearch/monitors/{monitor_id}` | `monitor-delete` | No | Returns `{ monitor_id, deleted: true }`; a second delete is a 404. |
+| `POST /desearch/monitors/{monitor_id}/trigger` | `monitor-trigger` | Yes | Returns the queued run (202) plus a `next` hint. 409 while a run is queued or running; 402 when the balance cannot hold the run. |
+| `GET /desearch/monitors/{monitor_id}/runs` | `monitor-runs` | No | `limit` (1–100), `cursor`. Returns `{ runs, next_cursor }`. |
+| `GET /desearch/monitors/{monitor_id}/runs/{run_id}` | `monitor-run` | No | The run with its kept items, most relevant first, plus a `next` hint by status. Each item keeps `item_id`, `run_id`, `source`, `url`, `title`, `text` (cut to 1000 characters), `author` (`name`, `handle`, `url`), `published_at`, `score`, `signals`, `found_at`, and `data`; empty fields are left out. |
+| `GET /desearch/monitors/{monitor_id}/items` | `monitor-items` | No | `source`, `limit` (1–200), `cursor` (an item id, digits only). Returns `{ items, next_cursor }`, newest first, items as on `monitor-run`. |
+| `POST /desearch/monitors/{monitor_id}/webhook/test` | `monitor-webhook-test` | No | Returns `{ delivered, status_code, error, duration_ms }` as the API sent it. 400 when the monitor has no webhook. |
+| `POST /desearch/monitors/{monitor_id}/webhook/rotate-secret` | `monitor-webhook-rotate-secret` | No | Returns `{ webhook_secret }` plus a `next` hint. 400 when the monitor has no webhook. |
+
+Monitor tools reject unknown arguments (including the API's nested `options` and `webhook`), like the People and Company tools.
 
 ## Link fields vs billing fields
 

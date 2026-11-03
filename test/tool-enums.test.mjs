@@ -23,6 +23,13 @@ import {
     COMPANY_TASK_STATUSES,
     COMPANY_TASK_TYPES,
 } from "../build/companies.js";
+import {
+    MONITOR_EVENTS,
+    MONITOR_INTERVALS,
+    MONITOR_SOURCES,
+    MONITOR_STATUSES,
+    MONITOR_WEB_COUNTS,
+} from "../build/monitors.js";
 
 function textOf(result) {
     assert.equal(result.content[0].type, "text");
@@ -313,6 +320,76 @@ test("company tools advertise the Company Search API enums", async () => {
             });
             assert.equal(rejected.isError, true, role);
             assert.match(rejected.content[0].text, /Input validation error/, role);
+        }
+    });
+});
+
+// Values from desearch-public-api model/monitors.py (MonitorSource, MONITOR_INTERVALS,
+// MonitorEvent, WebOptions.count) and routers/monitors.py (the list status filter).
+const MONITOR_SOURCE_ENUM = ["web", "x", "reddit", "youtube", "threads"];
+const MONITOR_INTERVAL_ENUM = ["1h", "3h", "6h", "12h", "1d", "7d"];
+const MONITOR_EVENT_ENUM = ["monitor.items.found", "monitor.run.completed", "monitor.run.failed"];
+
+test("monitor tools advertise the Monitors API enums and argument names", async () => {
+    assert.deepEqual([...MONITOR_SOURCES], MONITOR_SOURCE_ENUM);
+    assert.deepEqual([...MONITOR_INTERVALS], MONITOR_INTERVAL_ENUM);
+    assert.deepEqual([...MONITOR_EVENTS], MONITOR_EVENT_ENUM);
+    assert.deepEqual([...MONITOR_STATUSES], ["active", "paused"]);
+    assert.deepEqual([...MONITOR_WEB_COUNTS], [10, 15, 20]);
+
+    await withFakeClient({}, async (client) => {
+        const { tools } = await client.listTools();
+        const byName = Object.fromEntries(tools.map((tool) => [tool.name, tool.inputSchema.properties]));
+
+        const settings = [
+            "criteria",
+            "interval",
+            "metadata",
+            "min_score",
+            "name",
+            "sources",
+            "summary",
+            "web_count",
+            "webhook_events",
+            "webhook_url",
+            "x_count",
+            "x_lang",
+            "x_min_likes",
+        ];
+        assert.deepEqual(Object.keys(byName["monitor-create"]).sort(), [...settings, "query", "run_now"].sort());
+        assert.deepEqual(
+            Object.keys(byName["monitor-update"]).sort(),
+            [...settings, "monitor_id", "query", "remove_webhook", "status"].sort()
+        );
+        for (const name of ["monitor-create", "monitor-update"]) {
+            assert.deepEqual(byName[name].sources.items.enum, MONITOR_SOURCE_ENUM, name);
+            assert.equal(byName[name].sources.minItems, 1, name);
+            assert.deepEqual(byName[name].interval.enum, MONITOR_INTERVAL_ENUM, name);
+            assert.deepEqual(byName[name].webhook_events.items.enum, MONITOR_EVENT_ENUM, name);
+            assert.deepEqual(byName[name].web_count.enum, [10, 15, 20], name);
+            assert.equal(byName[name].x_count.maximum, 100, name);
+            assert.equal(byName[name].criteria.maxItems, 5, name);
+            assert.equal(byName[name].metadata.type, "object", name);
+        }
+        assert.deepEqual(byName["monitor-update"].status.enum, ["active", "paused"]);
+        assert.deepEqual(
+            Object.keys(byName["monitor-estimate"]).sort(),
+            ["interval", "sources", "summary", "web_count", "x_count"]
+        );
+        assert.deepEqual(byName["monitor-list"].status.items.enum, ["active", "paused"]);
+        assert.deepEqual(byName["monitor-items"].source.enum, MONITOR_SOURCE_ENUM);
+        assert.equal(byName["monitor-items"].limit.maximum, 200);
+        assert.equal(byName["monitor-runs"].limit.maximum, 100);
+        assert.deepEqual(Object.keys(byName["monitor-run"]), ["monitor_id", "run_id"]);
+        for (const name of [
+            "monitor-get",
+            "monitor-delete",
+            "monitor-trigger",
+            "monitor-webhook-test",
+            "monitor-webhook-rotate-secret",
+        ]) {
+            assert.deepEqual(Object.keys(byName[name]), ["monitor_id"], name);
+            assert.equal(byName[name].monitor_id.format, "uuid", name);
         }
     });
 });

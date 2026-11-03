@@ -49,11 +49,38 @@ import {
     startCompanySearch,
     type CompanyClient,
 } from "./companies.js";
+import {
+    MONITOR_CRITERIA_MAX,
+    MONITOR_CRITERION_MAX,
+    MONITOR_EVENTS,
+    MONITOR_INTERVALS,
+    MONITOR_METADATA_KEY_MAX,
+    MONITOR_METADATA_MAX_KEYS,
+    MONITOR_METADATA_VALUE_MAX,
+    MONITOR_NAME_MAX,
+    MONITOR_QUERY_MAX,
+    MONITOR_QUERY_MIN,
+    MONITOR_SOURCES,
+    MONITOR_STATUSES,
+    MONITOR_WEB_COUNTS,
+    MONITOR_X_COUNT_MAX,
+    createMonitor,
+    listMonitorItems,
+    listMonitorRuns,
+    listMonitors,
+    monitorClientFor,
+    monitorEstimateBody,
+    readMonitorRun,
+    rotateMonitorSecret,
+    triggerMonitor,
+    updateMonitor,
+    type MonitorClient,
+} from "./monitors.js";
 import { runSocialAction, socialActionNames, type SocialPlatform } from "./social.js";
 import { AI_SEARCH_TOOLS, WEB_LINK_TOOLS, toolIdSchema } from "./tool-sources.js";
 
 export const SERVER_NAME = "Desearch";
-export const SERVER_VERSION = "0.8.0";
+export const SERVER_VERSION = "0.10.0";
 export const SERVER_TITLE = "Desearch";
 export const SERVER_WEBSITE_URL = "https://www.desearch.ai";
 
@@ -182,6 +209,46 @@ const TASK_CANCEL: ToolAnnotations = {
     readOnlyHint: false,
     destructiveHint: true,
     idempotentHint: true,
+    openWorldHint: true,
+};
+
+/**
+ * `monitor-create` and `monitor-trigger` use BILLED_TASK: create adds a monitor and, with
+ * run_now (the API default), queues its first billed run; trigger queues one billed run.
+ * Neither deletes or overwrites anything, and calling either again creates another monitor
+ * or queues another run (the API answers 409 while a run is queued or running).
+ *
+ * `monitor-update` overwrites settings (the old query, criteria, or per-source options are
+ * not kept, and remove_webhook drops the webhook) and `monitor-delete` removes a monitor
+ * with its runs and items for good, so both are destructive. Repeating either has no further
+ * effect (the same settings again; a second delete answers 404).
+ */
+const MONITOR_OVERWRITE: ToolAnnotations = {
+    readOnlyHint: false,
+    destructiveHint: true,
+    idempotentHint: true,
+    openWorldHint: true,
+};
+
+/**
+ * `monitor-webhook-rotate-secret` replaces the signing secret: the old one stops verifying
+ * deliveries and cannot be restored, and each call makes a new secret.
+ */
+const MONITOR_SECRET_ROTATE: ToolAnnotations = {
+    readOnlyHint: false,
+    destructiveHint: true,
+    idempotentHint: false,
+    openWorldHint: true,
+};
+
+/**
+ * `monitor-webhook-test` sends a signed test event to the caller's webhook. It changes
+ * nothing on Desearch, but each call is one more delivery to the caller's endpoint.
+ */
+const MONITOR_WEBHOOK_TEST: ToolAnnotations = {
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: false,
     openWorldHint: true,
 };
 
@@ -379,6 +446,145 @@ const COMPANY_DATA =
 
 const COMPANY_RUNS =
     "The task runs in the background: poll company-search-status with the task_id to read progress and the companies delivered so far. Each company is delivered first with enrichment status partial, and the later stages (contact pages, leaders, inferred emails, email checks) fill it in until it is complete. Use company-search-pause, company-search-resume, or company-search-cancel to pause, resume, or cancel it. Do not start the same task twice; send idempotency_key so a retry returns the first task instead of charging again.";
+
+const monitorId = z
+    .string()
+    .uuid()
+    .describe("monitor_id returned by monitor-create or monitor-list, example: '6f1d0c9e-0d55-4b8e-9a3c-3c4d9b8e2a10'.");
+
+function monitorRunId() {
+    return z.string().uuid().describe("run_id from monitor-runs or monitor-trigger.");
+}
+
+function monitorSources() {
+    return z
+        .array(z.enum(MONITOR_SOURCES))
+        .min(1)
+        .describe(
+            "Where to look: any of 'web', 'x', 'reddit', 'youtube', 'threads' (API default ['web', 'x']). Each run searches each source once."
+        );
+}
+
+function monitorInterval() {
+    return z
+        .enum(MONITOR_INTERVALS)
+        .describe("How often it runs: '1h', '3h', '6h', '12h', '1d' (API default), or '7d'. Each run is billed.");
+}
+
+// Per-source options, flat here and nested in `options` by monitors.ts. A new schema per field.
+function monitorSourceOptions(withFilters: boolean): Record<string, z.ZodTypeAny> {
+    const counts: Record<string, z.ZodTypeAny> = {
+        web_count: z
+            .union([z.literal(MONITOR_WEB_COUNTS[0]), z.literal(MONITOR_WEB_COUNTS[1]), z.literal(MONITOR_WEB_COUNTS[2])])
+            .optional()
+            .describe("Web pages read per run: 10 (API default), 15, or 20. Sent as options.web.count."),
+        x_count: z
+            .number()
+            .int()
+            .min(1)
+            .max(MONITOR_X_COUNT_MAX)
+            .optional()
+            .describe(`Newest X posts read per run (1-${MONITOR_X_COUNT_MAX}, API default 20). Sent as options.x.count.`),
+    };
+    if (!withFilters) {
+        return counts;
+    }
+    return {
+        ...counts,
+        x_lang: z
+            .string()
+            .min(2)
+            .max(3)
+            .optional()
+            .describe("Only X posts in this language, example: 'en'. Sent as options.x.lang."),
+        x_min_likes: z
+            .number()
+            .int()
+            .min(0)
+            .optional()
+            .describe("Only X posts with at least this many likes. Sent as options.x.min_likes."),
+    };
+}
+
+/**
+ * `metadata` labels: at most 20 keys of 1-64 characters to strings of up to 500. Like
+ * peopleMetadata, the key rules are checked in a refinement rather than advertised as
+ * `propertyNames`/`maxProperties`, which some MCP clients do not accept.
+ */
+function monitorMetadata() {
+    return z
+        .record(z.string(), z.string().max(MONITOR_METADATA_VALUE_MAX))
+        .superRefine((value, ctx) => {
+            const keys = Object.keys(value);
+            if (keys.length > MONITOR_METADATA_MAX_KEYS) {
+                ctx.addIssue({ code: z.ZodIssueCode.custom, message: `At most ${MONITOR_METADATA_MAX_KEYS} metadata keys` });
+            }
+            for (const key of keys) {
+                if (key.length < 1 || key.length > MONITOR_METADATA_KEY_MAX) {
+                    ctx.addIssue({
+                        code: z.ZodIssueCode.custom,
+                        path: [key],
+                        message: `metadata keys are 1-${MONITOR_METADATA_KEY_MAX} characters`,
+                    });
+                }
+            }
+        })
+        .describe(
+            `Your own labels, example: {"team": "growth"}. Up to ${MONITOR_METADATA_MAX_KEYS} keys of 1-${MONITOR_METADATA_KEY_MAX} characters; values are strings of up to ${MONITOR_METADATA_VALUE_MAX} characters. Echoed in webhook deliveries; the monitor does not use them.`
+        );
+}
+
+// Fields monitor-create and monitor-update share. A new schema per field.
+function monitorSettingsFields(): Record<string, z.ZodTypeAny> {
+    return {
+        name: z.string().max(MONITOR_NAME_MAX).optional().describe("A label for the console and webhook deliveries."),
+        criteria: z
+            .array(z.string().min(1).max(MONITOR_CRITERION_MAX))
+            .max(MONITOR_CRITERIA_MAX)
+            .optional()
+            .describe(
+                `Up to ${MONITOR_CRITERIA_MAX} conditions a new item must meet to be kept, each up to ${MONITOR_CRITERION_MAX} characters, example: ['Announces a new subnet, release or partnership']. Each is one yes/no question in the screen.`
+            ),
+        sources: monitorSources().optional(),
+        interval: monitorInterval().optional(),
+        ...monitorSourceOptions(true),
+        min_score: z
+            .number()
+            .int()
+            .min(0)
+            .max(100)
+            .optional()
+            .describe(
+                "Score (0-100) an item needs to be kept (API default 60). The score is the lowest of relevant and each criterion."
+            ),
+        summary: z
+            .boolean()
+            .optional()
+            .describe("Write a short digest of the items each run keeps (API default false). Billed as its LLM usage plus 50%."),
+        webhook_url: z
+            .string()
+            .url()
+            .max(2000)
+            .optional()
+            .describe(
+                "HTTPS URL on a public address that receives new items as signed POSTs (redirects are not followed). A new or changed URL gets a new webhook_secret, returned only in this response."
+            ),
+        webhook_events: z
+            .array(z.enum(MONITOR_EVENTS))
+            .min(1)
+            .optional()
+            .describe(
+                "Events sent to webhook_url: 'monitor.items.found' (a run kept at least one item), 'monitor.run.completed' (every completed run), 'monitor.run.failed'. API default ['monitor.items.found', 'monitor.run.failed']. Needs webhook_url."
+            ),
+        metadata: monitorMetadata().optional(),
+    };
+}
+
+const MONITOR_BILLING =
+    "Creating, reading, changing, and deleting monitors is free. Each run is billed when it ends: its searches at their list price, screening at $0.05 per 1,000 new items screened, and the summary's LLM usage plus 50% when summary is on. A run with no new items still pays for its searches. While a run is queued or running, its most (max_run_cost_usd) is held on the balance; it is billed what it used and the rest is released. A run that cannot be held fails with insufficient_credits and pauses the monitor. Use monitor-estimate for the cost of a configuration.";
+
+const MONITOR_HOW =
+    "Each run searches its sources inside a window that starts where the previous run ended, drops everything the monitor has already seen, and screens the new items: relevant (about what the query watches), new_info (news rather than an evergreen page), and one yes/no question per criterion. score is the lowest of relevant and the criteria x 100; an item is kept at min_score. Read kept items with monitor-items or monitor-run; with a webhook they are also POSTed to it, signed with webhook_secret.";
 
 function platformFilterList(): string {
     return Object.entries(PEOPLE_SEARCH_FILTERS)
@@ -658,10 +864,11 @@ function registerTool(
  * One MCP server bound to a single Desearch API key.
  * Stdio uses the process env key. Remote HTTP builds a new server per request
  * so each caller spends their own key.
- * `client`, `peopleClient`, and `companyClient` are test seams. Production callers omit
- * them and the server builds a desearch-js client, a People Search client (people.ts), and
- * a Company Search client (companies.ts) from `apiKey`.
- * The routes desearch-js 1.5 does not cover (People Search, Company Search, TikTok,
+ * `client`, `peopleClient`, `companyClient`, and `monitorClient` are test seams. Production
+ * callers omit them and the server builds a desearch-js client, a People Search client
+ * (people.ts), a Company Search client (companies.ts), and a Monitors client (monitors.ts)
+ * from `apiKey`.
+ * The routes desearch-js 1.5 does not cover (People Search, Company Search, Monitors, TikTok,
  * Facebook, Instagram, YouTube, Reddit, Threads, `POST /search`) share one direct API caller (desearch-api.ts)
  * for that key.
  */
@@ -669,12 +876,14 @@ export function createDesearchMcpServer(
     apiKey: string,
     client?: DesearchClient,
     peopleClient?: PeopleClient,
-    companyClient?: CompanyClient
+    companyClient?: CompanyClient,
+    monitorClient?: MonitorClient
 ): McpServer {
     const desearch = client ?? new Desearch(apiKey);
     const api: DesearchApi = createDesearchApi(apiKey);
     const people = peopleClient ?? peopleClientFor(api);
     const companies = companyClient ?? companyClientFor(api);
+    const monitors = monitorClient ?? monitorClientFor(api);
     const serverInfo: Implementation = {
         name: SERVER_NAME,
         version: SERVER_VERSION,
@@ -686,7 +895,7 @@ export function createDesearchMcpServer(
         serverInfo,
         {
             instructions:
-                "Search the public web and X with Desearch. Use search for titles and links, then fetch with a result URL to read the page. search-api returns ranked pages with the passage that best matches the query. Other tools cover AI search, X posts, and page extraction. tiktok, facebook, instagram, youtube, reddit, and threads read public social data (posts, profiles, comments, hashtags, YouTube transcripts and channels, subreddits); list actions return next_cursor for the next page where the platform has one. People Search finds people and creators on X, YouTube, LinkedIn, and TikTok: people-search starts a paid job billed to the user's Desearch balance, people-search-status reads progress, people-search-pause, people-search-resume, and people-search-cancel pause, resume, or cancel it, and people-search-export returns the people found as CSV or JSON Lines. Company Search finds companies on the web from a description and Company Enrich reads the domains you send; both collect public emails, phones, social profiles, and leaders (CEO, founders, CTO, CFO): company-search and company-enrich start paid jobs billed to the user's Desearch balance, company-search-status reads progress and the companies, and company-search-pause, company-search-resume, and company-search-cancel pause, resume, or cancel a task. Calls need a Desearch API key.",
+                "Search the public web and X with Desearch. Use search for titles and links, then fetch with a result URL to read the page. search-api returns ranked pages with the passage that best matches the query. Other tools cover AI search, X posts, and page extraction. tiktok, facebook, instagram, youtube, reddit, and threads read public social data (posts, profiles, comments, hashtags, YouTube transcripts and channels, subreddits); list actions return next_cursor for the next page where the platform has one. People Search finds people and creators on X, YouTube, LinkedIn, and TikTok: people-search starts a paid job billed to the user's Desearch balance, people-search-status reads progress, people-search-pause, people-search-resume, and people-search-cancel pause, resume, or cancel it, and people-search-export returns the people found as CSV or JSON Lines. Company Search finds companies on the web from a description and Company Enrich reads the domains you send; both collect public emails, phones, social profiles, and leaders (CEO, founders, CTO, CFO): company-search and company-enrich start paid jobs billed to the user's Desearch balance, company-search-status reads progress and the companies, and company-search-pause, company-search-resume, and company-search-cancel pause, resume, or cancel a task. Monitors rerun a search over web, X, Reddit, YouTube, and Threads on a schedule and keep only new, relevant items: monitor-create sets one up (free; each run is billed to the user's Desearch balance), monitor-items and monitor-runs read what it found, monitor-update changes or pauses it, monitor-trigger runs it now, and monitor-delete removes it. Calls need a Desearch API key.",
         }
     );
 
@@ -2074,6 +2283,287 @@ export function createDesearchMcpServer(
         },
         undefined,
         READ_ONLY_OPEN_WORLD
+    );
+
+    registerTool(
+        server,
+        apiKey,
+        "monitor-create",
+        "Create Monitor",
+        "Create a monitor: a search that reruns on a schedule over web, X, Reddit, YouTube, and Threads and keeps only the new items that match. Returns the monitor (monitor_id, settings, max_run_cost_usd, next_run_at) and, when webhook_url is set, webhook_secret, which is shown only here. With run_now (the API default) the first run is queued at once and billed when it ends; set run_now false to wait for the schedule. " +
+            MONITOR_BILLING +
+            " " +
+            MONITOR_HOW +
+            " Limits: 25 monitors per account (409 too_many_monitors); 402 when the balance cannot hold one run.",
+        strictArgs({
+            query: z
+                .string()
+                .min(MONITOR_QUERY_MIN)
+                .max(MONITOR_QUERY_MAX)
+                .describe(
+                    `What to watch, in plain words (${MONITOR_QUERY_MIN}-${MONITOR_QUERY_MAX} characters). Each source is searched with it. Example: 'Bittensor subnet launches and updates'.`
+                ),
+            ...monitorSettingsFields(),
+            run_now: z
+                .boolean()
+                .optional()
+                .describe("Queue the first run at once (API default true; billed when it ends). False waits for next_run_at."),
+        }),
+        async (args) => {
+            try {
+                return ok(await createMonitor(monitors, args));
+            } catch (error) {
+                return fail("Create Monitor error", error);
+            }
+        },
+        undefined,
+        BILLED_TASK
+    );
+
+    registerTool(
+        server,
+        apiKey,
+        "monitor-estimate",
+        "Estimate Monitor Cost",
+        "The most one run of a monitor with these settings can cost (max_run_cost_usd, the amount held while it runs), how many runs a month its interval makes, the most a month can cost, and a per-part breakdown in USD. Free: it creates nothing and runs no search. A run is billed only what it used, which is usually less. " +
+            MONITOR_BILLING,
+        strictArgs({
+            sources: monitorSources().optional(),
+            ...monitorSourceOptions(false),
+            summary: z.boolean().optional().describe("Include the summary's LLM cost (API default false)."),
+            interval: monitorInterval().optional(),
+        }),
+        async (args) => {
+            try {
+                return ok(await monitors.estimate(monitorEstimateBody(args)));
+            } catch (error) {
+                return fail("Estimate Monitor Cost error", error);
+            }
+        },
+        undefined,
+        READ_ONLY_OPEN_WORLD
+    );
+
+    registerTool(
+        server,
+        apiKey,
+        "monitor-list",
+        "List Monitors",
+        "Your monitors, newest first, with their settings, status (active or paused, and paused_reason: user, insufficient_credits, or webhook_failing), webhook (URL, events, consecutive_failures; never the secret), next_run_at, last_run, and totals (runs, items, spent_usd). Free. Returns { monitors, next_cursor }; next_cursor is null on the last page.",
+        strictArgs({
+            status: z
+                .array(z.enum(MONITOR_STATUSES))
+                .optional()
+                .describe("Only monitors in these statuses: 'active', 'paused'."),
+            limit: z.number().int().min(1).max(100).optional().describe("Monitors per page (1-100, API default 20)."),
+            cursor: z
+                .string()
+                .min(1)
+                .max(512)
+                .optional()
+                .describe("next_cursor from the previous page. Keep the same status filter when you page."),
+        }),
+        async (args) => {
+            try {
+                return ok(await listMonitors(monitors, args));
+            } catch (error) {
+                return fail("List Monitors error", error);
+            }
+        },
+        undefined,
+        READ_ONLY_OPEN_WORLD
+    );
+
+    registerTool(
+        server,
+        apiKey,
+        "monitor-get",
+        "Get Monitor",
+        "One monitor: settings, status and paused_reason, webhook (never the secret), max_run_cost_usd, next_run_at, last_run (run_id, status, item_count, cost_usd), and totals (runs, items, spent_usd). Free.",
+        strictArgs({ monitor_id: monitorId }),
+        async (args) => {
+            try {
+                return ok(await monitors.get(args.monitor_id));
+            } catch (error) {
+                return fail("Get Monitor error", error);
+            }
+        },
+        undefined,
+        READ_ONLY_OPEN_WORLD
+    );
+
+    registerTool(
+        server,
+        apiKey,
+        "monitor-update",
+        "Update Monitor",
+        "Change a monitor's settings and return it. Free. Send only what changes. status 'paused' stops scheduled runs (monitor-trigger still runs it once) and 'active' resumes them, also after a pause for credits or a failing webhook. The per-source options (web_count, x_count, x_lang, x_min_likes) replace the monitor's options as a whole: send every option you want to keep. A new webhook_url gets a new webhook_secret, returned only in this response; remove_webhook removes the webhook. The old values are not kept.",
+        strictArgs({
+            monitor_id: monitorId,
+            query: z
+                .string()
+                .min(MONITOR_QUERY_MIN)
+                .max(MONITOR_QUERY_MAX)
+                .optional()
+                .describe(`New query (${MONITOR_QUERY_MIN}-${MONITOR_QUERY_MAX} characters).`),
+            ...monitorSettingsFields(),
+            status: z
+                .enum(MONITOR_STATUSES)
+                .optional()
+                .describe("'paused' stops scheduled runs; 'active' resumes them."),
+            remove_webhook: z
+                .boolean()
+                .optional()
+                .describe("true removes the webhook (sent as webhook: null). Do not combine with webhook_url."),
+        }),
+        async (args) => {
+            try {
+                return ok(await updateMonitor(monitors, args));
+            } catch (error) {
+                return fail("Update Monitor error", error);
+            }
+        },
+        undefined,
+        MONITOR_OVERWRITE
+    );
+
+    registerTool(
+        server,
+        apiKey,
+        "monitor-delete",
+        "Delete Monitor",
+        "Delete a monitor for good. Free. A queued run is cancelled and its hold released; its runs and items are no longer readable. This cannot be undone: to stop it for a while, use monitor-update with status 'paused' instead.",
+        strictArgs({ monitor_id: monitorId }),
+        async (args) => {
+            try {
+                return ok(await monitors.remove(args.monitor_id));
+            } catch (error) {
+                return fail("Delete Monitor error", error);
+            }
+        },
+        undefined,
+        MONITOR_OVERWRITE
+    );
+
+    registerTool(
+        server,
+        apiKey,
+        "monitor-trigger",
+        "Run Monitor Now",
+        "Queue one run of a monitor now, outside its schedule, and return the run (run_id, status queued). It costs one run, billed when it ends (at most the monitor's max_run_cost_usd); it works on a paused monitor too. 409 run_in_progress while a run is queued or running; 402 when the balance cannot hold the run. Poll monitor-run with the run_id.",
+        strictArgs({ monitor_id: monitorId }),
+        async (args) => {
+            try {
+                return ok(await triggerMonitor(monitors, args));
+            } catch (error) {
+                return fail("Run Monitor Now error", error);
+            }
+        },
+        undefined,
+        BILLED_TASK
+    );
+
+    registerTool(
+        server,
+        apiKey,
+        "monitor-runs",
+        "List Monitor Runs",
+        "A monitor's runs, newest first: trigger (schedule or manual), status (queued, running, completed, failed, cancelled) and fail_reason, the window it searched, item_count, stats per source (fetched, in_window, new, passed, error) and how items were screened (stats.screen: jev, or keyword when it fell back), summary, reserved_usd, and cost_usd (null until billed). Free. Returns { runs, next_cursor }; next_cursor is null on the last page.",
+        strictArgs({
+            monitor_id: monitorId,
+            limit: z.number().int().min(1).max(100).optional().describe("Runs per page (1-100, API default 20)."),
+            cursor: z.string().min(1).max(512).optional().describe("next_cursor from the previous page."),
+        }),
+        async (args) => {
+            try {
+                return ok(await listMonitorRuns(monitors, args));
+            } catch (error) {
+                return fail("List Monitor Runs error", error);
+            }
+        },
+        undefined,
+        READ_ONLY_OPEN_WORLD
+    );
+
+    registerTool(
+        server,
+        apiKey,
+        "monitor-run",
+        "Get Monitor Run",
+        "One run with the items it kept, most relevant first, plus its status, stats, summary, and cost. Free. Each item has source, url, title, text (cut to 1000 characters), author, published_at, score (0-100), signals (relevant, new_info), found_at, and data (X: likes, reposts, replies, views; Reddit: subreddit, score, comments; YouTube: channel, views, thumbnail; web: highlights, domain).",
+        strictArgs({ monitor_id: monitorId, run_id: monitorRunId() }),
+        async (args) => {
+            try {
+                return ok(await readMonitorRun(monitors, args));
+            } catch (error) {
+                return fail("Get Monitor Run error", error);
+            }
+        },
+        undefined,
+        READ_ONLY_OPEN_WORLD
+    );
+
+    registerTool(
+        server,
+        apiKey,
+        "monitor-items",
+        "List Monitor Items",
+        "Everything a monitor kept across its runs, newest first, with the same item fields as monitor-run. Free. Filter by source. Returns { items, next_cursor }; next_cursor is null on the last page. To get only what is new since your last read, keep the first item_id you saw and stop paging when you reach it.",
+        strictArgs({
+            monitor_id: monitorId,
+            source: z.enum(MONITOR_SOURCES).optional().describe("Only items from this source: 'web', 'x', 'reddit', 'youtube', 'threads'."),
+            limit: z.number().int().min(1).max(200).optional().describe("Items per page (1-200, API default 50)."),
+            cursor: z
+                .string()
+                .regex(/^\d+$/)
+                .optional()
+                .describe("next_cursor from the previous page. Keep the same source filter when you page."),
+        }),
+        async (args) => {
+            try {
+                return ok(await listMonitorItems(monitors, args));
+            } catch (error) {
+                return fail("List Monitor Items error", error);
+            }
+        },
+        undefined,
+        READ_ONLY_OPEN_WORLD
+    );
+
+    registerTool(
+        server,
+        apiKey,
+        "monitor-webhook-test",
+        "Test Monitor Webhook",
+        "Send a signed monitor.test event with one sample item to the monitor's webhook and report what the endpoint answered: { delivered (a 2xx within 10 seconds), status_code, error, duration_ms }. Free; it is not retried and does not count toward webhook_failing. 400 when the monitor has no webhook.",
+        strictArgs({ monitor_id: monitorId }),
+        async (args) => {
+            try {
+                return ok(await monitors.testWebhook(args.monitor_id));
+            } catch (error) {
+                return fail("Test Monitor Webhook error", error);
+            }
+        },
+        undefined,
+        MONITOR_WEBHOOK_TEST
+    );
+
+    registerTool(
+        server,
+        apiKey,
+        "monitor-webhook-rotate-secret",
+        "Rotate Monitor Webhook Secret",
+        "Replace the monitor's webhook signing secret and return the new webhook_secret, shown only here. Free. Deliveries from now on are signed with it, and the old secret no longer verifies them: update your endpoint before the next run. 400 when the monitor has no webhook.",
+        strictArgs({ monitor_id: monitorId }),
+        async (args) => {
+            try {
+                return ok(await rotateMonitorSecret(monitors, args));
+            } catch (error) {
+                return fail("Rotate Monitor Webhook Secret error", error);
+            }
+        },
+        undefined,
+        MONITOR_SECRET_ROTATE
     );
 
     // Scanners ask for these lists during discovery. There is nothing to return,

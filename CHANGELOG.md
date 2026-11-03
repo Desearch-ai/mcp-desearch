@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.10.0
+
+Monitors: twelve new tools (51 in total) for the `/desearch/monitors` routes (desearch-public-api `docs/monitors.md`). A monitor reruns a search over `web`, `x`, `reddit`, `youtube`, and `threads` on a schedule (`1h` to `7d`), drops everything it has already seen, screens the new items (relevant, new information, and one question per criterion; kept at `min_score`), and keeps the ones that pass, readable through the API and sent to a signed webhook. Monitors are not in `desearch-js` 1.5, so `monitors.ts` calls the routes directly through `desearch-api.ts`, which now also sends `PATCH` and `DELETE`.
+
+| Tool | Route | Billed |
+| --- | --- | --- |
+| `monitor-create` | `POST /desearch/monitors` | Free; with `run_now` (the API default) its first run is queued, and billed when it ends. |
+| `monitor-estimate` | `POST /desearch/monitors/estimate` | Free. |
+| `monitor-list` | `GET /desearch/monitors` | Free. |
+| `monitor-get` | `GET /desearch/monitors/{monitor_id}` | Free. |
+| `monitor-update` | `PATCH /desearch/monitors/{monitor_id}` | Free. |
+| `monitor-delete` | `DELETE /desearch/monitors/{monitor_id}` | Free. |
+| `monitor-trigger` | `POST /desearch/monitors/{monitor_id}/trigger` | One run, billed when it ends. |
+| `monitor-runs` | `GET /desearch/monitors/{monitor_id}/runs` | Free. |
+| `monitor-run` | `GET /desearch/monitors/{monitor_id}/runs/{run_id}` | Free. |
+| `monitor-items` | `GET /desearch/monitors/{monitor_id}/items` | Free. |
+| `monitor-webhook-test` | `POST /desearch/monitors/{monitor_id}/webhook/test` | Free. |
+| `monitor-webhook-rotate-secret` | `POST /desearch/monitors/{monitor_id}/webhook/rotate-secret` | Free. |
+
+- A run is billed for its searches at their list price, Jev screening at $0.05 per 1,000 items screened, and the summary's LLM usage plus 50%; its `max_run_cost_usd` is held while it runs. The create, estimate, and trigger descriptions say so.
+- `monitor-create` and `monitor-update` take the per-source options flat (`web_count`, `x_count`, `x_lang`, `x_min_likes`) and the webhook as `webhook_url` and `webhook_events`, and send them as the API's nested `options` and `webhook`. `monitor-update` removes a webhook with `remove_webhook: true`, because a null argument means "omitted" on this server. Only the arguments the caller set are sent.
+- `webhook_secret` is passed through on create, on an update that changes the webhook URL, and on rotate-secret, with a `next` hint to store it and how to verify `Desearch-Signature`.
+- Lists return `{ monitors | runs | items, next_cursor }` with `next_cursor` `null` on the last page. Items keep their fields, with `text` cut to 1000 characters.
+- Annotations: `monitor-estimate`, `monitor-list`, `monitor-get`, `monitor-runs`, `monitor-run`, and `monitor-items` are lookups. `monitor-create` and `monitor-trigger` are `destructiveHint: false`, `idempotentHint: false`. `monitor-update` and `monitor-delete` are `destructiveHint: true`, `idempotentHint: true`. `monitor-webhook-rotate-secret` is `destructiveHint: true`, `idempotentHint: false`. `monitor-webhook-test` is `readOnlyHint: false`, `destructiveHint: false`, `idempotentHint: false`.
+- `scripts/e2e-monitors.mjs` drives every free monitor tool over stdio against a live API (`--base-url`, `--key-env`) and deletes the monitor it creates. It never triggers a run.
+- The Monitors routes are on `api-dev.desearch.ai`; release this after they reach `api.desearch.ai`.
+- Every version (package, `server.json`, the Gemini extension, the plugin manifests, and `SERVER_VERSION`) is 0.10.0, and the docs and manifest descriptions say the server exposes 51 tools.
+
 ## 0.8.0
 
 YouTube, Reddit, and Threads: three new tools (39 in total) for the 16 public routes tagged YouTube Search, Reddit Search, and Threads Search. They are not in `desearch-js` 1.5, so they use the same `social.ts` action table and direct API calls (`desearch-api.ts`) as `tiktok`, `facebook`, and `instagram`. Each request is billed as one unit (an empty page included; a 404, a 422, and a 5xx are free).

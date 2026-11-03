@@ -1,15 +1,15 @@
 ---
 name: desearch
-description: Choose which Desearch MCP tool to call. Use when the task needs AI search, web search, a page as text or HTML, X posts, X trends, public TikTok, Facebook, or Instagram posts and profiles, YouTube videos, transcripts, comments and channels, Reddit posts and comment trees, Threads posts and profiles, finding people and creators on X, YouTube, LinkedIn, or TikTok, or finding companies and their public contacts and leaders (or enriching domains you already have).
+description: Choose which Desearch MCP tool to call. Use when the task needs AI search, web search, a page as text or HTML, X posts, X trends, public TikTok, Facebook, or Instagram posts and profiles, YouTube videos, transcripts, comments and channels, Reddit posts and comment trees, Threads posts and profiles, finding people and creators on X, YouTube, LinkedIn, or TikTok, finding companies and their public contacts and leaders (or enriching domains you already have), or watching a topic over time with a monitor that reruns a search on a schedule and keeps only new items.
 ---
 
 # Desearch
 
-Version 0.8.0 exposes 39 tools.
+Version 0.10.0 exposes 51 tools.
 
 Pick one Desearch tool from this list. Do not call a tool that is not registered.
 
-Set `DESEARCH_API_KEY` before the server starts. The plugin launches `npx -y desearch-mcp-server` and passes that variable through. The search, X, TikTok, Facebook, Instagram, YouTube, Reddit, and Threads tools send read requests. They do not post, follow, delete, or change an account. `people-search` starts a billed background search, and `people-search-pause`, `people-search-resume`, and `people-search-cancel` pause, resume, or cancel one. `company-search` and `company-enrich` start billed background company tasks, and `company-search-pause`, `company-search-resume`, and `company-search-cancel` pause, resume, or cancel one.
+Set `DESEARCH_API_KEY` before the server starts. The plugin launches `npx -y desearch-mcp-server` and passes that variable through. The search, X, TikTok, Facebook, Instagram, YouTube, Reddit, and Threads tools send read requests. They do not post, follow, delete, or change an account. `people-search` starts a billed background search, and `people-search-pause`, `people-search-resume`, and `people-search-cancel` pause, resume, or cancel one. `company-search` and `company-enrich` start billed background company tasks, and `company-search-pause`, `company-search-resume`, and `company-search-cancel` pause, resume, or cancel one. `monitor-create` sets up a monitor whose runs are billed, `monitor-trigger` runs one now (billed), `monitor-update` changes or pauses it, `monitor-delete` removes it, and `monitor-webhook-rotate-secret` replaces its webhook signing secret.
 
 ## Which tool
 
@@ -53,8 +53,17 @@ Set `DESEARCH_API_KEY` before the server starts. The plugin launches `npx -y des
 - **Resume Company Search** (`company-search-resume`): Resume a paused task with no new charge. Argument: `task_id` (required).
 - **Cancel Company Search** (`company-search-cancel`): Stop a task for good; only companies already delivered are billed. Argument: `task_id` (required). Cancel cannot be undone.
 - **List Company Search Tasks** (`company-search-tasks`): Your Company Search and Company Enrich tasks, newest first. Arguments: `type` (`search` or `enrich`), `status` (list), `limit`, `cursor`, `metadata` (up to 3 labels a task must have, exact match), all optional.
+- **Create Monitor** (`monitor-create`): A search over `web`, `x`, `reddit`, `youtube`, and `threads` that reruns every `interval` (`1h`, `3h`, `6h`, `12h`, `1d`, `7d`) and keeps only new items that pass the screen (relevant, new information, and each criterion; kept at `min_score`, default 60). Creating it is free; each run is billed when it ends (its searches at list price, $0.05 per 1,000 items screened, the summary's LLM usage plus 50%), and `run_now` (default true) queues the first run at once. Arguments: `query` (required, 3 to 500 characters), `name`, `criteria` (up to 5), `sources`, `interval`, `web_count` (10, 15, 20), `x_count` (1 to 100), `x_lang`, `x_min_likes`, `min_score`, `summary`, `webhook_url`, `webhook_events`, `metadata`, `run_now` (all optional). With `webhook_url` the reply has `webhook_secret`, shown only once.
+- **Estimate Monitor Cost** (`monitor-estimate`): The most one run and one month can cost. Arguments: `sources`, `web_count`, `x_count`, `summary`, `interval` (all optional). Free.
+- **List Monitors** (`monitor-list`) and **Get Monitor** (`monitor-get`): Your monitors (`status`, `limit`, `cursor`) or one monitor (`monitor_id`), with status, `next_run_at`, `last_run`, and totals. Free.
+- **Update Monitor** (`monitor-update`): Change settings, pause (`status: "paused"`) or resume (`"active"`), or `remove_webhook`. Arguments: `monitor_id` (required) and what to change. Per-source options replace the old ones as a whole. Free.
+- **Delete Monitor** (`monitor-delete`): Delete a monitor for good. Argument: `monitor_id` (required). Free. To stop it for a while, pause it instead.
+- **Run Monitor Now** (`monitor-trigger`): Queue one billed run now. Argument: `monitor_id` (required).
+- **List Monitor Runs** (`monitor-runs`) and **Get Monitor Run** (`monitor-run`): Runs with per-source stats and cost (`monitor_id`, `limit`, `cursor`), or one run with the items it kept (`monitor_id`, `run_id`). Free.
+- **List Monitor Items** (`monitor-items`): Everything a monitor kept, newest first. Arguments: `monitor_id` (required), `source`, `limit` (1 to 200), `cursor`. Free.
+- **Test Monitor Webhook** (`monitor-webhook-test`) and **Rotate Monitor Webhook Secret** (`monitor-webhook-rotate-secret`): Send a signed test event, or replace the signing secret (the new one is shown once). Argument: `monitor_id` (required). Free.
 
-Before `people-search`, check `people-profiles` when the user may already have searched for these people. Start a new search only when the user asks to find people. Use `company-search` only when the user asks to find companies, and `company-enrich` when they already have the domains; both are billed. A People Search `task_id` does not work on the company tools, and a company `task_id` does not work on the People Search tools.
+Before `people-search`, check `people-profiles` when the user may already have searched for these people. Start a new search only when the user asks to find people. Use `company-search` only when the user asks to find companies, and `company-enrich` when they already have the domains; both are billed. A People Search `task_id` does not work on the company tools, and a company `task_id` does not work on the People Search tools. Use `monitor-create` only when the user asks to keep watching a topic, because every run is billed; `monitor-estimate` says what it will cost first.
 
 ## When not to use these tools
 

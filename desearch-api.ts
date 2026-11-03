@@ -2,8 +2,8 @@ import { fetch } from "undici";
 
 /**
  * Direct calls to the Desearch API for routes desearch-js 1.5 does not cover
- * (People Search, the TikTok, Facebook, Instagram, YouTube, Reddit and Threads routes,
- * `POST /search`).
+ * (People Search, Company Search, Monitors, the TikTok, Facebook, Instagram, YouTube,
+ * Reddit and Threads routes, `POST /search`).
  *
  * Same base URL, `Authorization: <key>` header, and `HTTP <status>: <detail>`
  * error text that desearch-js uses, so every tool reports API errors the same way.
@@ -36,7 +36,7 @@ export interface ApiRequestOptions {
 }
 
 export type DesearchApi = (
-    method: "GET" | "POST",
+    method: "GET" | "POST" | "PATCH" | "DELETE",
     path: string,
     options?: ApiRequestOptions
 ) => Promise<ApiResponse>;
