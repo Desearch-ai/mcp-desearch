@@ -28,6 +28,7 @@ import {
     MONITOR_INTERVALS,
     MONITOR_SOURCES,
     MONITOR_STATUSES,
+    MONITOR_TIKTOK_COUNTS,
     MONITOR_WEB_COUNTS,
 } from "../build/monitors.js";
 
@@ -326,7 +327,7 @@ test("company tools advertise the Company Search API enums", async () => {
 
 // Values from desearch-public-api model/monitors.py (MonitorSource, MONITOR_INTERVALS,
 // MonitorEvent, WebOptions.count) and routers/monitors.py (the list status filter).
-const MONITOR_SOURCE_ENUM = ["web", "x", "reddit", "youtube", "threads"];
+const MONITOR_SOURCE_ENUM = ["web", "x", "reddit", "youtube", "threads", "tiktok"];
 const MONITOR_INTERVAL_ENUM = ["1h", "3h", "6h", "12h", "1d", "7d"];
 const MONITOR_EVENT_ENUM = ["monitor.items.found", "monitor.run.completed", "monitor.run.failed"];
 
@@ -336,6 +337,7 @@ test("monitor tools advertise the Monitors API enums and argument names", async 
     assert.deepEqual([...MONITOR_EVENTS], MONITOR_EVENT_ENUM);
     assert.deepEqual([...MONITOR_STATUSES], ["active", "paused"]);
     assert.deepEqual([...MONITOR_WEB_COUNTS], [10, 15, 20]);
+    assert.deepEqual([...MONITOR_TIKTOK_COUNTS], [10, 20, 30]);
 
     await withFakeClient({}, async (client) => {
         const { tools } = await client.listTools();
@@ -347,14 +349,19 @@ test("monitor tools advertise the Monitors API enums and argument names", async 
             "metadata",
             "min_score",
             "name",
+            "reddit_subreddits",
             "sources",
             "summary",
+            "tiktok_accounts",
+            "tiktok_count",
             "web_count",
             "webhook_events",
             "webhook_url",
+            "x_accounts",
             "x_count",
             "x_lang",
             "x_min_likes",
+            "youtube_channels",
         ];
         assert.deepEqual(Object.keys(byName["monitor-create"]).sort(), [...settings, "query", "run_now"].sort());
         assert.deepEqual(
@@ -370,12 +377,27 @@ test("monitor tools advertise the Monitors API enums and argument names", async 
             assert.equal(byName[name].x_count.maximum, 100, name);
             assert.equal(byName[name].criteria.maxItems, 5, name);
             assert.equal(byName[name].metadata.type, "object", name);
+            assert.deepEqual(byName[name].tiktok_count.enum, [10, 20, 30], name);
+            for (const list of ["x_accounts", "reddit_subreddits", "youtube_channels", "tiktok_accounts"]) {
+                assert.equal(byName[name][list].type, "array", `${name} ${list}`);
+                assert.equal(byName[name][list].maxItems, 10, `${name} ${list}`);
+                assert.equal(byName[name][list].items.type, "string", `${name} ${list}`);
+            }
         }
         assert.deepEqual(byName["monitor-update"].status.enum, ["active", "paused"]);
-        assert.deepEqual(
-            Object.keys(byName["monitor-estimate"]).sort(),
-            ["interval", "sources", "summary", "web_count", "x_count"]
-        );
+        assert.deepEqual(Object.keys(byName["monitor-estimate"]).sort(), [
+            "interval",
+            "reddit_subreddits",
+            "sources",
+            "summary",
+            "tiktok_accounts",
+            "tiktok_count",
+            "web_count",
+            "x_accounts",
+            "x_count",
+            "youtube_channels",
+        ]);
+        assert.deepEqual(byName["monitor-estimate"].sources.items.enum, MONITOR_SOURCE_ENUM);
         assert.deepEqual(byName["monitor-list"].status.items.enum, ["active", "paused"]);
         assert.deepEqual(byName["monitor-items"].source.enum, MONITOR_SOURCE_ENUM);
         assert.equal(byName["monitor-items"].limit.maximum, 200);

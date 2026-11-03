@@ -88,6 +88,29 @@ const X_ITEM = {
     data: { likes: 120, reposts: 14, replies: 9, views: 5400 },
 };
 
+const TIKTOK_ITEM = {
+    item_id: "1843",
+    run_id: RUN_ID,
+    source: "tiktok",
+    url: "https://www.tiktok.com/@openai/video/7620891413932166433",
+    title: null,
+    text: "Sora is here",
+    author: { name: "OpenAI", handle: "openai", url: "https://www.tiktok.com/@openai" },
+    published_at: "2026-11-03T08:30:00Z",
+    score: 64,
+    signals: { relevant: 0.64, new_info: 0.9 },
+    found_at: "2026-11-03T09:00:41Z",
+    data: {
+        views: 120000,
+        likes: 8000,
+        comments: 240,
+        shares: 310,
+        duration_s: 21,
+        thumbnail: "https://p16.tiktokcdn.com/thumb.jpeg",
+        account: "openai",
+    },
+};
+
 const WEB_ITEM = {
     item_id: "1841",
     run_id: RUN_ID,
@@ -237,6 +260,64 @@ test("monitor-create sends the settings with options and webhook nested, and say
     });
 });
 
+test("monitor-create sends watched accounts and TikTok options as given, nested per source", async () => {
+    await withServer(async (client, mock) => {
+        const cleaned = {
+            ...MONITOR,
+            sources: ["x", "reddit", "youtube", "tiktok"],
+            options: {
+                x: { count: 20, accounts: ["OpenAI", "sama"], min_likes: 10 },
+                reddit: { subreddits: ["LocalLLaMA"] },
+                youtube: { channels: ["@OpenAI", "UCXZCJLdBC09xxGZ6gcdrc6A"] },
+                tiktok: { count: 20, accounts: ["openai"] },
+            },
+            webhook: null,
+        };
+        mock.reply("POST", "/desearch/monitors", 201, cleaned);
+
+        const body = await call(client, "monitor-create", {
+            query: "OpenAI product announcements",
+            sources: ["x", "reddit", "youtube", "tiktok"],
+            x_accounts: ["@OpenAI", "https://x.com/sama"],
+            x_min_likes: 10,
+            reddit_subreddits: ["r/LocalLLaMA"],
+            youtube_channels: ["OpenAI", "https://www.youtube.com/channel/UCXZCJLdBC09xxGZ6gcdrc6A"],
+            tiktok_count: 20,
+            tiktok_accounts: ["@openai"],
+            min_score: 0,
+            run_now: false,
+        });
+        // The API's cleaned names come back unchanged.
+        assert.deepEqual(body.options, cleaned.options);
+        assert.deepEqual(mock.seen[0].body, {
+            query: "OpenAI product announcements",
+            sources: ["x", "reddit", "youtube", "tiktok"],
+            options: {
+                x: { min_likes: 10, accounts: ["@OpenAI", "https://x.com/sama"] },
+                reddit: { subreddits: ["r/LocalLLaMA"] },
+                youtube: { channels: ["OpenAI", "https://www.youtube.com/channel/UCXZCJLdBC09xxGZ6gcdrc6A"] },
+                tiktok: { count: 20, accounts: ["@openai"] },
+            },
+            min_score: 0,
+            run_now: false,
+        });
+    });
+});
+
+test("monitor tools report a watched account the API cannot read", async () => {
+    await withServer(async (client, mock) => {
+        mock.reply("POST", "/desearch/monitors", 422, {
+            detail: [{ loc: ["body", "options", "x", "accounts"], msg: "Value error, 'not a user!' is not an X username" }],
+        });
+        await rejects(
+            client,
+            "monitor-create",
+            { query: "OpenAI launches", sources: ["x"], x_accounts: ["not a user!"] },
+            /^Create Monitor error: HTTP 422: .*is not an X username/
+        );
+    });
+});
+
 test("monitor-create sends only the query when nothing else is set, and run_now false says how to run it", async () => {
     await withServer(async (client, mock) => {
         mock.reply("POST", "/desearch/monitors", 201, { ...MONITOR, webhook: null });
@@ -261,7 +342,7 @@ test("monitor-create rejects bad input before any request", async () => {
             { query: "ab" },
             { query: "x".repeat(501) },
             { query: "OpenAI launches", sources: [] },
-            { query: "OpenAI launches", sources: ["tiktok"] },
+            { query: "OpenAI launches", sources: ["instagram"] },
             { query: "OpenAI launches", interval: "30m" },
             { query: "OpenAI launches", web_count: 12 },
             { query: "OpenAI launches", x_count: 0 },
@@ -276,6 +357,11 @@ test("monitor-create rejects bad input before any request", async () => {
             { query: "OpenAI launches", metadata: { ["k".repeat(65)]: "v" } },
             { query: "OpenAI launches", metadata: Object.fromEntries(Array.from({ length: 21 }, (_, i) => [`k${i}`, "v"])) },
             { query: "OpenAI launches", metadata: { team: "x".repeat(501) } },
+            { query: "OpenAI launches", tiktok_count: 15 },
+            { query: "OpenAI launches", x_accounts: Array.from({ length: 11 }, (_, i) => `user${i}`) },
+            { query: "OpenAI launches", reddit_subreddits: [""] },
+            { query: "OpenAI launches", youtube_channels: "@OpenAI" },
+            { query: "OpenAI launches", tiktok_accounts: ["x".repeat(201)] },
             { query: "OpenAI launches", options: { web: { count: 10 } } },
             { query: "OpenAI launches", webhook: { url: "https://example.com/h" } },
         ]) {
@@ -338,8 +424,27 @@ test("monitor-estimate posts the cost settings and returns the estimate as the A
             interval: "1h",
         });
         assert.deepEqual(mock.seen[1].body, {});
+        mock.reply("POST", "/desearch/monitors/estimate", 200, estimate);
+        await call(client, "monitor-estimate", {
+            sources: ["x", "reddit", "youtube", "tiktok"],
+            x_accounts: ["OpenAI", "sama"],
+            reddit_subreddits: ["LocalLLaMA"],
+            youtube_channels: ["@OpenAI"],
+            tiktok_count: 30,
+            tiktok_accounts: ["openai"],
+        });
+        assert.deepEqual(mock.seen[2].body, {
+            sources: ["x", "reddit", "youtube", "tiktok"],
+            options: {
+                x: { accounts: ["OpenAI", "sama"] },
+                reddit: { subreddits: ["LocalLLaMA"] },
+                youtube: { channels: ["@OpenAI"] },
+                tiktok: { count: 30, accounts: ["openai"] },
+            },
+        });
         await rejects(client, "monitor-estimate", { x_lang: "en" });
-        assert.equal(mock.seen.length, 2);
+        await rejects(client, "monitor-estimate", { tiktok_count: 5 });
+        assert.equal(mock.seen.length, 3);
     });
 });
 
@@ -391,6 +496,7 @@ test("monitor-update patches only what changes, removes a webhook, and pauses", 
             webhook: { url: "https://hooks.example.com/new", events: ["monitor.run.completed"], consecutive_failures: 0 },
             webhook_secret: "whsec_new",
         });
+        mock.reply("PATCH", MONITOR_PATH, 200, { ...MONITOR, options: { x: {}, tiktok: { count: 30, accounts: ["openai"] } } });
 
         const paused = await call(client, "monitor-update", {
             monitor_id: MONITOR_ID,
@@ -411,6 +517,13 @@ test("monitor-update patches only what changes, removes a webhook, and pauses", 
         });
         assert.equal(moved.webhook_secret, "whsec_new");
         assert.match(moved.next, /Store webhook_secret now/);
+        const accounts = await call(client, "monitor-update", {
+            monitor_id: MONITOR_ID,
+            x_accounts: [],
+            tiktok_count: 30,
+            tiktok_accounts: ["openai"],
+        });
+        assert.deepEqual(accounts.options.tiktok, { count: 30, accounts: ["openai"] });
 
         assert.deepEqual(
             mock.seen.map((sent) => [sent.method, sent.path, sent.body]),
@@ -425,6 +538,8 @@ test("monitor-update patches only what changes, removes a webhook, and pauses", 
                         webhook: { url: "https://hooks.example.com/new", events: ["monitor.run.completed"] },
                     },
                 ],
+                // An empty list is sent, so the monitor stops watching X accounts.
+                ["PATCH", MONITOR_PATH, { options: { x: { accounts: [] }, tiktok: { count: 30, accounts: ["openai"] } } }],
             ]
         );
     });
@@ -526,14 +641,19 @@ test("monitor-runs pages a monitor's runs", async () => {
 
 test("monitor-run returns the run with compact items and what to do next", async () => {
     await withServer(async (client, mock) => {
-        mock.reply("GET", `${MONITOR_PATH}/runs/${RUN_ID}`, 200, { ...RUN, items: [X_ITEM, WEB_ITEM] });
+        const stats = {
+            ...RUN.stats,
+            sources: { ...RUN.stats.sources, x: { ...RUN.stats.sources.x, accounts_failed: ["deleted_user"] } },
+        };
+        mock.reply("GET", `${MONITOR_PATH}/runs/${RUN_ID}`, 200, { ...RUN, stats, items: [X_ITEM, WEB_ITEM] });
         mock.reply("GET", `${MONITOR_PATH}/runs/${RUN_ID}`, 200, { ...RUN, status: "running", items: [] });
         mock.reply("GET", `${MONITOR_PATH}/runs/${RUN_ID}`, 404, { detail: "Run not found" });
 
         const run = await call(client, "monitor-run", { monitor_id: MONITOR_ID, run_id: RUN_ID });
         assert.equal(run.status, "completed");
         assert.equal(run.cost_usd, 0.0041);
-        assert.deepEqual(run.stats, RUN.stats);
+        assert.deepEqual(run.stats, stats);
+        assert.deepEqual(run.stats.sources.x.accounts_failed, ["deleted_user"]);
         assert.equal(run.items.length, 2);
         const [x, web] = run.items;
         assert.equal(Object.hasOwn(x, "title"), false);
@@ -571,14 +691,20 @@ test("monitor-items filters by source, pages with the item cursor, and compacts 
         assert.deepEqual(queryOf(mock.seen[0].path), { source: "x", limit: "1" });
         assert.deepEqual(queryOf(mock.seen[1].path), { source: "x", limit: "1", cursor: "1842" });
 
+        mock.reply("GET", `${MONITOR_PATH}/items`, 200, { items: [TIKTOK_ITEM], next_cursor: null });
+        const tiktok = await call(client, "monitor-items", { monitor_id: MONITOR_ID, source: "tiktok" });
+        assert.deepEqual(tiktok.items[0].data, TIKTOK_ITEM.data);
+        assert.equal(tiktok.items[0].data.account, "openai");
+        assert.deepEqual(queryOf(mock.seen[2].path), { source: "tiktok" });
+
         for (const args of [
-            { monitor_id: MONITOR_ID, source: "tiktok" },
+            { monitor_id: MONITOR_ID, source: "instagram" },
             { monitor_id: MONITOR_ID, limit: 201 },
             { monitor_id: MONITOR_ID, cursor: "abc" },
         ]) {
             await rejects(client, "monitor-items", args);
         }
-        assert.equal(mock.seen.length, 2);
+        assert.equal(mock.seen.length, 3);
     });
 });
 
@@ -632,6 +758,10 @@ test("monitor tools need an API key and send nothing without one", async () => {
 test("monitor request bodies match the API models", () => {
     assert.equal(monitorOptions({}), undefined);
     assert.deepEqual(monitorOptions({ x_lang: "en" }), { x: { lang: "en" } });
+    assert.deepEqual(monitorOptions({ reddit_subreddits: [], tiktok_count: 10 }), {
+        reddit: { subreddits: [] },
+        tiktok: { count: 10 },
+    });
     assert.deepEqual(monitorCreateBody({ query: "q q q", run_now: true, summary: true }), {
         query: "q q q",
         summary: true,

@@ -8,8 +8,9 @@ import { PEOPLE_API_BASE_URL, arrayOf, compact, objectOf, stringOf } from "./peo
  * `desearch-api.ts`, with the same base URL, `Authorization: <key>` header, and
  * `HTTP <status>: <detail>` error text as Company Search (companies.ts).
  *
- * A monitor reruns a search over its `sources` on a schedule (`interval`), drops everything it
- * has already seen, screens the new items (Jev: relevant, new_info, and one question per
+ * A monitor reruns a search over its `sources` on a schedule (`interval`), or reads the newest
+ * posts of up to 10 watched accounts per source (X users, subreddits, YouTube channels, TikTok
+ * users), drops everything it has already seen, screens the new items (Jev: relevant, new_info, and one question per
  * criterion; `score` is the lowest, kept at `min_score`), and keeps the ones that pass. Kept
  * items are readable with the items route and are sent to the monitor's signed webhook.
  *
@@ -24,7 +25,7 @@ import { PEOPLE_API_BASE_URL, arrayOf, compact, objectOf, stringOf } from "./peo
  */
 
 /** `sources` (model/monitors.py MonitorSource). */
-export const MONITOR_SOURCES = ["web", "x", "reddit", "youtube", "threads"] as const;
+export const MONITOR_SOURCES = ["web", "x", "reddit", "youtube", "threads", "tiktok"] as const;
 export type MonitorSource = (typeof MONITOR_SOURCES)[number];
 
 /** `interval` (model/monitors.py MONITOR_INTERVALS). */
@@ -42,6 +43,9 @@ export type MonitorStatus = (typeof MONITOR_STATUSES)[number];
 /** `options.web.count` (model/monitors.py WebOptions). */
 export const MONITOR_WEB_COUNTS = [10, 15, 20] as const;
 
+/** `options.tiktok.count` (model/monitors.py TikTokOptions): posts per run, per account with accounts. */
+export const MONITOR_TIKTOK_COUNTS = [10, 20, 30] as const;
+
 /** Request limits (model/monitors.py). */
 export const MONITOR_QUERY_MIN = 3;
 export const MONITOR_QUERY_MAX = 500;
@@ -52,17 +56,28 @@ export const MONITOR_METADATA_MAX_KEYS = 20;
 export const MONITOR_METADATA_KEY_MAX = 64;
 export const MONITOR_METADATA_VALUE_MAX = 500;
 export const MONITOR_X_COUNT_MAX = 100;
+/** Watched accounts per source (model/monitors.py MAX_ACCOUNTS). */
+export const MONITOR_ACCOUNTS_MAX = 10;
 
-/** Settings create and update share. Per-source options are flat here and nested in the body. */
-export interface MonitorSettingsArgs {
-    name?: string;
-    criteria?: string[];
-    sources?: MonitorSource[];
-    interval?: MonitorInterval;
+/** The per-source options as flat tool arguments; monitorOptions nests them. */
+export interface MonitorSourceArgs {
     web_count?: number;
     x_count?: number;
     x_lang?: string;
     x_min_likes?: number;
+    x_accounts?: string[];
+    reddit_subreddits?: string[];
+    youtube_channels?: string[];
+    tiktok_count?: number;
+    tiktok_accounts?: string[];
+}
+
+/** Settings create and update share. Per-source options are flat here and nested in the body. */
+export interface MonitorSettingsArgs extends MonitorSourceArgs {
+    name?: string;
+    criteria?: string[];
+    sources?: MonitorSource[];
+    interval?: MonitorInterval;
     min_score?: number;
     summary?: boolean;
     webhook_url?: string;
@@ -82,10 +97,12 @@ export interface MonitorUpdateArgs extends MonitorSettingsArgs {
     remove_webhook?: boolean;
 }
 
-export interface MonitorEstimateArgs {
+export interface MonitorEstimateArgs
+    extends Pick<
+        MonitorSourceArgs,
+        "web_count" | "x_count" | "x_accounts" | "reddit_subreddits" | "youtube_channels" | "tiktok_count" | "tiktok_accounts"
+    > {
     sources?: MonitorSource[];
-    web_count?: number;
-    x_count?: number;
     summary?: boolean;
     interval?: MonitorInterval;
 }
@@ -155,17 +172,29 @@ export function monitorClientFor(call: DesearchApi): MonitorClient {
     };
 }
 
-/** `options` from the flat tool arguments: `web.count`, `x.count`, `x.lang`, `x.min_likes`. */
-export function monitorOptions(args: {
-    web_count?: number;
-    x_count?: number;
-    x_lang?: string;
-    x_min_likes?: number;
-}): Record<string, unknown> | undefined {
-    const web = compact({ count: args.web_count });
-    const x = compact({ count: args.x_count, lang: args.x_lang, min_likes: args.x_min_likes });
-    const options = compact({ web, x });
-    return Object.keys(options).length > 0 ? options : undefined;
+/** The fields that are set. Unlike `compact`, an empty list stays: it sends "no accounts". */
+function setFields(fields: Record<string, unknown>): Record<string, unknown> | undefined {
+    const out: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(fields)) {
+        if (value !== undefined) out[key] = value;
+    }
+    return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/**
+ * `options` from the flat tool arguments: `web.count`; `x.count`, `x.lang`, `x.min_likes`,
+ * `x.accounts`; `reddit.subreddits`; `youtube.channels`; `tiktok.count`, `tiktok.accounts`.
+ * Account names are sent as given: the API cleans them (`@OpenAI` → `OpenAI`, `r/LocalLLaMA`
+ * → `LocalLLaMA`) and answers 422 for a name it cannot read.
+ */
+export function monitorOptions(args: MonitorSourceArgs): Record<string, unknown> | undefined {
+    return setFields({
+        web: setFields({ count: args.web_count }),
+        x: setFields({ count: args.x_count, lang: args.x_lang, min_likes: args.x_min_likes, accounts: args.x_accounts }),
+        reddit: setFields({ subreddits: args.reddit_subreddits }),
+        youtube: setFields({ channels: args.youtube_channels }),
+        tiktok: setFields({ count: args.tiktok_count, accounts: args.tiktok_accounts }),
+    });
 }
 
 /** `webhook` from `webhook_url` and `webhook_events`. The API needs the URL in every webhook object. */
@@ -236,7 +265,8 @@ const MAX_ITEM_TEXT_CHARS = 1000;
 
 /**
  * One kept item as an agent needs it: where it came from, what it says (`text` cut to 1000
- * characters), who posted it, how it scored, and the source's own fields (`data`).
+ * characters), who posted it, how it scored, and the source's own fields (`data`, with
+ * `account` when it was read from a watched account).
  */
 export function compactMonitorItem(item: unknown): Record<string, unknown> {
     const i = objectOf(item);

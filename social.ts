@@ -22,6 +22,16 @@ export type SocialPlatform = (typeof SOCIAL_PLATFORMS)[number];
 
 export const NEXT_CURSOR_HEADER = "x-desearch-next-cursor";
 
+/** `date_posted` on TikTok search (desearch-public-api model/tiktok.py TikTokSearchRequest). */
+export const TIKTOK_DATE_POSTED = [
+    "yesterday",
+    "this-week",
+    "this-month",
+    "last-3-months",
+    "last-6-months",
+    "all-time",
+] as const;
+
 export interface SocialActionSpec {
     method: "GET" | "POST";
     /** Route, with `{name}` for each path argument. */
@@ -42,7 +52,7 @@ export const SOCIAL_ACTIONS = {
             method: "POST",
             path: "/desearch/tiktok/search",
             required: ["query"],
-            optional: ["count", "sort", "cursor"],
+            optional: ["count", "sort", "date_posted", "cursor"],
             list: true,
         },
         post: { method: "GET", path: "/desearch/tiktok/post/{id}", required: ["id"], optional: [] },
@@ -284,6 +294,7 @@ const ARGUMENT_NAMES = [
     "sort",
     "sort_by",
     "upload_date",
+    "date_posted",
     "duration",
     "timeframe",
     "start_date",
