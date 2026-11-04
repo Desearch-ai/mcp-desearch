@@ -23,6 +23,15 @@ import {
     COMPANY_TASK_STATUSES,
     COMPANY_TASK_TYPES,
 } from "../build/companies.js";
+import {
+    MONITOR_EVENTS,
+    MONITOR_INTERVALS,
+    MONITOR_META_ADS_COUNTS,
+    MONITOR_SOURCES,
+    MONITOR_STATUSES,
+    MONITOR_TIKTOK_COUNTS,
+    MONITOR_WEB_COUNTS,
+} from "../build/monitors.js";
 
 function textOf(result) {
     assert.equal(result.content[0].type, "text");
@@ -313,6 +322,121 @@ test("company tools advertise the Company Search API enums", async () => {
             });
             assert.equal(rejected.isError, true, role);
             assert.match(rejected.content[0].text, /Input validation error/, role);
+        }
+    });
+});
+
+// Values from desearch-public-api model/monitors.py (MonitorSource, MONITOR_INTERVALS,
+// MonitorEvent, WebOptions.count, MetaAdsOptions.count) and routers/monitors.py (the list status filter).
+const MONITOR_SOURCE_ENUM = ["web", "x", "reddit", "youtube", "threads", "tiktok", "instagram", "facebook", "meta_ads"];
+const MONITOR_INTERVAL_ENUM = ["1h", "3h", "6h", "12h", "1d", "7d"];
+const MONITOR_EVENT_ENUM = ["monitor.items.found", "monitor.run.completed", "monitor.run.failed"];
+
+test("monitor tools advertise the Monitors API enums and argument names", async () => {
+    assert.deepEqual([...MONITOR_SOURCES], MONITOR_SOURCE_ENUM);
+    assert.deepEqual([...MONITOR_INTERVALS], MONITOR_INTERVAL_ENUM);
+    assert.deepEqual([...MONITOR_EVENTS], MONITOR_EVENT_ENUM);
+    assert.deepEqual([...MONITOR_STATUSES], ["active", "paused"]);
+    assert.deepEqual([...MONITOR_WEB_COUNTS], [10, 15, 20]);
+    assert.deepEqual([...MONITOR_TIKTOK_COUNTS], [10, 20, 30]);
+    assert.deepEqual([...MONITOR_META_ADS_COUNTS], [10, 20, 30]);
+
+    await withFakeClient({}, async (client) => {
+        const { tools } = await client.listTools();
+        const byName = Object.fromEntries(tools.map((tool) => [tool.name, tool.inputSchema.properties]));
+
+        const settings = [
+            "criteria",
+            "facebook_pages",
+            "instagram_accounts",
+            "interval",
+            "meta_ads_count",
+            "metadata",
+            "min_score",
+            "name",
+            "reddit_subreddits",
+            "sources",
+            "summary",
+            "instagram_hashtags",
+            "threads_accounts",
+            "tiktok_accounts",
+            "tiktok_count",
+            "tiktok_hashtags",
+            "web_count",
+            "webhook_events",
+            "webhook_url",
+            "x_accounts",
+            "x_count",
+            "x_lang",
+            "x_min_likes",
+            "youtube_channels",
+        ];
+        assert.deepEqual(Object.keys(byName["monitor-create"]).sort(), [...settings, "query", "run_now"].sort());
+        assert.deepEqual(
+            Object.keys(byName["monitor-update"]).sort(),
+            [...settings, "monitor_id", "query", "remove_webhook", "status"].sort()
+        );
+        for (const name of ["monitor-create", "monitor-update"]) {
+            assert.deepEqual(byName[name].sources.items.enum, MONITOR_SOURCE_ENUM, name);
+            assert.equal(byName[name].sources.minItems, 1, name);
+            assert.deepEqual(byName[name].interval.enum, MONITOR_INTERVAL_ENUM, name);
+            assert.deepEqual(byName[name].webhook_events.items.enum, MONITOR_EVENT_ENUM, name);
+            assert.deepEqual(byName[name].web_count.enum, [10, 15, 20], name);
+            assert.equal(byName[name].x_count.maximum, 100, name);
+            assert.equal(byName[name].criteria.maxItems, 5, name);
+            assert.equal(byName[name].metadata.type, "object", name);
+            assert.deepEqual(byName[name].tiktok_count.enum, [10, 20, 30], name);
+            assert.deepEqual(byName[name].meta_ads_count.enum, [10, 20, 30], name);
+            for (const list of [
+                "x_accounts",
+                "reddit_subreddits",
+                "youtube_channels",
+                "tiktok_accounts",
+                "tiktok_hashtags",
+                "threads_accounts",
+                "instagram_accounts",
+                "instagram_hashtags",
+                "facebook_pages",
+            ]) {
+                assert.equal(byName[name][list].type, "array", `${name} ${list}`);
+                assert.equal(byName[name][list].maxItems, 10, `${name} ${list}`);
+                assert.equal(byName[name][list].items.type, "string", `${name} ${list}`);
+            }
+        }
+        assert.deepEqual(byName["monitor-update"].status.enum, ["active", "paused"]);
+        assert.deepEqual(Object.keys(byName["monitor-estimate"]).sort(), [
+            "facebook_pages",
+            "instagram_accounts",
+            "instagram_hashtags",
+            "interval",
+            "meta_ads_count",
+            "reddit_subreddits",
+            "sources",
+            "summary",
+            "threads_accounts",
+            "tiktok_accounts",
+            "tiktok_count",
+            "tiktok_hashtags",
+            "web_count",
+            "x_accounts",
+            "x_count",
+            "youtube_channels",
+        ]);
+        assert.deepEqual(byName["monitor-estimate"].sources.items.enum, MONITOR_SOURCE_ENUM);
+        assert.deepEqual(byName["monitor-list"].status.items.enum, ["active", "paused"]);
+        assert.deepEqual(byName["monitor-items"].source.enum, MONITOR_SOURCE_ENUM);
+        assert.equal(byName["monitor-items"].limit.maximum, 200);
+        assert.equal(byName["monitor-runs"].limit.maximum, 100);
+        assert.deepEqual(Object.keys(byName["monitor-run"]), ["monitor_id", "run_id"]);
+        for (const name of [
+            "monitor-get",
+            "monitor-delete",
+            "monitor-trigger",
+            "monitor-webhook-test",
+            "monitor-webhook-rotate-secret",
+        ]) {
+            assert.deepEqual(Object.keys(byName[name]), ["monitor_id"], name);
+            assert.equal(byName[name].monitor_id.format, "uuid", name);
         }
     });
 });
