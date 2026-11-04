@@ -267,9 +267,9 @@ const SOCIAL_CLEANED = {
     facebook: ["NASA", "100044561550831"],
     threads: ["zuck", "mosseri"],
 };
-// The most one run reads, at desearch-public-api#644 prices: an Instagram account $0.02484 (12
-// posts), a Facebook page $0.0207 (10 posts), 10 Meta ads $0.0207, a Threads account $0.00207.
-const SOCIAL_BREAKDOWN = { instagram: 2 * 0.02484, facebook: 2 * 0.0207, meta_ads: 2 * 0.0207, threads: 2 * 0.00207 };
+// The most one run costs: an Instagram account, a Facebook page and the Ad Library search (whatever
+// meta_ads_count) are one read each at $3.00 per 1,000 reads; a Threads account is $0.00207.
+const SOCIAL_BREAKDOWN = { instagram: 2 * 0.003, facebook: 2 * 0.003, meta_ads: 0.003, threads: 2 * 0.00207 };
 
 /** The 422 for instagram or facebook without accounts, or a FAIL. Deletes a monitor created by mistake. */
 async function expectMissingAccounts(client, tool, toolArgs, field, label) {

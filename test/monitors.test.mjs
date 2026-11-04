@@ -1103,10 +1103,9 @@ test("monitor descriptions say instagram and facebook need accounts, meta_ads ta
         assert.match(create.description, /write the query as keywords \(a brand, product, or short phrase such as 'ChatGPT'\); a sentence finds nothing/);
         assert.match(create.description, /started within the last 30 days/);
         assert.match(create.description, /watch accounts there \(threads_accounts\)/);
-        // Per-run prices from desearch-public-api #644.
-        assert.match(create.description, /a watched Instagram account or hashtag \$0\.02484/);
-        assert.match(create.description, /a watched Facebook page \$0\.0207/);
-        assert.match(create.description, /Meta ads \$0\.0207 per 10 ads, so meta_ads_count 30 is \$0\.0621/);
+        // Per-run prices: social reads per read, the other feeds at their list price.
+        assert.match(create.description, /TikTok, Instagram, Facebook, and Meta ads per read, \$3\.00 per 1,000 reads/);
+        assert.match(create.description, /an empty or private TikTok account takes two reads/);
         assert.match(create.description, /YouTube channel, or Threads account \$0\.00207/);
 
         const props = create.inputSchema.properties;
@@ -1114,13 +1113,13 @@ test("monitor descriptions say instagram and facebook need accounts, meta_ads ta
         assert.match(props.query.description, /With 'meta_ads', use keywords/);
         assert.match(props.instagram_accounts.description, /it needs instagram_accounts or instagram_hashtags/);
         assert.match(props.instagram_hashtags.description, /from any account/);
-        assert.match(props.instagram_hashtags.description, /\$0\.02484 per run/);
-        assert.match(props.tiktok_hashtags.description, /tiktok_count posts per run/);
-        assert.match(props.instagram_accounts.description, /\$0\.02484 per run/);
+        assert.match(props.instagram_hashtags.description, /one read per run \(\$0\.003\)/);
+        assert.match(props.tiktok_hashtags.description, /one read per run \(\$0\.003\)/);
+        assert.match(props.instagram_accounts.description, /one read per run \(\$0\.003\)/);
         assert.match(props.facebook_pages.description, /Required with the 'facebook' source/);
         assert.match(props.facebook_pages.description, /for ads by keyword use the 'meta_ads' source/);
-        assert.match(props.facebook_pages.description, /\$0\.0207 per run/);
-        assert.match(props.meta_ads_count.description, /10 \(API default, \$0\.0207\), 20 \(\$0\.0414\), or 30 \(\$0\.0621\)/);
+        assert.match(props.facebook_pages.description, /one read per run \(\$0\.003\)/);
+        assert.match(props.meta_ads_count.description, /one read per run \(\$0\.003\), whatever the count/);
         assert.match(props.threads_accounts.description, /one request per run \(\$0\.00207\)/);
         assert.match(props.x_accounts.description, /X usernames \(1-15 characters\)/);
 

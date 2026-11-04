@@ -520,25 +520,25 @@ function monitorSourceOptions(withFilters: boolean): Record<string, z.ZodTypeAny
             ])
             .optional()
             .describe(
-                "TikTok posts read per run: 10 (API default), 20, or 30; per account and per hashtag with tiktok_accounts or tiktok_hashtags. Each post is billed. Sent as options.tiktok.count."
+                "TikTok posts read per run: 10 (API default), 20, or 30; per account and per hashtag with tiktok_accounts or tiktok_hashtags. Billed per read, not per post (see the billing note). Sent as options.tiktok.count."
             ),
         tiktok_accounts: monitorAccounts(
             `Up to ${MONITOR_ACCOUNTS_MAX} TikTok usernames to watch, example: ['openai', '@tiktok']. With accounts, ${MONITOR_ACCOUNTS_NOTE} Sent as options.tiktok.accounts.`
         ),
         tiktok_hashtags: monitorAccounts(
-            `Up to ${MONITOR_ACCOUNTS_MAX} TikTok hashtags to watch, in any script, example: ['skincare', '#სილამაზე', 'https://www.tiktok.com/tag/skincare']. ${MONITOR_HASHTAGS_NOTE} Each hashtag is tiktok_count posts per run at the per-post price ($0.00207 each). Sent as options.tiktok.hashtags.`
+            `Up to ${MONITOR_ACCOUNTS_MAX} TikTok hashtags to watch, in any script, example: ['skincare', '#სილამაზე', 'https://www.tiktok.com/tag/skincare']. ${MONITOR_HASHTAGS_NOTE} Each hashtag is one read per run ($0.003), whatever the number of posts. Sent as options.tiktok.hashtags.`
         ),
         threads_accounts: monitorAccounts(
             `Up to ${MONITOR_ACCOUNTS_MAX} Threads usernames to watch, example: ['zuck', '@mosseri', 'https://www.threads.com/@zuck']. Threads keyword search returns loosely matched posts, so accounts work better. With accounts, ${MONITOR_ACCOUNTS_NOTE} Each account is one request per run ($0.00207). Sent as options.threads.accounts.`
         ),
         instagram_accounts: monitorAccounts(
-            `Up to ${MONITOR_ACCOUNTS_MAX} Instagram usernames to watch, example: ['openai', '@nasa', 'https://www.instagram.com/nasa/']. The 'instagram' source has no keyword search and reads only watched accounts and hashtags, so it needs instagram_accounts or instagram_hashtags (422 without either). Each run reads up to 12 newest posts per account; ${MONITOR_KEPT_NOTE} Each account costs $0.02484 per run (12 posts at the per-post price). Sent as options.instagram.accounts.`
+            `Up to ${MONITOR_ACCOUNTS_MAX} Instagram usernames to watch, example: ['openai', '@nasa', 'https://www.instagram.com/nasa/']. The 'instagram' source has no keyword search and reads only watched accounts and hashtags, so it needs instagram_accounts or instagram_hashtags (422 without either). Each run reads up to 12 newest posts per account; ${MONITOR_KEPT_NOTE} Each account is one read per run ($0.003), whatever the number of posts. Sent as options.instagram.accounts.`
         ),
         instagram_hashtags: monitorAccounts(
-            `Up to ${MONITOR_ACCOUNTS_MAX} Instagram hashtags to watch, in any script, example: ['skincare', '#სილამაზე', 'https://www.instagram.com/explore/tags/skincare/']. ${MONITOR_HASHTAGS_NOTE} Each run reads up to 12 posts per hashtag; each hashtag costs $0.02484 per run (12 posts at the per-post price). Sent as options.instagram.hashtags.`
+            `Up to ${MONITOR_ACCOUNTS_MAX} Instagram hashtags to watch, in any script, example: ['skincare', '#სილამაზე', 'https://www.instagram.com/explore/tags/skincare/']. ${MONITOR_HASHTAGS_NOTE} Each run reads up to 12 posts per hashtag; each hashtag is one read per run ($0.003), whatever the number of posts. Sent as options.instagram.hashtags.`
         ),
         facebook_pages: monitorAccounts(
-            `Facebook pages to watch, 1-${MONITOR_ACCOUNTS_MAX}: a page name, a numeric page ID, or a page URL (profile.php?id=... and /pages/Name/123... URLs are read as the ID), example: ['NASA', '100064869009429']. Required with the 'facebook' source, which has no keyword search or hashtag feed and reads only these pages (422 without any); for ads by keyword use the 'meta_ads' source. Each run reads up to 10 newest posts per page; ${MONITOR_KEPT_NOTE} Each page costs $0.0207 per run (10 posts at the per-post price). Sent as options.facebook.pages.`
+            `Facebook pages to watch, 1-${MONITOR_ACCOUNTS_MAX}: a page name, a numeric page ID, or a page URL (profile.php?id=... and /pages/Name/123... URLs are read as the ID), example: ['NASA', '100064869009429']. Required with the 'facebook' source, which has no keyword search or hashtag feed and reads only these pages (422 without any); for ads by keyword use the 'meta_ads' source. Each run reads up to 10 newest posts per page; ${MONITOR_KEPT_NOTE} Each page is one read per run ($0.003), whatever the number of posts. Sent as options.facebook.pages.`
         ),
         meta_ads_count: z
             .union([
@@ -548,7 +548,7 @@ function monitorSourceOptions(withFilters: boolean): Record<string, z.ZodTypeAny
             ])
             .optional()
             .describe(
-                "Meta Ad Library ads read per run with the 'meta_ads' source: 10 (API default, $0.0207), 20 ($0.0414), or 30 ($0.0621). The Ad Library is searched with the query as keywords (a brand, product, or short phrase). Sent as options.meta_ads.count."
+                "Meta Ad Library ads read per run with the 'meta_ads' source: 10 (API default), 20, or 30. The search is one read per run ($0.003), whatever the count. The Ad Library is searched with the query as keywords (a brand, product, or short phrase). Sent as options.meta_ads.count."
             ),
     };
     if (!withFilters) {
@@ -646,7 +646,7 @@ function monitorSettingsFields(): Record<string, z.ZodTypeAny> {
 }
 
 const MONITOR_BILLING =
-    "Creating, reading, changing, and deleting monitors is free. Each run is billed when it ends: its searches at their list price (a TikTok post $0.00207, so a watched TikTok account or hashtag is tiktok_count posts; a watched X account about $0.003, its 20-post timeline; a watched subreddit, YouTube channel, or Threads account $0.00207 each; a watched Instagram account or hashtag $0.02484, up to 12 posts; a watched Facebook page $0.0207, up to 10 posts; Meta ads $0.0207 per 10 ads, so meta_ads_count 30 is $0.0621; ten watched accounts cost about ten searches), AI screening at $0.05 per 1,000 new items screened, and the summary's LLM usage plus 50% when summary is on. A run with no new items still pays for its searches. While a run is queued or running, its most (max_run_cost_usd) is held on the balance; it is billed what it used and the rest is released. A run that cannot be held fails with insufficient_credits and pauses the monitor. Use monitor-estimate for the cost of a configuration.";
+    "Creating, reading, changing, and deleting monitors is free. Each run is billed when it ends: its searches at their list price (TikTok, Instagram, Facebook, and Meta ads per read, $3.00 per 1,000 reads ($0.003 a read), whatever the number of posts: one read per watched account, hashtag, or Facebook page, per TikTok keyword search, and per Ad Library search; an empty or private TikTok account takes two reads, so the hold counts two per TikTok account; a watched X account about $0.003, its 20-post timeline; a watched subreddit, YouTube channel, or Threads account $0.00207 each; ten watched accounts cost about ten searches), AI screening at $0.05 per 1,000 new items screened, and the summary's LLM usage plus 50% when summary is on. A run with no new items still pays for its searches. While a run is queued or running, its most (max_run_cost_usd) is held on the balance; it is billed what it used and the rest is released. A run that cannot be held fails with insufficient_credits and pauses the monitor. Use monitor-estimate for the cost of a configuration.";
 
 const MONITOR_HOW =
     "Each run searches its sources inside a window that starts where the previous run ended (or, for a source with watched accounts or hashtags, reads each feed's newest posts), drops everything the monitor has already seen, and screens the new items with an AI classifier: relevant (about what the query watches), new_info (news rather than an evergreen page), and one yes/no question per criterion. score is the lowest of relevant and the criteria x 100; an item is kept at min_score (0 keeps every new post). Read kept items with monitor-items or monitor-run; with a webhook they are also POSTed to it, signed with webhook_secret.";
