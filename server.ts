@@ -526,7 +526,7 @@ function monitorSourceOptions(withFilters: boolean): Record<string, z.ZodTypeAny
             `Up to ${MONITOR_ACCOUNTS_MAX} TikTok usernames to watch, example: ['openai', '@tiktok']. With accounts, ${MONITOR_ACCOUNTS_NOTE} Sent as options.tiktok.accounts.`
         ),
         tiktok_hashtags: monitorAccounts(
-            `Up to ${MONITOR_ACCOUNTS_MAX} TikTok hashtags to watch, in any script, example: ['aversi', '#ავერსი', 'https://www.tiktok.com/tag/aversi']. ${MONITOR_HASHTAGS_NOTE} Each hashtag is tiktok_count posts per run at the per-post price ($0.00207 each). Sent as options.tiktok.hashtags.`
+            `Up to ${MONITOR_ACCOUNTS_MAX} TikTok hashtags to watch, in any script, example: ['skincare', '#სილამაზე', 'https://www.tiktok.com/tag/skincare']. ${MONITOR_HASHTAGS_NOTE} Each hashtag is tiktok_count posts per run at the per-post price ($0.00207 each). Sent as options.tiktok.hashtags.`
         ),
         threads_accounts: monitorAccounts(
             `Up to ${MONITOR_ACCOUNTS_MAX} Threads usernames to watch, example: ['zuck', '@mosseri', 'https://www.threads.com/@zuck']. Threads keyword search returns loosely matched posts, so accounts work better. With accounts, ${MONITOR_ACCOUNTS_NOTE} Each account is one request per run ($0.00207). Sent as options.threads.accounts.`
@@ -535,7 +535,7 @@ function monitorSourceOptions(withFilters: boolean): Record<string, z.ZodTypeAny
             `Up to ${MONITOR_ACCOUNTS_MAX} Instagram usernames to watch, example: ['openai', '@nasa', 'https://www.instagram.com/nasa/']. The 'instagram' source has no keyword search and reads only watched accounts and hashtags, so it needs instagram_accounts or instagram_hashtags (422 without either). Each run reads up to 12 newest posts per account; ${MONITOR_KEPT_NOTE} Each account costs $0.02484 per run (12 posts at the per-post price). Sent as options.instagram.accounts.`
         ),
         instagram_hashtags: monitorAccounts(
-            `Up to ${MONITOR_ACCOUNTS_MAX} Instagram hashtags to watch, in any script, example: ['aversi', '#ავერსი', 'https://www.instagram.com/explore/tags/aversi/']. ${MONITOR_HASHTAGS_NOTE} Each run reads up to 12 posts per hashtag; each hashtag costs $0.02484 per run (12 posts at the per-post price). Sent as options.instagram.hashtags.`
+            `Up to ${MONITOR_ACCOUNTS_MAX} Instagram hashtags to watch, in any script, example: ['skincare', '#სილამაზე', 'https://www.instagram.com/explore/tags/skincare/']. ${MONITOR_HASHTAGS_NOTE} Each run reads up to 12 posts per hashtag; each hashtag costs $0.02484 per run (12 posts at the per-post price). Sent as options.instagram.hashtags.`
         ),
         facebook_pages: monitorAccounts(
             `Facebook pages to watch, 1-${MONITOR_ACCOUNTS_MAX}: a page name, a numeric page ID, or a page URL (profile.php?id=... and /pages/Name/123... URLs are read as the ID), example: ['NASA', '100064869009429']. Required with the 'facebook' source, which has no keyword search or hashtag feed and reads only these pages (422 without any); for ads by keyword use the 'meta_ads' source. Each run reads up to 10 newest posts per page; ${MONITOR_KEPT_NOTE} Each page costs $0.0207 per run (10 posts at the per-post price). Sent as options.facebook.pages.`

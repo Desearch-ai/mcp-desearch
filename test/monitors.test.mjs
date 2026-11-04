@@ -369,30 +369,30 @@ test("monitor-create sends TikTok and Instagram hashtags as given, nested per so
             ...MONITOR,
             sources: ["tiktok", "instagram"],
             options: {
-                tiktok: { count: 10, accounts: ["openai"], hashtags: ["ავერსი", "aversi"] },
-                instagram: { hashtags: ["aversi", "ავერსი"] },
+                tiktok: { count: 10, accounts: ["openai"], hashtags: ["სილამაზე", "skincare"] },
+                instagram: { hashtags: ["skincare", "სილამაზე"] },
             },
             webhook: null,
         };
         mock.reply("POST", "/desearch/monitors", 201, cleaned);
 
         const body = await call(client, "monitor-create", {
-            query: "Aversi pharmacies",
+            query: "Posts about our skincare brand",
             sources: ["tiktok", "instagram"],
             tiktok_accounts: ["@openai"],
-            tiktok_hashtags: ["#ავერსი", "https://www.tiktok.com/tag/aversi"],
+            tiktok_hashtags: ["#სილამაზე", "https://www.tiktok.com/tag/skincare"],
             // Instagram may watch hashtags without accounts.
-            instagram_hashtags: ["https://www.instagram.com/explore/tags/aversi/", "ავერსი"],
+            instagram_hashtags: ["https://www.instagram.com/explore/tags/skincare/", "სილამაზე"],
             min_score: 0,
             run_now: false,
         });
         assert.deepEqual(body.options, cleaned.options);
         assert.deepEqual(mock.seen[0].body, {
-            query: "Aversi pharmacies",
+            query: "Posts about our skincare brand",
             sources: ["tiktok", "instagram"],
             options: {
-                tiktok: { accounts: ["@openai"], hashtags: ["#ავერსი", "https://www.tiktok.com/tag/aversi"] },
-                instagram: { hashtags: ["https://www.instagram.com/explore/tags/aversi/", "ავერსი"] },
+                tiktok: { accounts: ["@openai"], hashtags: ["#სილამაზე", "https://www.tiktok.com/tag/skincare"] },
+                instagram: { hashtags: ["https://www.instagram.com/explore/tags/skincare/", "სილამაზე"] },
             },
             min_score: 0,
             run_now: false,
@@ -1042,13 +1042,13 @@ test("monitor request bodies match the API models", () => {
         sources: ["meta_ads"],
         options: { meta_ads: { count: 20 } },
     });
-    assert.deepEqual(monitorOptions({ tiktok_hashtags: ["aversi"], instagram_hashtags: ["ავერსი"], instagram_accounts: ["nasa"] }), {
-        tiktok: { hashtags: ["aversi"] },
-        instagram: { accounts: ["nasa"], hashtags: ["ავერსი"] },
+    assert.deepEqual(monitorOptions({ tiktok_hashtags: ["skincare"], instagram_hashtags: ["სილამაზე"], instagram_accounts: ["nasa"] }), {
+        tiktok: { hashtags: ["skincare"] },
+        instagram: { accounts: ["nasa"], hashtags: ["სილამაზე"] },
     });
-    assert.deepEqual(monitorEstimateBody({ sources: ["instagram"], instagram_hashtags: ["aversi"] }), {
+    assert.deepEqual(monitorEstimateBody({ sources: ["instagram"], instagram_hashtags: ["skincare"] }), {
         sources: ["instagram"],
-        options: { instagram: { hashtags: ["aversi"] } },
+        options: { instagram: { hashtags: ["skincare"] } },
     });
     assert.deepEqual(monitorCreateBody({ query: "q q q", run_now: true, summary: true }), {
         query: "q q q",

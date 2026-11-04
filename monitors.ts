@@ -221,7 +221,7 @@ function setFields(fields: Record<string, unknown>): Record<string, unknown> | u
  * `tiktok.hashtags`; `threads.accounts`; `instagram.accounts`, `instagram.hashtags`;
  * `facebook.pages`; `meta_ads.count`.
  * Account names and hashtags are sent as given: the API cleans them (`@OpenAI` → `OpenAI`,
- * `r/LocalLLaMA` → `LocalLLaMA`, a Facebook `profile.php?id=…` URL → its ID, `#ავერსი` → `ავერსი`,
+ * `r/LocalLLaMA` → `LocalLLaMA`, a Facebook `profile.php?id=…` URL → its ID, `#სილამაზე` → `სილამაზე`,
  * a tag URL → its tag) and answers 422 for a name or hashtag it cannot read, and for `instagram`
  * in `sources` without accounts or hashtags or `facebook` without pages.
  */
