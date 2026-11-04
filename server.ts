@@ -55,6 +55,7 @@ import {
     MONITOR_CRITERION_MAX,
     MONITOR_EVENTS,
     MONITOR_INTERVALS,
+    MONITOR_META_ADS_COUNTS,
     MONITOR_METADATA_KEY_MAX,
     MONITOR_METADATA_MAX_KEYS,
     MONITOR_METADATA_VALUE_MAX,
@@ -78,7 +79,7 @@ import {
     updateMonitor,
     type MonitorClient,
 } from "./monitors.js";
-import { runSocialAction, socialActionNames, type SocialPlatform } from "./social.js";
+import { FACEBOOK_SEARCH_SORTS, runSocialAction, socialActionNames, type SocialPlatform } from "./social.js";
 import { AI_SEARCH_TOOLS, WEB_LINK_TOOLS, toolIdSchema } from "./tool-sources.js";
 
 export const SERVER_NAME = "Desearch";
@@ -463,7 +464,7 @@ function monitorSources() {
         .array(z.enum(MONITOR_SOURCES))
         .min(1)
         .describe(
-            "Where to look: any of 'web', 'x', 'reddit', 'youtube', 'threads', 'tiktok' (API default ['web', 'x']). Each run searches each source once, or reads its watched accounts (x_accounts, reddit_subreddits, youtube_channels, tiktok_accounts)."
+            "Where to look: any of 'web', 'x', 'reddit', 'youtube', 'threads', 'tiktok', 'instagram', 'facebook', 'meta_ads' (API default ['web', 'x']). Each run searches each source once, or reads its watched accounts (x_accounts, reddit_subreddits, youtube_channels, tiktok_accounts, threads_accounts, instagram_accounts, facebook_pages). 'instagram' and 'facebook' only read watched accounts: they need instagram_accounts or facebook_pages (422 otherwise). 'meta_ads' searches the Meta Ad Library (ads) with the query as keywords."
         );
 }
 
@@ -473,8 +474,9 @@ function monitorInterval() {
         .describe("How often it runs: '1h', '3h', '6h', '12h', '1d' (API default), or '7d'. Each run is billed.");
 }
 
-const MONITOR_ACCOUNTS_NOTE =
-    "the source reads their newest posts each run instead of searching by keyword; the query and criteria still decide what is kept (min_score 0 keeps every new post). Names are sent as given and the API returns them cleaned; a name it cannot read is a 422.";
+const MONITOR_KEPT_NOTE =
+    "the query and criteria still decide what is kept (min_score 0 keeps every new post). Names are sent as given and the API returns them cleaned; a name it cannot read is a 422.";
+const MONITOR_ACCOUNTS_NOTE = `the source reads their newest posts each run instead of searching by keyword; ${MONITOR_KEPT_NOTE}`;
 
 /** A watched-accounts list. A new schema per field. */
 function monitorAccounts(description: string) {
@@ -500,7 +502,7 @@ function monitorSourceOptions(withFilters: boolean): Record<string, z.ZodTypeAny
                 `Newest X posts read per run (1-${MONITOR_X_COUNT_MAX}, API default 20). Not used with x_accounts (a timeline page is 20 posts). Sent as options.x.count.`
             ),
         x_accounts: monitorAccounts(
-            `Up to ${MONITOR_ACCOUNTS_MAX} X usernames to watch, example: ['OpenAI', '@sama', 'https://x.com/opentensor']. With accounts, ${MONITOR_ACCOUNTS_NOTE} x_lang and x_min_likes still filter the timelines. Sent as options.x.accounts.`
+            `Up to ${MONITOR_ACCOUNTS_MAX} X usernames (1-15 characters) to watch, example: ['OpenAI', '@sama', 'https://x.com/opentensor']. With accounts, ${MONITOR_ACCOUNTS_NOTE} x_lang and x_min_likes still filter the timelines. Sent as options.x.accounts.`
         ),
         reddit_subreddits: monitorAccounts(
             `Up to ${MONITOR_ACCOUNTS_MAX} subreddits to watch, example: ['LocalLLaMA', 'r/bittensor_']. With subreddits, ${MONITOR_ACCOUNTS_NOTE} Sent as options.reddit.subreddits.`
@@ -521,6 +523,25 @@ function monitorSourceOptions(withFilters: boolean): Record<string, z.ZodTypeAny
         tiktok_accounts: monitorAccounts(
             `Up to ${MONITOR_ACCOUNTS_MAX} TikTok usernames to watch, example: ['openai', '@tiktok']. With accounts, ${MONITOR_ACCOUNTS_NOTE} Sent as options.tiktok.accounts.`
         ),
+        threads_accounts: monitorAccounts(
+            `Up to ${MONITOR_ACCOUNTS_MAX} Threads usernames to watch, example: ['zuck', '@mosseri', 'https://www.threads.com/@zuck']. Threads keyword search returns loosely matched posts, so accounts work better. With accounts, ${MONITOR_ACCOUNTS_NOTE} Each account is one request per run ($0.00207). Sent as options.threads.accounts.`
+        ),
+        instagram_accounts: monitorAccounts(
+            `Instagram usernames to watch, 1-${MONITOR_ACCOUNTS_MAX}, example: ['openai', '@nasa', 'https://www.instagram.com/nasa/']. Required with the 'instagram' source, which has no keyword search and reads only these accounts (422 without any). Each run reads up to 12 newest posts per account; ${MONITOR_KEPT_NOTE} Each account costs $0.02484 per run (12 posts at the per-post price). Sent as options.instagram.accounts.`
+        ),
+        facebook_pages: monitorAccounts(
+            `Facebook pages to watch, 1-${MONITOR_ACCOUNTS_MAX}: a page name, a numeric page ID, or a page URL (profile.php?id=... and /pages/Name/123... URLs are read as the ID), example: ['NASA', '100064869009429']. Required with the 'facebook' source, which has no keyword search and reads only these pages (422 without any); for ads by keyword use the 'meta_ads' source. Each run reads up to 10 newest posts per page; ${MONITOR_KEPT_NOTE} Each page costs $0.0207 per run (10 posts at the per-post price). Sent as options.facebook.pages.`
+        ),
+        meta_ads_count: z
+            .union([
+                z.literal(MONITOR_META_ADS_COUNTS[0]),
+                z.literal(MONITOR_META_ADS_COUNTS[1]),
+                z.literal(MONITOR_META_ADS_COUNTS[2]),
+            ])
+            .optional()
+            .describe(
+                "Meta Ad Library ads read per run with the 'meta_ads' source: 10 (API default, $0.0207), 20 ($0.0414), or 30 ($0.0621). The Ad Library is searched with the query as keywords (a brand, product, or short phrase). Sent as options.meta_ads.count."
+            ),
     };
     if (!withFilters) {
         return costly;
@@ -617,13 +638,22 @@ function monitorSettingsFields(): Record<string, z.ZodTypeAny> {
 }
 
 const MONITOR_BILLING =
-    "Creating, reading, changing, and deleting monitors is free. Each run is billed when it ends: its searches at their list price (a TikTok post $0.00207; a watched X account about $0.003, its 20-post timeline; a watched subreddit or YouTube channel $0.00207 each; ten watched accounts cost about ten searches), screening at $0.05 per 1,000 new items screened, and the summary's LLM usage plus 50% when summary is on. A run with no new items still pays for its searches. While a run is queued or running, its most (max_run_cost_usd) is held on the balance; it is billed what it used and the rest is released. A run that cannot be held fails with insufficient_credits and pauses the monitor. Use monitor-estimate for the cost of a configuration.";
+    "Creating, reading, changing, and deleting monitors is free. Each run is billed when it ends: its searches at their list price (a TikTok post $0.00207; a watched X account about $0.003, its 20-post timeline; a watched subreddit, YouTube channel, or Threads account $0.00207 each; a watched Instagram account $0.02484, up to 12 posts; a watched Facebook page $0.0207, up to 10 posts; Meta ads $0.0207 per 10 ads, so meta_ads_count 30 is $0.0621; ten watched accounts cost about ten searches), screening at $0.05 per 1,000 new items screened, and the summary's LLM usage plus 50% when summary is on. A run with no new items still pays for its searches. While a run is queued or running, its most (max_run_cost_usd) is held on the balance; it is billed what it used and the rest is released. A run that cannot be held fails with insufficient_credits and pauses the monitor. Use monitor-estimate for the cost of a configuration.";
 
 const MONITOR_HOW =
     "Each run searches its sources inside a window that starts where the previous run ended (or, for a source with watched accounts, reads each account's newest posts), drops everything the monitor has already seen, and screens the new items: relevant (about what the query watches), new_info (news rather than an evergreen page), and one yes/no question per criterion. score is the lowest of relevant and the criteria x 100; an item is kept at min_score (0 keeps every new post). Read kept items with monitor-items or monitor-run; with a webhook they are also POSTed to it, signed with webhook_secret.";
 
 const MONITOR_TIKTOK_NOTE =
     "TikTok search has no working date filter and ranks by relevance, so a TikTok keyword monitor finds a new video only when it reaches TikTok's top results; to follow creators, watch their accounts (tiktok_accounts).";
+
+const MONITOR_SOCIAL_NOTE =
+    "'instagram' and 'facebook' have no keyword search: they read only watched accounts, so a monitor with 'instagram' needs instagram_accounts and one with 'facebook' needs facebook_pages, or the API answers 422. 'meta_ads' searches the Meta Ad Library with the query, so write the query as keywords (a brand, product, or short phrase such as 'ChatGPT'); a sentence finds nothing. An ad counts as new the first time a run sees it if it started within the last 30 days, and ads are screened with their own relevance question and no new_info. Threads keyword search returns loosely matched posts, so watch accounts there (threads_accounts).";
+
+const MONITOR_WEBHOOK_VIEW =
+    "webhook (null without one; never the secret): url, events, consecutive_failures, and last_delivery, the newest delivery (null before the first): event, status ('pending' while it waits for its first or next attempt at next_attempt_at, with the last answer in status_code and error; 'delivered'; or 'failed' after every retry, at 1, 5, 30, 120, and 360 minutes), attempts, status_code, error, created_at, next_attempt_at, delivered_at. 5 failed deliveries in a row pause the monitor (paused_reason webhook_failing)";
+
+const MONITOR_ITEM_FIELDS =
+    "Each item has item_id, run_id, source, url, title, text (cut to 1000 characters), author, published_at, score (0-100), signals (relevant and new_info, plus criteria, the lowest answer across the criteria, when the monitor has criteria; Meta ads have no new_info), found_at, and data by source: X likes, reposts, replies, views; Reddit subreddit, score, comments; YouTube channel, views, thumbnail; TikTok views, likes, comments, shares, duration_s, thumbnail; Threads likes; Instagram likes, comments, views, media_type, thumbnail; Facebook reactions, comments, shares; Meta ads page, active, cta, link (the ad's landing page), platforms, thumbnail, with the ad headline as title and url the Ad Library record; web highlights, domain. TikTok and Instagram thumbnail URLs expire. An item read from a watched account also has data.account, the name it was watched as.";
 
 function platformFilterList(): string {
     return Object.entries(PEOPLE_SEARCH_FILTERS)
@@ -934,7 +964,7 @@ export function createDesearchMcpServer(
         serverInfo,
         {
             instructions:
-                "Search the public web and X with Desearch. Use search for titles and links, then fetch with a result URL to read the page. search-api returns ranked pages with the passage that best matches the query. Other tools cover AI search, X posts, and page extraction. tiktok, facebook, instagram, youtube, reddit, and threads read public social data (posts, profiles, comments, hashtags, YouTube transcripts and channels, subreddits); list actions return next_cursor for the next page where the platform has one. People Search finds people and creators on X, YouTube, LinkedIn, and TikTok: people-search starts a paid job billed to the user's Desearch balance, people-search-status reads progress, people-search-pause, people-search-resume, and people-search-cancel pause, resume, or cancel it, and people-search-export returns the people found as CSV or JSON Lines. Company Search finds companies on the web from a description and Company Enrich reads the domains you send; both collect public emails, phones, social profiles, and leaders (CEO, founders, CTO, CFO): company-search and company-enrich start paid jobs billed to the user's Desearch balance, company-search-status reads progress and the companies, and company-search-pause, company-search-resume, and company-search-cancel pause, resume, or cancel a task. Monitors rerun a search over web, X, Reddit, YouTube, Threads, and TikTok (or watch chosen accounts there) on a schedule and keep only new, relevant items: monitor-create sets one up (free; each run is billed to the user's Desearch balance), monitor-items and monitor-runs read what it found, monitor-update changes or pauses it, monitor-trigger runs it now, and monitor-delete removes it. Calls need a Desearch API key.",
+                "Search the public web and X with Desearch. Use search for titles and links, then fetch with a result URL to read the page. search-api returns ranked pages with the passage that best matches the query. Other tools cover AI search, X posts, and page extraction. tiktok, facebook, instagram, youtube, reddit, and threads read public social data (posts, profiles, comments, hashtags, YouTube transcripts and channels, subreddits); list actions return next_cursor for the next page where the platform has one. People Search finds people and creators on X, YouTube, LinkedIn, and TikTok: people-search starts a paid job billed to the user's Desearch balance, people-search-status reads progress, people-search-pause, people-search-resume, and people-search-cancel pause, resume, or cancel it, and people-search-export returns the people found as CSV or JSON Lines. Company Search finds companies on the web from a description and Company Enrich reads the domains you send; both collect public emails, phones, social profiles, and leaders (CEO, founders, CTO, CFO): company-search and company-enrich start paid jobs billed to the user's Desearch balance, company-search-status reads progress and the companies, and company-search-pause, company-search-resume, and company-search-cancel pause, resume, or cancel a task. Monitors rerun a search over web, X, Reddit, YouTube, Threads, TikTok, and Meta Ad Library ads (or watch chosen accounts there and on Instagram and Facebook) on a schedule and keep only new, relevant items: monitor-create sets one up (free; each run is billed to the user's Desearch balance), monitor-items and monitor-runs read what it found, monitor-update changes or pauses it, monitor-trigger runs it now, and monitor-delete removes it. Calls need a Desearch API key.",
         }
     );
 
@@ -1466,7 +1496,7 @@ export function createDesearchMcpServer(
         apiKey,
         "facebook",
         "Facebook",
-        "Read public Facebook data with Desearch. Set action and that action's arguments. search (query; optional count, cursor) and hashtag (tag; optional count, cursor) return Meta Ad Library ads that match, not organic posts. post (id): one public post. profile (profile_id): a page or profile by ID or public handle. profile_posts (profile_id; optional count, cursor): its posts. comments (post_id; optional count, cursor): a post's comments, about 10 per page. post and profile return the item itself. " +
+        "Read public Facebook data with Desearch. Set action and that action's arguments. search (query; optional count, sort, cursor) and hashtag (tag; optional count, cursor) return Meta Ad Library ads that match, not organic posts. post (id): one public post. profile (profile_id): a page or profile by ID or public handle. profile_posts (profile_id; optional count, cursor): its posts. comments (post_id; optional count, cursor): a post's comments, about 10 per page. post and profile return the item itself. " +
             SOCIAL_PAGING,
         strictArgs({
             action: socialAction(
@@ -1474,6 +1504,12 @@ export function createDesearchMcpServer(
                 "What to read: 'search', 'post', 'profile', 'profile_posts', 'comments', or 'hashtag'."
             ),
             query: socialQuery("running shoes"),
+            sort: z
+                .enum(FACEBOOK_SEARCH_SORTS)
+                .optional()
+                .describe(
+                    "search: 'impressions' (API default: most seen first) or 'recent' (Meta's monthly relevance grouping, which puts recently started ads first)."
+                ),
             id: socialTarget("post: the public Facebook post or media ID."),
             profile_id: socialTarget("profile, profile_posts: page or profile ID, or its public handle, example: 'facebook'."),
             post_id: socialTarget("comments: the public Facebook post or media ID."),
@@ -2329,20 +2365,22 @@ export function createDesearchMcpServer(
         apiKey,
         "monitor-create",
         "Create Monitor",
-        "Create a monitor: a search that reruns on a schedule over web, X, Reddit, YouTube, Threads, and TikTok (or watches up to 10 X users, subreddits, YouTube channels, or TikTok users per source) and keeps only the new items that match. Returns the monitor (monitor_id, settings, max_run_cost_usd, next_run_at) and, when webhook_url is set, webhook_secret, which is shown only here. With run_now (the API default) the first run is queued at once and billed when it ends; set run_now false to wait for the schedule. " +
+        "Create a monitor: a search that reruns on a schedule over web, X, Reddit, YouTube, Threads, TikTok, and Meta Ad Library ads (or watches up to 10 X, TikTok, Threads, or Instagram users, subreddits, YouTube channels, or Facebook pages per source) and keeps only the new items that match. Returns the monitor (monitor_id, settings, max_run_cost_usd, next_run_at) and, when webhook_url is set, webhook_secret, which is shown only here. With run_now (the API default) the first run is queued at once and billed when it ends; set run_now false to wait for the schedule. " +
             MONITOR_BILLING +
             " " +
             MONITOR_HOW +
             " " +
             MONITOR_TIKTOK_NOTE +
-            " Limits: 25 monitors per account (409 too_many_monitors); 402 when the balance cannot hold one run.",
+            " " +
+            MONITOR_SOCIAL_NOTE +
+            " Limits: 25 monitors per account (409 too_many_monitors); 402 when the balance cannot hold one run, even with run_now false.",
         strictArgs({
             query: z
                 .string()
                 .min(MONITOR_QUERY_MIN)
                 .max(MONITOR_QUERY_MAX)
                 .describe(
-                    `What to watch, in plain words (${MONITOR_QUERY_MIN}-${MONITOR_QUERY_MAX} characters). Each source is searched with it. Example: 'Bittensor subnet launches and updates'.`
+                    `What to watch, in plain words (${MONITOR_QUERY_MIN}-${MONITOR_QUERY_MAX} characters). Each source is searched with it. Example: 'Bittensor subnet launches and updates'. With 'meta_ads', use keywords (a brand, product, or short phrase such as 'ChatGPT'): the Ad Library finds nothing for a sentence.`
                 ),
             ...monitorSettingsFields(),
             run_now: z
@@ -2366,7 +2404,7 @@ export function createDesearchMcpServer(
         apiKey,
         "monitor-estimate",
         "Estimate Monitor Cost",
-        "The most one run of a monitor with these sources, counts, and watched accounts can cost (max_run_cost_usd, the amount held while it runs), how many runs a month its interval makes, the most a month can cost, and a per-part breakdown in USD. Free: it creates nothing and runs no search. A run is billed only what it used, which is usually less. " +
+        "The most one run of a monitor with these sources, counts, and watched accounts can cost (max_run_cost_usd, the amount held while it runs), how many runs a month its interval makes, the most a month can cost, and a breakdown in USD per source plus screening and summary. Free: it creates nothing and runs no search. A run is billed only what it used, which is usually less. Unlike monitor-create, it does not refuse 'instagram' or 'facebook' without accounts. " +
             MONITOR_BILLING,
         strictArgs({
             sources: monitorSources().optional(),
@@ -2390,7 +2428,7 @@ export function createDesearchMcpServer(
         apiKey,
         "monitor-list",
         "List Monitors",
-        "Your monitors, newest first, with their settings, status (active or paused, and paused_reason: user, insufficient_credits, or webhook_failing), webhook (URL, events, consecutive_failures; never the secret), next_run_at, last_run, and totals (runs, items, spent_usd). Free. Returns { monitors, next_cursor }; next_cursor is null on the last page.",
+        "Your monitors, newest first, with their settings, status (active or paused, and paused_reason: user, insufficient_credits, or webhook_failing), webhook (url, events, consecutive_failures, and last_delivery, the newest delivery with its status, as on monitor-get; never the secret), next_run_at, last_run, and totals (runs, items, spent_usd). Free. Returns { monitors, next_cursor }; next_cursor is null on the last page.",
         strictArgs({
             status: z
                 .array(z.enum(MONITOR_STATUSES))
@@ -2420,7 +2458,9 @@ export function createDesearchMcpServer(
         apiKey,
         "monitor-get",
         "Get Monitor",
-        "One monitor: settings, status and paused_reason, webhook (never the secret), max_run_cost_usd, next_run_at, last_run (run_id, status, item_count, cost_usd), and totals (runs, items, spent_usd). Free.",
+        "One monitor: settings, status and paused_reason, " +
+            MONITOR_WEBHOOK_VIEW +
+            ", max_run_cost_usd, next_run_at, last_run (run_id, status, item_count, cost_usd), and totals (runs, items, spent_usd). Free. Use webhook.last_delivery to tell whether deliveries reach the endpoint: a 'pending' delivery with an error is being retried.",
         strictArgs({ monitor_id: monitorId }),
         async (args) => {
             try {
@@ -2438,7 +2478,7 @@ export function createDesearchMcpServer(
         apiKey,
         "monitor-update",
         "Update Monitor",
-        "Change a monitor's settings and return it. Free. Send only what changes. status 'paused' stops scheduled runs (monitor-trigger still runs it once) and 'active' resumes them, also after a pause for credits or a failing webhook. The per-source options (web_count, x_count, x_lang, x_min_likes, x_accounts, reddit_subreddits, youtube_channels, tiktok_count, tiktok_accounts) replace the monitor's options as a whole: send every option you want to keep, including its watched accounts (an empty list watches none). A new webhook_url gets a new webhook_secret, returned only in this response; remove_webhook removes the webhook. The old values are not kept.",
+        "Change a monitor's settings and return it. Free. Send only what changes. status 'paused' stops scheduled runs (monitor-trigger still runs it once) and 'active' resumes them, also after a pause for credits or a failing webhook. The per-source options (web_count, x_count, x_lang, x_min_likes, x_accounts, reddit_subreddits, youtube_channels, tiktok_count, tiktok_accounts, threads_accounts, instagram_accounts, facebook_pages, meta_ads_count) replace the monitor's options as a whole: send every option you want to keep, including its watched accounts (an empty list watches none). The API checks the monitor as changed: an update that leaves 'instagram' without instagram_accounts or 'facebook' without facebook_pages (new sources with the current options, or new options with the current sources) is a 422. A new webhook_url gets a new webhook_secret, returned only in this response; remove_webhook removes the webhook. The old values are not kept.",
         strictArgs({
             monitor_id: monitorId,
             query: z
@@ -2531,7 +2571,9 @@ export function createDesearchMcpServer(
         apiKey,
         "monitor-run",
         "Get Monitor Run",
-        "One run with the items it kept, most relevant first, plus its status, stats, summary, and cost. Free. Each item has source, url, title, text (cut to 1000 characters), author, published_at, score (0-100), signals (relevant, new_info), found_at, and data (X: likes, reposts, replies, views; Reddit: subreddit, score, comments; YouTube: channel, views, thumbnail; TikTok: views, likes, comments, shares, duration_s, thumbnail (TikTok thumbnail URLs expire); web: highlights, domain; plus account, the name it was watched as, for an item read from a watched account). The run's stats.sources.<source>.accounts_failed lists watched accounts it could not read.",
+        "One run with the items it kept, most relevant first, plus its status, stats, summary, and cost. Free. " +
+            MONITOR_ITEM_FIELDS +
+            " The run's stats.sources.<source>.accounts_failed lists watched accounts it could not read.",
         strictArgs({ monitor_id: monitorId, run_id: monitorRunId() }),
         async (args) => {
             try {
@@ -2549,13 +2591,16 @@ export function createDesearchMcpServer(
         apiKey,
         "monitor-items",
         "List Monitor Items",
-        "Everything a monitor kept across its runs, newest first, with the same item fields as monitor-run. Free. Filter by source. Returns { items, next_cursor }; next_cursor is null on the last page. To get only what is new since your last read, keep the first item_id you saw and stop paging when you reach it.",
+        "Everything a monitor kept across its runs, newest first. Free. Filter by source. Returns { items, next_cursor }; next_cursor is null on the last page. To get only what is new since your last read, keep the first item_id you saw and stop paging when you reach it. " +
+            MONITOR_ITEM_FIELDS,
         strictArgs({
             monitor_id: monitorId,
             source: z
                 .enum(MONITOR_SOURCES)
                 .optional()
-                .describe("Only items from this source: 'web', 'x', 'reddit', 'youtube', 'threads', 'tiktok'."),
+                .describe(
+                    "Only items from this source: 'web', 'x', 'reddit', 'youtube', 'threads', 'tiktok', 'instagram', 'facebook', 'meta_ads'."
+                ),
             limit: z.number().int().min(1).max(200).optional().describe("Items per page (1-200, API default 50)."),
             cursor: z
                 .string()
@@ -2579,7 +2624,7 @@ export function createDesearchMcpServer(
         apiKey,
         "monitor-webhook-test",
         "Test Monitor Webhook",
-        "Send a signed monitor.test event with one sample item to the monitor's webhook and report what the endpoint answered: { delivered (a 2xx within 10 seconds), status_code, error, duration_ms }. Free; it is not retried and does not count toward webhook_failing. 400 when the monitor has no webhook.",
+        "Send a signed monitor.test event with one sample item to the monitor's webhook and report what the endpoint answered: { delivered (a 2xx within 10 seconds), status_code, error, duration_ms }. Free; it is not retried, does not count toward webhook_failing, and does not change webhook.last_delivery. 400 when the monitor has no webhook.",
         strictArgs({ monitor_id: monitorId }),
         async (args) => {
             try {

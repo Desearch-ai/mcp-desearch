@@ -4,10 +4,16 @@
  * stdio, connects with the MCP SDK client, and drives every free monitor tool against a real
  * Desearch API: create (run_now false, so no run is queued), get, list, update (rename and
  * pause), estimate, runs, items, webhook test, rotate-secret, and delete. It never calls
- * monitor-trigger, so it costs nothing. The monitor it creates is deleted at the end, also
+ * monitor-trigger, so no run is billed. The monitor it creates is deleted at the end, also
  * after a failure. --with-accounts also creates (and deletes) a monitor with the TikTok source
  * and watched accounts on X, Reddit, YouTube and TikTok (desearch-public-api#635), and checks
- * the names come back cleaned, a bad name is a 422, and monitor-update replaces the options.
+ * the names come back cleaned, a bad name is a 422 (an X username has at most 15 characters),
+ * and monitor-update replaces the options. Then, for desearch-public-api#644, it prices
+ * Instagram, Facebook, Meta ads and Threads accounts (the estimate breakdown per source),
+ * checks that instagram and facebook without accounts are a 422 on create and on update,
+ * creates (and deletes) a monitor with all four and a webhook (names cleaned, meta_ads count,
+ * webhook.last_delivery null), reads its items with source meta_ads, and makes one Facebook
+ * search with sort recent and count 2: the only billed call, at most 2 ads ($0.00414).
  *
  *   npm run build
  *   DESEARCH_API_KEY=... node scripts/e2e-monitors.mjs
@@ -18,7 +24,9 @@
  *                     server as DESEARCH_API_BASE.
  *   --key-env <name>  environment variable that holds the key (default DESEARCH_API_KEY).
  *                     When it is not set, it is read from ~/.config/desearch/e2e.env.
- *   --with-accounts   also check the TikTok source and watched accounts (free).
+ *   --with-accounts   also check the TikTok source and watched accounts (free), and the
+ *                     Instagram, Facebook, Meta ads and Threads accounts sources (free) plus
+ *                     one Facebook search with sort recent (billed, at most $0.00414).
  *
  * Prints one line per check, `PASS name` or `FAIL name: error`, and exits 1 if any failed.
  * The key and the webhook secrets are never printed.
@@ -155,6 +163,9 @@ const CLEANED = {
     tiktok: ["openai"],
 };
 
+// X usernames are 1-15 characters (the API's limit); every name above fits.
+const X_NAME_MAX = 15;
+
 /** The TikTok source and watched accounts: estimate, create, a bad name, update, delete. */
 async function checkWatchedAccounts(client, stamp) {
     const sources = ["x", "reddit", "youtube", "tiktok"];
@@ -171,6 +182,12 @@ async function checkWatchedAccounts(client, stamp) {
     const badName = await call(client, "monitor-estimate", { sources: ["x"], x_accounts: ["not a name!"] });
     if (badName.error && /HTTP 422/.test(badName.error)) pass("monitor-estimate bad X username", "HTTP 422");
     else fail("monitor-estimate bad X username", `expected HTTP 422, got ${JSON.stringify(badName).slice(0, 200)}`);
+    const longest = await call(client, "monitor-estimate", { sources: ["x"], x_accounts: ["a".repeat(X_NAME_MAX)] });
+    if (typeof longest.value?.max_run_cost_usd === "number") pass(`monitor-estimate X username of ${X_NAME_MAX} characters`);
+    else fail(`monitor-estimate X username of ${X_NAME_MAX} characters`, longest.error ?? JSON.stringify(longest.value));
+    const tooLong = await call(client, "monitor-estimate", { sources: ["x"], x_accounts: ["a".repeat(X_NAME_MAX + 1)] });
+    if (tooLong.error && /HTTP 422/.test(tooLong.error)) pass(`monitor-estimate X username of ${X_NAME_MAX + 1} characters`, "HTTP 422");
+    else fail(`monitor-estimate X username of ${X_NAME_MAX + 1} characters`, `expected HTTP 422, got ${JSON.stringify(tooLong).slice(0, 200)}`);
 
     let monitorId;
     try {
@@ -236,6 +253,205 @@ async function checkWatchedAccounts(client, stamp) {
             else fail("monitor-delete watched accounts", deleted.error ?? JSON.stringify(deleted.value));
         }
     }
+}
+
+const SOCIAL_SOURCES = ["instagram", "facebook", "meta_ads", "threads"];
+const SOCIAL = {
+    instagram_accounts: ["@openai", "https://www.instagram.com/nasa/?hl=en"],
+    facebook_pages: ["https://www.facebook.com/NASA/", "facebook.com/profile.php?id=100044561550831"],
+    threads_accounts: ["https://www.threads.com/@zuck", "@mosseri"],
+    meta_ads_count: 20,
+};
+const SOCIAL_CLEANED = {
+    instagram: ["openai", "nasa"],
+    facebook: ["NASA", "100044561550831"],
+    threads: ["zuck", "mosseri"],
+};
+// The most one run reads, at desearch-public-api#644 prices: an Instagram account $0.02484 (12
+// posts), a Facebook page $0.0207 (10 posts), 10 Meta ads $0.0207, a Threads account $0.00207.
+const SOCIAL_BREAKDOWN = { instagram: 2 * 0.02484, facebook: 2 * 0.0207, meta_ads: 2 * 0.0207, threads: 2 * 0.00207 };
+
+/** The 422 for instagram or facebook without accounts, or a FAIL. Deletes a monitor created by mistake. */
+async function expectMissingAccounts(client, tool, toolArgs, field, label) {
+    const result = await call(client, tool, toolArgs);
+    if (result.error && /HTTP 422/.test(result.error) && result.error.includes(field)) {
+        pass(label, `HTTP 422 names ${field}`);
+        return;
+    }
+    fail(label, `expected HTTP 422 naming ${field}, got ${JSON.stringify(result).slice(0, 200)}`);
+    if (tool === "monitor-create" && typeof result.value?.monitor_id === "string") {
+        await call(client, "monitor-delete", { monitor_id: result.value.monitor_id });
+    }
+}
+
+/**
+ * Instagram, Facebook, Meta ads and Threads accounts (desearch-public-api#644): the estimate
+ * breakdown, the 422 without accounts on create and update, a monitor with all four and a
+ * webhook, items by source meta_ads, and delete. Free: no run is queued.
+ */
+async function checkSocialSources(client, stamp) {
+    await check(
+        client,
+        "monitor-estimate",
+        { sources: SOCIAL_SOURCES, ...SOCIAL },
+        (estimate) => {
+            for (const [part, want] of Object.entries(SOCIAL_BREAKDOWN)) {
+                const got = estimate.breakdown?.[part];
+                expect(typeof got === "number" && Math.abs(got - want) < 0.0001, `${part} ${got}, expected ${want.toFixed(5)}`);
+            }
+            return `$${estimate.max_run_cost_usd} per run, ${JSON.stringify(estimate.breakdown)}`;
+        },
+        "monitor-estimate instagram + facebook + meta_ads + threads breakdown"
+    );
+    await check(
+        client,
+        "monitor-estimate",
+        { sources: ["instagram", "facebook"] },
+        (estimate) => {
+            expect(typeof estimate.max_run_cost_usd === "number", "no max_run_cost_usd");
+            return "estimate does not need the accounts";
+        },
+        "monitor-estimate instagram + facebook without accounts"
+    );
+
+    const bare = { query: "NASA launches", name: `MCP e2e no accounts ${stamp}`, interval: "7d", run_now: false };
+    await expectMissingAccounts(
+        client,
+        "monitor-create",
+        { ...bare, sources: ["instagram"] },
+        "options.instagram.accounts",
+        "monitor-create instagram without accounts"
+    );
+    await expectMissingAccounts(
+        client,
+        "monitor-create",
+        { ...bare, sources: ["facebook"], meta_ads_count: 10 },
+        "options.facebook.pages",
+        "monitor-create facebook without pages"
+    );
+
+    let monitorId;
+    try {
+        const created = await check(
+            client,
+            "monitor-create",
+            {
+                query: "ChatGPT",
+                name: `MCP e2e social ${stamp}`,
+                sources: SOCIAL_SOURCES,
+                interval: "7d",
+                min_score: 0,
+                webhook_url: "https://example.com/desearch-e2e",
+                run_now: false,
+                ...SOCIAL,
+            },
+            (monitor) => {
+                monitorId = monitor.monitor_id;
+                if (typeof monitor.webhook_secret === "string") secrets.push(monitor.webhook_secret);
+                expect(JSON.stringify(monitor.sources) === JSON.stringify(SOCIAL_SOURCES), `sources ${JSON.stringify(monitor.sources)}`);
+                const got = {
+                    instagram: monitor.options?.instagram?.accounts,
+                    facebook: monitor.options?.facebook?.pages,
+                    threads: monitor.options?.threads?.accounts,
+                };
+                expect(JSON.stringify(got) === JSON.stringify(SOCIAL_CLEANED), `names ${JSON.stringify(got)}`);
+                expect(monitor.options?.meta_ads?.count === 20, `meta_ads ${JSON.stringify(monitor.options?.meta_ads)}`);
+                expect(isObject(monitor.webhook) && "last_delivery" in monitor.webhook, `webhook ${JSON.stringify(monitor.webhook)}`);
+                expect(monitor.webhook.last_delivery === null, `last_delivery ${JSON.stringify(monitor.webhook.last_delivery)}`);
+                return `names cleaned: ${Object.values(got).flat().join(", ")}; webhook.last_delivery null`;
+            },
+            "monitor-create instagram + facebook + meta_ads + threads accounts"
+        );
+        if (!created) {
+            return;
+        }
+        await check(
+            client,
+            "monitor-webhook-test",
+            { monitor_id: monitorId },
+            (result) => {
+                expect(typeof result.delivered === "boolean", "no delivered");
+                return `delivered ${result.delivered}, status_code ${result.status_code}`;
+            },
+            "monitor-webhook-test social monitor"
+        );
+        await check(
+            client,
+            "monitor-get",
+            { monitor_id: monitorId },
+            (monitor) => {
+                expect(monitor.webhook?.last_delivery === null, `last_delivery ${JSON.stringify(monitor.webhook?.last_delivery)}`);
+                expect(monitor.webhook?.consecutive_failures === 0, `consecutive_failures ${monitor.webhook?.consecutive_failures}`);
+                return "a test event leaves last_delivery null";
+            },
+            "monitor-get webhook.last_delivery after a test event"
+        );
+
+        // The update replaces options as a whole, and the API checks the monitor as patched.
+        await expectMissingAccounts(
+            client,
+            "monitor-update",
+            { monitor_id: monitorId, meta_ads_count: 30 },
+            "options.instagram.accounts",
+            "monitor-update options without instagram accounts"
+        );
+        await expectMissingAccounts(
+            client,
+            "monitor-update",
+            { monitor_id: monitorId, sources: ["facebook", "meta_ads"], instagram_accounts: ["openai"] },
+            "options.facebook.pages",
+            "monitor-update facebook without pages"
+        );
+        await check(
+            client,
+            "monitor-update",
+            { monitor_id: monitorId, sources: ["instagram", "meta_ads"], instagram_accounts: ["nasa"], meta_ads_count: 30 },
+            (monitor) => {
+                expect(JSON.stringify(monitor.sources) === '["instagram","meta_ads"]', `sources ${JSON.stringify(monitor.sources)}`);
+                expect(JSON.stringify(monitor.options?.instagram?.accounts) === '["nasa"]', `instagram ${JSON.stringify(monitor.options?.instagram)}`);
+                expect(monitor.options?.meta_ads?.count === 30, `meta_ads ${JSON.stringify(monitor.options?.meta_ads)}`);
+                expect(!monitor.options?.facebook?.pages?.length && !monitor.options?.threads?.accounts?.length, `kept ${JSON.stringify(monitor.options)}`);
+                return "options replaced as a whole";
+            },
+            "monitor-update instagram + meta_ads"
+        );
+        await check(
+            client,
+            "monitor-items",
+            { monitor_id: monitorId, source: "meta_ads", limit: 5 },
+            (page) => {
+                expect(Array.isArray(page.items) && page.items.length === 0, "items");
+                expect(page.next_cursor === null, "next_cursor");
+                return "no items";
+            },
+            "monitor-items source meta_ads"
+        );
+    } finally {
+        if (monitorId) {
+            const deleted = await call(client, "monitor-delete", { monitor_id: monitorId });
+            if (deleted.value?.deleted === true) pass("monitor-delete social sources");
+            else fail("monitor-delete social sources", deleted.error ?? JSON.stringify(deleted.value));
+        }
+    }
+}
+
+let billedCalls = 0;
+
+/** POST /desearch/facebook/search with sort recent: billed per ad returned, so count 2. */
+async function checkFacebookSort(client) {
+    billedCalls++;
+    await check(
+        client,
+        "facebook",
+        { action: "search", query: "ChatGPT", sort: "recent", count: 2 },
+        (page) => {
+            expect(Array.isArray(page.results), "no results");
+            expect(page.results.length <= 2, `${page.results.length} results`);
+            expect("next_cursor" in page, "no next_cursor");
+            return `${page.results.length} ads, next_cursor ${page.next_cursor === null ? "null" : "set"}`;
+        },
+        "facebook search sort recent"
+    );
 }
 
 async function main() {
@@ -390,6 +606,8 @@ async function main() {
 
         if (withAccounts) {
             await checkWatchedAccounts(client, stamp);
+            await checkSocialSources(client, stamp);
+            await checkFacebookSort(client);
         }
     } finally {
         if (monitorId) {
@@ -407,7 +625,9 @@ async function main() {
 main()
     .catch((error) => fail("e2e", error))
     .finally(() => {
-        console.log(`${calls} tool calls, no billed runs.`);
+        console.log(
+            `${calls} tool calls, no billed runs${billedCalls ? `; ${billedCalls} billed Facebook search (at most 2 ads, $0.00414)` : ""}.`
+        );
         console.log(failures === 0 ? "All checks passed." : `${failures} check(s) failed.`);
         process.exitCode = failures === 0 ? 0 : 1;
     });

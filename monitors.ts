@@ -9,10 +9,12 @@ import { PEOPLE_API_BASE_URL, arrayOf, compact, objectOf, stringOf } from "./peo
  * `HTTP <status>: <detail>` error text as Company Search (companies.ts).
  *
  * A monitor reruns a search over its `sources` on a schedule (`interval`), or reads the newest
- * posts of up to 10 watched accounts per source (X users, subreddits, YouTube channels, TikTok
- * users), drops everything it has already seen, screens the new items (Jev: relevant, new_info, and one question per
- * criterion; `score` is the lowest, kept at `min_score`), and keeps the ones that pass. Kept
- * items are readable with the items route and are sent to the monitor's signed webhook.
+ * posts of up to 10 watched accounts per source (X users, subreddits, YouTube channels, TikTok,
+ * Threads, and Instagram users, Facebook pages), drops everything it has already seen, screens
+ * the new items (Jev: relevant, new_info, and one question per criterion; `score` is the lowest,
+ * kept at `min_score`), and keeps the ones that pass. Kept items are readable with the items
+ * route and are sent to the monitor's signed webhook. `instagram` and `facebook` only read
+ * watched accounts (the API answers 422 without any); `meta_ads` searches the Meta Ad Library.
  *
  * - Creating, reading, changing, and deleting monitors is free, and so are the run, item, and
  *   webhook routes.
@@ -25,7 +27,17 @@ import { PEOPLE_API_BASE_URL, arrayOf, compact, objectOf, stringOf } from "./peo
  */
 
 /** `sources` (model/monitors.py MonitorSource). */
-export const MONITOR_SOURCES = ["web", "x", "reddit", "youtube", "threads", "tiktok"] as const;
+export const MONITOR_SOURCES = [
+    "web",
+    "x",
+    "reddit",
+    "youtube",
+    "threads",
+    "tiktok",
+    "instagram",
+    "facebook",
+    "meta_ads",
+] as const;
 export type MonitorSource = (typeof MONITOR_SOURCES)[number];
 
 /** `interval` (model/monitors.py MONITOR_INTERVALS). */
@@ -45,6 +57,9 @@ export const MONITOR_WEB_COUNTS = [10, 15, 20] as const;
 
 /** `options.tiktok.count` (model/monitors.py TikTokOptions): posts per run, per account with accounts. */
 export const MONITOR_TIKTOK_COUNTS = [10, 20, 30] as const;
+
+/** `options.meta_ads.count` (model/monitors.py MetaAdsOptions): Ad Library records per run. */
+export const MONITOR_META_ADS_COUNTS = [10, 20, 30] as const;
 
 /** Request limits (model/monitors.py). */
 export const MONITOR_QUERY_MIN = 3;
@@ -70,6 +85,10 @@ export interface MonitorSourceArgs {
     youtube_channels?: string[];
     tiktok_count?: number;
     tiktok_accounts?: string[];
+    threads_accounts?: string[];
+    instagram_accounts?: string[];
+    facebook_pages?: string[];
+    meta_ads_count?: number;
 }
 
 /** Settings create and update share. Per-source options are flat here and nested in the body. */
@@ -100,7 +119,17 @@ export interface MonitorUpdateArgs extends MonitorSettingsArgs {
 export interface MonitorEstimateArgs
     extends Pick<
         MonitorSourceArgs,
-        "web_count" | "x_count" | "x_accounts" | "reddit_subreddits" | "youtube_channels" | "tiktok_count" | "tiktok_accounts"
+        | "web_count"
+        | "x_count"
+        | "x_accounts"
+        | "reddit_subreddits"
+        | "youtube_channels"
+        | "tiktok_count"
+        | "tiktok_accounts"
+        | "threads_accounts"
+        | "instagram_accounts"
+        | "facebook_pages"
+        | "meta_ads_count"
     > {
     sources?: MonitorSource[];
     summary?: boolean;
@@ -183,9 +212,11 @@ function setFields(fields: Record<string, unknown>): Record<string, unknown> | u
 
 /**
  * `options` from the flat tool arguments: `web.count`; `x.count`, `x.lang`, `x.min_likes`,
- * `x.accounts`; `reddit.subreddits`; `youtube.channels`; `tiktok.count`, `tiktok.accounts`.
+ * `x.accounts`; `reddit.subreddits`; `youtube.channels`; `tiktok.count`, `tiktok.accounts`;
+ * `threads.accounts`; `instagram.accounts`; `facebook.pages`; `meta_ads.count`.
  * Account names are sent as given: the API cleans them (`@OpenAI` → `OpenAI`, `r/LocalLLaMA`
- * → `LocalLLaMA`) and answers 422 for a name it cannot read.
+ * → `LocalLLaMA`, a Facebook `profile.php?id=…` URL → its ID) and answers 422 for a name it
+ * cannot read, and for `instagram` or `facebook` in `sources` without accounts or pages.
  */
 export function monitorOptions(args: MonitorSourceArgs): Record<string, unknown> | undefined {
     return setFields({
@@ -194,6 +225,10 @@ export function monitorOptions(args: MonitorSourceArgs): Record<string, unknown>
         reddit: setFields({ subreddits: args.reddit_subreddits }),
         youtube: setFields({ channels: args.youtube_channels }),
         tiktok: setFields({ count: args.tiktok_count, accounts: args.tiktok_accounts }),
+        threads: setFields({ accounts: args.threads_accounts }),
+        instagram: setFields({ accounts: args.instagram_accounts }),
+        facebook: setFields({ pages: args.facebook_pages }),
+        meta_ads: setFields({ count: args.meta_ads_count }),
     });
 }
 

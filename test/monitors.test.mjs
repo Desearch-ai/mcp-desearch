@@ -126,6 +126,65 @@ const WEB_ITEM = {
     data: { domain: "example.org", highlights: ["Subnet 64 launched on mainnet today."] },
 };
 
+const META_ADS_ITEM = {
+    item_id: "1844",
+    run_id: RUN_ID,
+    source: "meta_ads",
+    url: "https://www.facebook.com/ads/library/?id=1234567890",
+    title: "Try ChatGPT Plus",
+    text: "Get faster answers with ChatGPT.",
+    author: { name: "OpenAI", handle: null, url: "https://www.facebook.com/OpenAI" },
+    published_at: "2026-11-02T00:00:00Z",
+    score: 95,
+    signals: { relevant: 0.95 },
+    found_at: "2026-11-03T09:00:41Z",
+    data: {
+        page: "OpenAI",
+        active: true,
+        cta: "Learn more",
+        link: "https://openai.com/chatgpt",
+        platforms: ["facebook", "instagram"],
+        thumbnail: "https://scontent.xx.fbcdn.net/ad.jpg",
+    },
+};
+
+const INSTAGRAM_ITEM = {
+    item_id: "1845",
+    run_id: RUN_ID,
+    source: "instagram",
+    url: "https://www.instagram.com/p/DeuOR-CjKE9/",
+    title: null,
+    text: "Artemis update",
+    author: { name: "NASA", handle: "nasa", url: "https://www.instagram.com/nasa/" },
+    published_at: "2026-11-03T08:00:00Z",
+    score: 70,
+    signals: { relevant: 0.7, new_info: 0.8, criteria: 0.75 },
+    found_at: "2026-11-03T09:00:41Z",
+    data: {
+        likes: 52000,
+        comments: 310,
+        views: 0,
+        media_type: "image",
+        thumbnail: "https://scontent.cdninstagram.com/thumb.jpg",
+        account: "nasa",
+    },
+};
+
+const FACEBOOK_ITEM = {
+    item_id: "1846",
+    run_id: RUN_ID,
+    source: "facebook",
+    url: "https://www.facebook.com/NASA/posts/1525856912919657",
+    title: null,
+    text: "Launch day",
+    author: { name: "NASA", handle: "NASA", url: "https://www.facebook.com/NASA" },
+    published_at: "2026-11-03T07:30:00Z",
+    score: 66,
+    signals: { relevant: 0.66, new_info: 0.9 },
+    found_at: "2026-11-03T09:00:41Z",
+    data: { reactions: 4100, comments: 120, shares: 80, account: "NASA" },
+};
+
 function textOf(result) {
     assert.equal(result.content[0].type, "text");
     return result.content[0].text;
@@ -304,6 +363,90 @@ test("monitor-create sends watched accounts and TikTok options as given, nested 
     });
 });
 
+test("monitor-create sends Instagram accounts, Facebook pages, Threads accounts, and the Meta ads count nested per source", async () => {
+    await withServer(async (client, mock) => {
+        const cleaned = {
+            ...MONITOR,
+            sources: ["instagram", "facebook", "threads", "meta_ads"],
+            options: {
+                instagram: { accounts: ["openai", "nasa"] },
+                facebook: { pages: ["NASA", "100044561550831", "123456789"] },
+                threads: { accounts: ["zuck", "mosseri"] },
+                meta_ads: { count: 20 },
+            },
+        };
+        mock.reply("POST", "/desearch/monitors", 201, cleaned);
+
+        const body = await call(client, "monitor-create", {
+            query: "ChatGPT",
+            sources: ["instagram", "facebook", "threads", "meta_ads"],
+            instagram_accounts: ["@openai", "https://www.instagram.com/nasa/?hl=en"],
+            facebook_pages: [
+                "https://www.facebook.com/NASA/",
+                "facebook.com/profile.php?id=100044561550831",
+                "https://www.facebook.com/pages/Some-Page/123456789",
+            ],
+            threads_accounts: ["https://www.threads.com/@zuck", "@mosseri"],
+            meta_ads_count: 20,
+            run_now: false,
+        });
+        assert.deepEqual(body.options, cleaned.options);
+        assert.deepEqual(mock.seen[0].body, {
+            query: "ChatGPT",
+            sources: ["instagram", "facebook", "threads", "meta_ads"],
+            options: {
+                threads: { accounts: ["https://www.threads.com/@zuck", "@mosseri"] },
+                instagram: { accounts: ["@openai", "https://www.instagram.com/nasa/?hl=en"] },
+                facebook: {
+                    pages: [
+                        "https://www.facebook.com/NASA/",
+                        "facebook.com/profile.php?id=100044561550831",
+                        "https://www.facebook.com/pages/Some-Page/123456789",
+                    ],
+                },
+                meta_ads: { count: 20 },
+            },
+            run_now: false,
+        });
+    });
+});
+
+test("instagram and facebook without accounts are sent, and the API's 422 is reported on create and update", async () => {
+    await withServer(async (client, mock) => {
+        mock.reply("POST", "/desearch/monitors", 422, {
+            detail: [
+                {
+                    loc: ["body"],
+                    msg: "Value error, Instagram watches accounts: add at least one in options.instagram.accounts",
+                },
+            ],
+        });
+        mock.reply("PATCH", MONITOR_PATH, 422, {
+            detail: "Facebook watches pages: add at least one in options.facebook.pages",
+        });
+        await rejects(
+            client,
+            "monitor-create",
+            { query: "NASA launches", sources: ["instagram"], run_now: false },
+            /^Create Monitor error: HTTP 422: .*add at least one in options\.instagram\.accounts/
+        );
+        await rejects(
+            client,
+            "monitor-update",
+            { monitor_id: MONITOR_ID, sources: ["facebook"], meta_ads_count: 10 },
+            /^Update Monitor error: HTTP 422: Facebook watches pages: add at least one in options\.facebook\.pages$/
+        );
+        // The rule depends on the monitor as patched, so the server leaves it to the API.
+        assert.deepEqual(
+            mock.seen.map((sent) => [sent.method, sent.body]),
+            [
+                ["POST", { query: "NASA launches", sources: ["instagram"], run_now: false }],
+                ["PATCH", { sources: ["facebook"], options: { meta_ads: { count: 10 } } }],
+            ]
+        );
+    });
+});
+
 test("monitor tools report a watched account the API cannot read", async () => {
     await withServer(async (client, mock) => {
         mock.reply("POST", "/desearch/monitors", 422, {
@@ -342,7 +485,7 @@ test("monitor-create rejects bad input before any request", async () => {
             { query: "ab" },
             { query: "x".repeat(501) },
             { query: "OpenAI launches", sources: [] },
-            { query: "OpenAI launches", sources: ["instagram"] },
+            { query: "OpenAI launches", sources: ["linkedin"] },
             { query: "OpenAI launches", interval: "30m" },
             { query: "OpenAI launches", web_count: 12 },
             { query: "OpenAI launches", x_count: 0 },
@@ -362,6 +505,11 @@ test("monitor-create rejects bad input before any request", async () => {
             { query: "OpenAI launches", reddit_subreddits: [""] },
             { query: "OpenAI launches", youtube_channels: "@OpenAI" },
             { query: "OpenAI launches", tiktok_accounts: ["x".repeat(201)] },
+            { query: "OpenAI launches", meta_ads_count: 15 },
+            { query: "OpenAI launches", instagram_accounts: Array.from({ length: 11 }, (_, i) => `user${i}`) },
+            { query: "OpenAI launches", facebook_pages: [""] },
+            { query: "OpenAI launches", threads_accounts: "zuck" },
+            { query: "OpenAI launches", meta_ads: { count: 10 } },
             { query: "OpenAI launches", options: { web: { count: 10 } } },
             { query: "OpenAI launches", webhook: { url: "https://example.com/h" } },
         ]) {
@@ -442,9 +590,27 @@ test("monitor-estimate posts the cost settings and returns the estimate as the A
                 tiktok: { count: 30, accounts: ["openai"] },
             },
         });
+        mock.reply("POST", "/desearch/monitors/estimate", 200, estimate);
+        await call(client, "monitor-estimate", {
+            sources: ["instagram", "facebook", "meta_ads", "threads"],
+            instagram_accounts: ["openai"],
+            facebook_pages: ["NASA"],
+            meta_ads_count: 30,
+            threads_accounts: ["zuck"],
+        });
+        assert.deepEqual(mock.seen[3].body, {
+            sources: ["instagram", "facebook", "meta_ads", "threads"],
+            options: {
+                threads: { accounts: ["zuck"] },
+                instagram: { accounts: ["openai"] },
+                facebook: { pages: ["NASA"] },
+                meta_ads: { count: 30 },
+            },
+        });
         await rejects(client, "monitor-estimate", { x_lang: "en" });
         await rejects(client, "monitor-estimate", { tiktok_count: 5 });
-        assert.equal(mock.seen.length, 3);
+        await rejects(client, "monitor-estimate", { meta_ads_count: 25 });
+        assert.equal(mock.seen.length, 4);
     });
 });
 
@@ -473,10 +639,28 @@ test("monitor-list sends status, limit, and cursor, and returns null next_cursor
 
 test("monitor-get reads one monitor and reports a 404 and a bad id", async () => {
     await withServer(async (client, mock) => {
-        mock.reply("GET", MONITOR_PATH, 200, MONITOR);
+        const retrying = {
+            ...MONITOR,
+            webhook: {
+                ...MONITOR.webhook,
+                consecutive_failures: 1,
+                last_delivery: {
+                    event: "monitor.items.found",
+                    status: "pending",
+                    attempts: 2,
+                    status_code: 503,
+                    error: "HTTP 503",
+                    created_at: "2026-11-03T09:00:41Z",
+                    next_attempt_at: "2026-11-03T09:35:41Z",
+                    delivered_at: null,
+                },
+            },
+        };
+        mock.reply("GET", MONITOR_PATH, 200, retrying);
         mock.reply("GET", MONITOR_PATH, 404, { detail: "Monitor not found" });
 
-        assert.deepEqual(await call(client, "monitor-get", { monitor_id: MONITOR_ID }), MONITOR);
+        // webhook.last_delivery comes back as the API sent it.
+        assert.deepEqual(await call(client, "monitor-get", { monitor_id: MONITOR_ID }), retrying);
         await rejects(client, "monitor-get", { monitor_id: MONITOR_ID }, /^Get Monitor error: HTTP 404: Monitor not found$/);
         for (const args of [{}, { monitor_id: "../estimate" }, { monitor_id: MONITOR_ID, run_id: RUN_ID }]) {
             await rejects(client, "monitor-get", args);
@@ -497,6 +681,11 @@ test("monitor-update patches only what changes, removes a webhook, and pauses", 
             webhook_secret: "whsec_new",
         });
         mock.reply("PATCH", MONITOR_PATH, 200, { ...MONITOR, options: { x: {}, tiktok: { count: 30, accounts: ["openai"] } } });
+        mock.reply("PATCH", MONITOR_PATH, 200, {
+            ...MONITOR,
+            sources: ["instagram", "meta_ads"],
+            options: { instagram: { accounts: ["nasa"] }, facebook: {}, meta_ads: { count: 30 } },
+        });
 
         const paused = await call(client, "monitor-update", {
             monitor_id: MONITOR_ID,
@@ -524,6 +713,14 @@ test("monitor-update patches only what changes, removes a webhook, and pauses", 
             tiktok_accounts: ["openai"],
         });
         assert.deepEqual(accounts.options.tiktok, { count: 30, accounts: ["openai"] });
+        const social = await call(client, "monitor-update", {
+            monitor_id: MONITOR_ID,
+            sources: ["instagram", "meta_ads"],
+            instagram_accounts: ["nasa"],
+            facebook_pages: [],
+            meta_ads_count: 30,
+        });
+        assert.deepEqual(social.options.meta_ads, { count: 30 });
 
         assert.deepEqual(
             mock.seen.map((sent) => [sent.method, sent.path, sent.body]),
@@ -540,6 +737,14 @@ test("monitor-update patches only what changes, removes a webhook, and pauses", 
                 ],
                 // An empty list is sent, so the monitor stops watching X accounts.
                 ["PATCH", MONITOR_PATH, { options: { x: { accounts: [] }, tiktok: { count: 30, accounts: ["openai"] } } }],
+                [
+                    "PATCH",
+                    MONITOR_PATH,
+                    {
+                        sources: ["instagram", "meta_ads"],
+                        options: { instagram: { accounts: ["nasa"] }, facebook: { pages: [] }, meta_ads: { count: 30 } },
+                    },
+                ],
             ]
         );
     });
@@ -697,14 +902,39 @@ test("monitor-items filters by source, pages with the item cursor, and compacts 
         assert.equal(tiktok.items[0].data.account, "openai");
         assert.deepEqual(queryOf(mock.seen[2].path), { source: "tiktok" });
 
+        mock.reply("GET", `${MONITOR_PATH}/items`, 200, { items: [META_ADS_ITEM], next_cursor: null });
+        const ads = await call(client, "monitor-items", { monitor_id: MONITOR_ID, source: "meta_ads" });
+        // The ad headline is the title and url is the Ad Library record; data.link is the landing page.
+        assert.equal(ads.items[0].title, "Try ChatGPT Plus");
+        assert.equal(ads.items[0].url, META_ADS_ITEM.url);
+        assert.deepEqual(ads.items[0].data, META_ADS_ITEM.data);
+        assert.deepEqual(ads.items[0].signals, { relevant: 0.95 });
+        assert.deepEqual(queryOf(mock.seen[3].path), { source: "meta_ads" });
+
+        mock.reply("GET", `${MONITOR_PATH}/items`, 200, { items: [INSTAGRAM_ITEM, FACEBOOK_ITEM], next_cursor: null });
+        const watched = await call(client, "monitor-items", { monitor_id: MONITOR_ID });
+        assert.deepEqual(
+            watched.items.map((item) => [item.source, item.data, item.signals]),
+            [
+                ["instagram", INSTAGRAM_ITEM.data, INSTAGRAM_ITEM.signals],
+                ["facebook", FACEBOOK_ITEM.data, FACEBOOK_ITEM.signals],
+            ]
+        );
+        for (const source of ["instagram", "facebook"]) {
+            mock.reply("GET", `${MONITOR_PATH}/items`, 200, { items: [], next_cursor: null });
+            await call(client, "monitor-items", { monitor_id: MONITOR_ID, source });
+        }
+        assert.deepEqual(queryOf(mock.seen[5].path), { source: "instagram" });
+        assert.deepEqual(queryOf(mock.seen[6].path), { source: "facebook" });
+
         for (const args of [
-            { monitor_id: MONITOR_ID, source: "instagram" },
+            { monitor_id: MONITOR_ID, source: "linkedin" },
             { monitor_id: MONITOR_ID, limit: 201 },
             { monitor_id: MONITOR_ID, cursor: "abc" },
         ]) {
             await rejects(client, "monitor-items", args);
         }
-        assert.equal(mock.seen.length, 3);
+        assert.equal(mock.seen.length, 7);
     });
 });
 
@@ -762,6 +992,19 @@ test("monitor request bodies match the API models", () => {
         reddit: { subreddits: [] },
         tiktok: { count: 10 },
     });
+    assert.deepEqual(
+        monitorOptions({ threads_accounts: ["zuck"], instagram_accounts: [], facebook_pages: ["NASA"], meta_ads_count: 10 }),
+        {
+            threads: { accounts: ["zuck"] },
+            instagram: { accounts: [] },
+            facebook: { pages: ["NASA"] },
+            meta_ads: { count: 10 },
+        }
+    );
+    assert.deepEqual(monitorEstimateBody({ sources: ["meta_ads"], meta_ads_count: 20 }), {
+        sources: ["meta_ads"],
+        options: { meta_ads: { count: 20 } },
+    });
     assert.deepEqual(monitorCreateBody({ query: "q q q", run_now: true, summary: true }), {
         query: "q q q",
         summary: true,
@@ -802,5 +1045,55 @@ test("monitor-create says TikTok keyword monitors rank by relevance and points t
         assert.match(create.description, /watch their accounts \(tiktok_accounts\)/);
         const tiktok = tools.find((tool) => tool.name === "tiktok");
         assert.equal(Object.hasOwn(tiktok.inputSchema.properties, "date_posted"), false);
+    });
+});
+
+test("monitor descriptions say instagram and facebook need accounts, meta_ads takes keywords, and what runs cost", async () => {
+    await withServer(async (client) => {
+        const { tools } = await client.listTools();
+        const byName = Object.fromEntries(tools.map((tool) => [tool.name, tool]));
+        const create = byName["monitor-create"];
+        assert.match(create.description, /'instagram' and 'facebook' have no keyword search/);
+        assert.match(create.description, /'instagram' needs instagram_accounts and one with 'facebook' needs facebook_pages, or the API answers 422/);
+        assert.match(create.description, /write the query as keywords \(a brand, product, or short phrase such as 'ChatGPT'\); a sentence finds nothing/);
+        assert.match(create.description, /started within the last 30 days/);
+        assert.match(create.description, /watch accounts there \(threads_accounts\)/);
+        // Per-run prices from desearch-public-api #644.
+        assert.match(create.description, /a watched Instagram account \$0\.02484/);
+        assert.match(create.description, /a watched Facebook page \$0\.0207/);
+        assert.match(create.description, /Meta ads \$0\.0207 per 10 ads, so meta_ads_count 30 is \$0\.0621/);
+        assert.match(create.description, /YouTube channel, or Threads account \$0\.00207/);
+
+        const props = create.inputSchema.properties;
+        assert.match(props.sources.description, /'instagram' and 'facebook' only read watched accounts/);
+        assert.match(props.query.description, /With 'meta_ads', use keywords/);
+        assert.match(props.instagram_accounts.description, /Required with the 'instagram' source/);
+        assert.match(props.instagram_accounts.description, /\$0\.02484 per run/);
+        assert.match(props.facebook_pages.description, /Required with the 'facebook' source/);
+        assert.match(props.facebook_pages.description, /for ads by keyword use the 'meta_ads' source/);
+        assert.match(props.facebook_pages.description, /\$0\.0207 per run/);
+        assert.match(props.meta_ads_count.description, /10 \(API default, \$0\.0207\), 20 \(\$0\.0414\), or 30 \(\$0\.0621\)/);
+        assert.match(props.threads_accounts.description, /one request per run \(\$0\.00207\)/);
+        assert.match(props.x_accounts.description, /X usernames \(1-15 characters\)/);
+
+        assert.match(byName["monitor-update"].description, /leaves 'instagram' without instagram_accounts or 'facebook' without facebook_pages .* is a 422/);
+        assert.match(byName["monitor-estimate"].description, /does not refuse 'instagram' or 'facebook' without accounts/);
+
+        for (const name of ["monitor-get", "monitor-list"]) {
+            assert.match(byName[name].description, /last_delivery/, name);
+        }
+        assert.match(byName["monitor-get"].description, /'pending' while it waits for its first or next attempt at next_attempt_at/);
+        assert.match(byName["monitor-get"].description, /'failed' after every retry/);
+        assert.match(byName["monitor-webhook-test"].description, /does not change webhook\.last_delivery/);
+
+        for (const name of ["monitor-run", "monitor-items"]) {
+            const description = byName[name].description;
+            assert.match(description, /Threads likes/, name);
+            assert.match(description, /Instagram likes, comments, views, media_type, thumbnail/, name);
+            assert.match(description, /Facebook reactions, comments, shares/, name);
+            assert.match(description, /Meta ads page, active, cta, link \(the ad's landing page\), platforms, thumbnail, with the ad headline as title and url the Ad Library record/, name);
+            assert.match(description, /criteria, the lowest answer across the criteria/, name);
+            assert.match(description, /data\.account/, name);
+        }
     });
 });
