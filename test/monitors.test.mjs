@@ -63,7 +63,7 @@ const RUN = {
         },
         screened: 13,
         passed: 2,
-        screen: "jev",
+        screen: "ai",
     },
     summary: null,
     reserved_usd: 0.0098,
@@ -356,6 +356,43 @@ test("monitor-create sends watched accounts and TikTok options as given, nested 
                 reddit: { subreddits: ["r/LocalLLaMA"] },
                 youtube: { channels: ["OpenAI", "https://www.youtube.com/channel/UCXZCJLdBC09xxGZ6gcdrc6A"] },
                 tiktok: { count: 20, accounts: ["@openai"] },
+            },
+            min_score: 0,
+            run_now: false,
+        });
+    });
+});
+
+test("monitor-create sends TikTok and Instagram hashtags as given, nested per source", async () => {
+    await withServer(async (client, mock) => {
+        const cleaned = {
+            ...MONITOR,
+            sources: ["tiktok", "instagram"],
+            options: {
+                tiktok: { count: 10, accounts: ["openai"], hashtags: ["ავერსი", "aversi"] },
+                instagram: { hashtags: ["aversi", "ავერსი"] },
+            },
+            webhook: null,
+        };
+        mock.reply("POST", "/desearch/monitors", 201, cleaned);
+
+        const body = await call(client, "monitor-create", {
+            query: "Aversi pharmacies",
+            sources: ["tiktok", "instagram"],
+            tiktok_accounts: ["@openai"],
+            tiktok_hashtags: ["#ავერსი", "https://www.tiktok.com/tag/aversi"],
+            // Instagram may watch hashtags without accounts.
+            instagram_hashtags: ["https://www.instagram.com/explore/tags/aversi/", "ავერსი"],
+            min_score: 0,
+            run_now: false,
+        });
+        assert.deepEqual(body.options, cleaned.options);
+        assert.deepEqual(mock.seen[0].body, {
+            query: "Aversi pharmacies",
+            sources: ["tiktok", "instagram"],
+            options: {
+                tiktok: { accounts: ["@openai"], hashtags: ["#ავერსი", "https://www.tiktok.com/tag/aversi"] },
+                instagram: { hashtags: ["https://www.instagram.com/explore/tags/aversi/", "ავერსი"] },
             },
             min_score: 0,
             run_now: false,
@@ -1005,6 +1042,14 @@ test("monitor request bodies match the API models", () => {
         sources: ["meta_ads"],
         options: { meta_ads: { count: 20 } },
     });
+    assert.deepEqual(monitorOptions({ tiktok_hashtags: ["aversi"], instagram_hashtags: ["ავერსი"], instagram_accounts: ["nasa"] }), {
+        tiktok: { hashtags: ["aversi"] },
+        instagram: { accounts: ["nasa"], hashtags: ["ავერსი"] },
+    });
+    assert.deepEqual(monitorEstimateBody({ sources: ["instagram"], instagram_hashtags: ["aversi"] }), {
+        sources: ["instagram"],
+        options: { instagram: { hashtags: ["aversi"] } },
+    });
     assert.deepEqual(monitorCreateBody({ query: "q q q", run_now: true, summary: true }), {
         query: "q q q",
         summary: true,
@@ -1042,7 +1087,7 @@ test("monitor-create says TikTok keyword monitors rank by relevance and points t
         const { tools } = await client.listTools();
         const create = tools.find((tool) => tool.name === "monitor-create");
         assert.match(create.description, /TikTok search has no working date filter and ranks by relevance/);
-        assert.match(create.description, /watch their accounts \(tiktok_accounts\)/);
+        assert.match(create.description, /watch their accounts \(tiktok_accounts\) or the hashtag \(tiktok_hashtags\)/);
         const tiktok = tools.find((tool) => tool.name === "tiktok");
         assert.equal(Object.hasOwn(tiktok.inputSchema.properties, "date_posted"), false);
     });
@@ -1054,20 +1099,23 @@ test("monitor descriptions say instagram and facebook need accounts, meta_ads ta
         const byName = Object.fromEntries(tools.map((tool) => [tool.name, tool]));
         const create = byName["monitor-create"];
         assert.match(create.description, /'instagram' and 'facebook' have no keyword search/);
-        assert.match(create.description, /'instagram' needs instagram_accounts and one with 'facebook' needs facebook_pages, or the API answers 422/);
+        assert.match(create.description, /'instagram' needs instagram_accounts or instagram_hashtags and one with 'facebook' needs facebook_pages, or the API answers 422/);
         assert.match(create.description, /write the query as keywords \(a brand, product, or short phrase such as 'ChatGPT'\); a sentence finds nothing/);
         assert.match(create.description, /started within the last 30 days/);
         assert.match(create.description, /watch accounts there \(threads_accounts\)/);
         // Per-run prices from desearch-public-api #644.
-        assert.match(create.description, /a watched Instagram account \$0\.02484/);
+        assert.match(create.description, /a watched Instagram account or hashtag \$0\.02484/);
         assert.match(create.description, /a watched Facebook page \$0\.0207/);
         assert.match(create.description, /Meta ads \$0\.0207 per 10 ads, so meta_ads_count 30 is \$0\.0621/);
         assert.match(create.description, /YouTube channel, or Threads account \$0\.00207/);
 
         const props = create.inputSchema.properties;
-        assert.match(props.sources.description, /'instagram' and 'facebook' only read watched accounts/);
+        assert.match(props.sources.description, /'instagram' and 'facebook' only read watched feeds/);
         assert.match(props.query.description, /With 'meta_ads', use keywords/);
-        assert.match(props.instagram_accounts.description, /Required with the 'instagram' source/);
+        assert.match(props.instagram_accounts.description, /it needs instagram_accounts or instagram_hashtags/);
+        assert.match(props.instagram_hashtags.description, /from any account/);
+        assert.match(props.instagram_hashtags.description, /\$0\.02484 per run/);
+        assert.match(props.tiktok_hashtags.description, /tiktok_count posts per run/);
         assert.match(props.instagram_accounts.description, /\$0\.02484 per run/);
         assert.match(props.facebook_pages.description, /Required with the 'facebook' source/);
         assert.match(props.facebook_pages.description, /for ads by keyword use the 'meta_ads' source/);
@@ -1076,8 +1124,10 @@ test("monitor descriptions say instagram and facebook need accounts, meta_ads ta
         assert.match(props.threads_accounts.description, /one request per run \(\$0\.00207\)/);
         assert.match(props.x_accounts.description, /X usernames \(1-15 characters\)/);
 
-        assert.match(byName["monitor-update"].description, /leaves 'instagram' without instagram_accounts or 'facebook' without facebook_pages .* is a 422/);
-        assert.match(byName["monitor-estimate"].description, /does not refuse 'instagram' or 'facebook' without accounts/);
+        assert.match(byName["monitor-update"].description, /leaves 'instagram' without instagram_accounts or instagram_hashtags or 'facebook' without facebook_pages .* is a 422/);
+        assert.match(byName["monitor-estimate"].description, /does not refuse 'instagram' or 'facebook' without accounts or hashtags/);
+        assert.match(byName["monitor-runs"].description, /stats\.screen: ai, by an AI classifier, or keyword/);
+        assert.match(byName["monitor-runs"].description, /hashtags_failed/);
 
         for (const name of ["monitor-get", "monitor-list"]) {
             assert.match(byName[name].description, /last_delivery/, name);
@@ -1089,8 +1139,11 @@ test("monitor descriptions say instagram and facebook need accounts, meta_ads ta
         for (const name of ["monitor-run", "monitor-items"]) {
             const description = byName[name].description;
             assert.match(description, /Threads likes/, name);
-            assert.match(description, /Instagram likes, comments, views, media_type, thumbnail/, name);
-            assert.match(description, /Facebook reactions, comments, shares/, name);
+            assert.match(description, /Instagram likes, comments, views, media_type/, name);
+            assert.match(description, /Facebook reactions, comments, shares, views/, name);
+            assert.match(description, /TikTok views, likes, comments, shares, saves, duration_s/, name);
+            assert.match(description, /post_id .*type .*hashtags, mentions \(TikTok and Instagram\), media/, name);
+            assert.match(description, /data\.hashtag/, name);
             assert.match(description, /Meta ads page, active, cta, link \(the ad's landing page\), platforms, thumbnail, with the ad headline as title and url the Ad Library record/, name);
             assert.match(description, /criteria, the lowest answer across the criteria/, name);
             assert.match(description, /data\.account/, name);

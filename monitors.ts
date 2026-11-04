@@ -10,15 +10,16 @@ import { PEOPLE_API_BASE_URL, arrayOf, compact, objectOf, stringOf } from "./peo
  *
  * A monitor reruns a search over its `sources` on a schedule (`interval`), or reads the newest
  * posts of up to 10 watched accounts per source (X users, subreddits, YouTube channels, TikTok,
- * Threads, and Instagram users, Facebook pages), drops everything it has already seen, screens
- * the new items (Jev: relevant, new_info, and one question per criterion; `score` is the lowest,
- * kept at `min_score`), and keeps the ones that pass. Kept items are readable with the items
- * route and are sent to the monitor's signed webhook. `instagram` and `facebook` only read
- * watched accounts (the API answers 422 without any); `meta_ads` searches the Meta Ad Library.
+ * Threads, and Instagram users, Facebook pages) and up to 10 watched TikTok and Instagram
+ * hashtags, drops everything it has already seen, screens the new items with an AI classifier
+ * (relevant, new_info, and one question per criterion; `score` is the lowest, kept at
+ * `min_score`), and keeps the ones that pass. Kept items are readable with the items route and
+ * are sent to the monitor's signed webhook. `instagram` and `facebook` only read watched accounts
+ * or hashtags (the API answers 422 without any); `meta_ads` searches the Meta Ad Library.
  *
  * - Creating, reading, changing, and deleting monitors is free, and so are the run, item, and
  *   webhook routes.
- * - Each run is billed when it ends: its searches at their list price, Jev screening per item
+ * - Each run is billed when it ends: its searches at their list price, AI screening per item
  *   screened (the `/desearch/monitors` price), and the summary's LLM usage plus 50%. Its most
  *   (`max_run_cost_usd`) is held on the balance while it runs. `run_now` on create (the API
  *   default) and the trigger route each queue a billed run.
@@ -55,7 +56,7 @@ export type MonitorStatus = (typeof MONITOR_STATUSES)[number];
 /** `options.web.count` (model/monitors.py WebOptions). */
 export const MONITOR_WEB_COUNTS = [10, 15, 20] as const;
 
-/** `options.tiktok.count` (model/monitors.py TikTokOptions): posts per run, per account with accounts. */
+/** `options.tiktok.count` (model/monitors.py TikTokOptions): posts per run, per account and per hashtag with them. */
 export const MONITOR_TIKTOK_COUNTS = [10, 20, 30] as const;
 
 /** `options.meta_ads.count` (model/monitors.py MetaAdsOptions): Ad Library records per run. */
@@ -71,7 +72,7 @@ export const MONITOR_METADATA_MAX_KEYS = 20;
 export const MONITOR_METADATA_KEY_MAX = 64;
 export const MONITOR_METADATA_VALUE_MAX = 500;
 export const MONITOR_X_COUNT_MAX = 100;
-/** Watched accounts per source (model/monitors.py MAX_ACCOUNTS). */
+/** Watched accounts per source, and watched hashtags per source (model/monitors.py MAX_ACCOUNTS). */
 export const MONITOR_ACCOUNTS_MAX = 10;
 
 /** The per-source options as flat tool arguments; monitorOptions nests them. */
@@ -85,8 +86,10 @@ export interface MonitorSourceArgs {
     youtube_channels?: string[];
     tiktok_count?: number;
     tiktok_accounts?: string[];
+    tiktok_hashtags?: string[];
     threads_accounts?: string[];
     instagram_accounts?: string[];
+    instagram_hashtags?: string[];
     facebook_pages?: string[];
     meta_ads_count?: number;
 }
@@ -126,8 +129,10 @@ export interface MonitorEstimateArgs
         | "youtube_channels"
         | "tiktok_count"
         | "tiktok_accounts"
+        | "tiktok_hashtags"
         | "threads_accounts"
         | "instagram_accounts"
+        | "instagram_hashtags"
         | "facebook_pages"
         | "meta_ads_count"
     > {
@@ -212,11 +217,13 @@ function setFields(fields: Record<string, unknown>): Record<string, unknown> | u
 
 /**
  * `options` from the flat tool arguments: `web.count`; `x.count`, `x.lang`, `x.min_likes`,
- * `x.accounts`; `reddit.subreddits`; `youtube.channels`; `tiktok.count`, `tiktok.accounts`;
- * `threads.accounts`; `instagram.accounts`; `facebook.pages`; `meta_ads.count`.
- * Account names are sent as given: the API cleans them (`@OpenAI` → `OpenAI`, `r/LocalLLaMA`
- * → `LocalLLaMA`, a Facebook `profile.php?id=…` URL → its ID) and answers 422 for a name it
- * cannot read, and for `instagram` or `facebook` in `sources` without accounts or pages.
+ * `x.accounts`; `reddit.subreddits`; `youtube.channels`; `tiktok.count`, `tiktok.accounts`,
+ * `tiktok.hashtags`; `threads.accounts`; `instagram.accounts`, `instagram.hashtags`;
+ * `facebook.pages`; `meta_ads.count`.
+ * Account names and hashtags are sent as given: the API cleans them (`@OpenAI` → `OpenAI`,
+ * `r/LocalLLaMA` → `LocalLLaMA`, a Facebook `profile.php?id=…` URL → its ID, `#ავერსი` → `ავერსი`,
+ * a tag URL → its tag) and answers 422 for a name or hashtag it cannot read, and for `instagram`
+ * in `sources` without accounts or hashtags or `facebook` without pages.
  */
 export function monitorOptions(args: MonitorSourceArgs): Record<string, unknown> | undefined {
     return setFields({
@@ -224,9 +231,9 @@ export function monitorOptions(args: MonitorSourceArgs): Record<string, unknown>
         x: setFields({ count: args.x_count, lang: args.x_lang, min_likes: args.x_min_likes, accounts: args.x_accounts }),
         reddit: setFields({ subreddits: args.reddit_subreddits }),
         youtube: setFields({ channels: args.youtube_channels }),
-        tiktok: setFields({ count: args.tiktok_count, accounts: args.tiktok_accounts }),
+        tiktok: setFields({ count: args.tiktok_count, accounts: args.tiktok_accounts, hashtags: args.tiktok_hashtags }),
         threads: setFields({ accounts: args.threads_accounts }),
-        instagram: setFields({ accounts: args.instagram_accounts }),
+        instagram: setFields({ accounts: args.instagram_accounts, hashtags: args.instagram_hashtags }),
         facebook: setFields({ pages: args.facebook_pages }),
         meta_ads: setFields({ count: args.meta_ads_count }),
     });
@@ -301,7 +308,8 @@ const MAX_ITEM_TEXT_CHARS = 1000;
 /**
  * One kept item as an agent needs it: where it came from, what it says (`text` cut to 1000
  * characters), who posted it, how it scored, and the source's own fields (`data`, with
- * `account` when it was read from a watched account).
+ * `account` when it was read from a watched account and `hashtag` when it was read from a
+ * watched hashtag).
  */
 export function compactMonitorItem(item: unknown): Record<string, unknown> {
     const i = objectOf(item);

@@ -357,9 +357,11 @@ test("monitor tools advertise the Monitors API enums and argument names", async 
             "reddit_subreddits",
             "sources",
             "summary",
+            "instagram_hashtags",
             "threads_accounts",
             "tiktok_accounts",
             "tiktok_count",
+            "tiktok_hashtags",
             "web_count",
             "webhook_events",
             "webhook_url",
@@ -390,8 +392,10 @@ test("monitor tools advertise the Monitors API enums and argument names", async 
                 "reddit_subreddits",
                 "youtube_channels",
                 "tiktok_accounts",
+                "tiktok_hashtags",
                 "threads_accounts",
                 "instagram_accounts",
+                "instagram_hashtags",
                 "facebook_pages",
             ]) {
                 assert.equal(byName[name][list].type, "array", `${name} ${list}`);
@@ -403,6 +407,7 @@ test("monitor tools advertise the Monitors API enums and argument names", async 
         assert.deepEqual(Object.keys(byName["monitor-estimate"]).sort(), [
             "facebook_pages",
             "instagram_accounts",
+            "instagram_hashtags",
             "interval",
             "meta_ads_count",
             "reddit_subreddits",
@@ -411,6 +416,7 @@ test("monitor tools advertise the Monitors API enums and argument names", async 
             "threads_accounts",
             "tiktok_accounts",
             "tiktok_count",
+            "tiktok_hashtags",
             "web_count",
             "x_accounts",
             "x_count",
