@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.9.0
+
+Company Search: a search budget (`max_cost_usd`) and continuing an ended search (`continue_from`), the two optional `POST /desearch/companies/search` fields of desearch-public-api #624. Both wait for that API release; until then the API answers 422 to them.
+
+- `company-search` takes `max_cost_usd` (a number, more than 0, up to 100) and `continue_from` (a Company Search `task_id`) and sends them only when set. `company-enrich` takes neither.
+- `max_cost_usd`: the whole budget is reserved (`reserved_cost_usd`), and the search goes on until it delivers `count` or spends it, instead of stopping at `cost_limit` once it costs more than the companies it found pay for. Its search effort is billed where the companies delivered do not cover it, up to the budget, even when it finds few companies or none. A budget below what `count` reserves is an HTTP 422 from the API. The argument, the tool description, and the server instructions tell the agent to set it only when the user agreed to that amount.
+- `continue_from`: the new search leaves out every company the ended search delivered, held for review, or was told to exclude. The description says to send the same query and filters with the count still wanted, and that the API answers 409 while that task has not ended and 404 when it is not the caller's Company Search.
+- The `query` argument and the `company-search` description name the form that checks only the companies a query names: "Restrict this search to Acme (acme.com.au) and Beta (beta.co.uk). Return only those." (no web search, `only_domains`, `completion_reason: "all_domains_processed"`). Companies named without their websites get warning `scope_not_applied`.
+- Task summaries (`company-search`, `company-search-status`, the control tools, `company-search-tasks`) show `max_cost_usd` and `continue_from` from the stored request and `only_domains` from the query's interpretation, when set. `progress.effort_units` (budgeted searches) passes through with `progress`.
+- The `next` hint of a search that a limit stopped before `count` (`coverage_limited`) now says how to continue it: offer the user a new `company-search` with the same query and filters, `continue_from` set to its `task_id`, and the count still wanted (at least 5). Without a budget it adds that the user may set `max_cost_usd`, which bills search effort, and only with the user's agreement; a `cost_limit` stop says whether the search ran out of its budget or stopped because it cost more than its companies pay for. Company Enrich tasks get no continue hint. The hint says "a limit stopped it", no longer "a budget stopped it". A cancelled search with a budget says it pays for its search effort so far when that is more than the companies delivered.
+- `company-search-cancel` says the same. The `company-search` cost text now gives a minimum of 1 company when a search delivers any (the API's minimum since 2026-11-02), no longer 2.
+- Every version (package, `server.json`, the Gemini extension, the plugin manifests, and `SERVER_VERSION`) is 0.9.0. The tool count is unchanged (39).
+
 ## 0.8.0
 
 YouTube, Reddit, and Threads: three new tools (39 in total) for the 16 public routes tagged YouTube Search, Reddit Search, and Threads Search. They are not in `desearch-js` 1.5, so they use the same `social.ts` action table and direct API calls (`desearch-api.ts`) as `tiktok`, `facebook`, and `instagram`. Each request is billed as one unit (an empty page included; a 404, a 422, and a 5xx are free).

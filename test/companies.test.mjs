@@ -535,6 +535,10 @@ test("company request bodies match the API models", () => {
         verify_emails: true,
         filters: { countries: ["Germany"] },
     });
+    assert.deepEqual(
+        companySearchBody({ query: "Fintech startups", count: 20, max_cost_usd: 5, continue_from: TASK_ID }),
+        { query: "Fintech startups", count: 20, max_cost_usd: 5, continue_from: TASK_ID }
+    );
     assert.deepEqual(companyEnrichBody({ domains: ["acme.com"] }), { domains: ["acme.com"] });
     assert.deepEqual(
         companyEnrichBody({ domains: ["acme.com"], roles: ["cfo"], verify_emails: false, metadata: { team: "a" } }),
@@ -558,6 +562,146 @@ test("company-search and company-enrich mark a repeated idempotency_key as the f
     });
 });
 
+test("company-search sends a search budget and the search it continues, and shows them on the task", async () => {
+    await withServer(async (client, mock) => {
+        const EARLIER = "0f4a1c2e-7d9b-4e3a-9c1f-2b6d8e0a5c47";
+        const request = { ...TASK.request, count: 20, exclude: ["stripe.com", "acme.com"], max_cost_usd: 5, continue_from: EARLIER };
+        mock.reply("POST", "/desearch/companies/search", 202, {
+            ...TASK,
+            status: "queued",
+            stage: null,
+            count: 20,
+            result_count: 0,
+            progress: {},
+            request,
+            // $5 at $0.045 a company reserves 111 companies.
+            reserved_cost_usd: 4.995,
+            cost_usd: 4.995,
+            currency: "USD",
+        });
+
+        const body = await call(client, "company-search", {
+            query: "Series A fintech startups in Berlin building payment infrastructure",
+            count: 20,
+            exclude: ["stripe.com"],
+            max_cost_usd: 5,
+            continue_from: EARLIER,
+        });
+        assert.equal(body.max_cost_usd, 5);
+        assert.equal(body.continue_from, EARLIER);
+        assert.equal(body.reserved_cost_usd, 4.995);
+        assert.equal(Object.hasOwn(body, "request"), false);
+        assert.deepEqual(mock.seen[0].body, {
+            query: "Series A fintech startups in Berlin building payment infrastructure",
+            count: 20,
+            exclude: ["stripe.com"],
+            max_cost_usd: 5,
+            continue_from: EARLIER,
+        });
+    });
+});
+
+test("company-search reports a budget below count and a search still running as API errors", async () => {
+    await withServer(async (client, mock) => {
+        mock.reply("POST", "/desearch/companies/search", 422, {
+            detail: "max_cost_usd must be at least what count reserves: 50 companies at $0.045 is $2.25.",
+        });
+        mock.reply("POST", "/desearch/companies/search", 409, {
+            detail: "The search to continue from has not ended: wait for it to finish, or cancel it.",
+        });
+        const low = await client.callTool({
+            name: "company-search",
+            arguments: { query: "Fintech startups", count: 50, max_cost_usd: 1 },
+        });
+        assert.equal(low.isError, true);
+        assert.equal(
+            textOf(low),
+            "Company Search error: HTTP 422: max_cost_usd must be at least what count reserves: 50 companies at $0.045 is $2.25."
+        );
+        const running = await client.callTool({
+            name: "company-search",
+            arguments: { query: "Fintech startups", continue_from: TASK_ID },
+        });
+        assert.equal(running.isError, true);
+        assert.match(textOf(running), /^Company Search error: HTTP 409: The search to continue from has not ended/);
+    });
+});
+
+test("company-search-status says how to continue a search a limit stopped, and when a budget may help", async () => {
+    await withServer(async (client, mock) => {
+        const stopped = {
+            ...TASK,
+            status: "completed",
+            stage: null,
+            count: 50,
+            result_count: 12,
+            completion_reason: "cost_limit",
+            coverage_limited: true,
+            final_cost_usd: 0.54,
+            finished_at: "2026-11-02T10:06:00Z",
+        };
+        mock.reply("GET", TASK_PATH, 200, stopped);
+        mock.reply("GET", TASK_PATH, 200, {
+            ...stopped,
+            request: { ...TASK.request, count: 50, max_cost_usd: 5 },
+            progress: { ...TASK.progress, effort_units: 111 },
+            final_cost_usd: 4.995,
+        });
+
+        const free = await call(client, "company-search-status", { task_id: TASK_ID, include_companies: false });
+        assert.equal(free.coverage_limited, true);
+        assert.equal(Object.hasOwn(free, "max_cost_usd"), false);
+        assert.equal(
+            free.next,
+            `Finished early: it stopped once its search cost more than the companies it found pay for (cost_limit) before it delivered 50 companies, so more companies may match. You have every company it delivered. To find more, offer the user a new company-search with the same query and filters, continue_from "${TASK_ID}", and count 38 (the companies still wanted): it leaves out every company this search delivered or held for review. The user may also set a budget (max_cost_usd): the search then goes on until it delivers count or spends the budget, and bills its search effort up to the budget even when it finds few companies or none, so set it only with the user's agreement to that amount.`
+        );
+
+        const budgeted = await call(client, "company-search-status", { task_id: TASK_ID, include_companies: false });
+        assert.equal(budgeted.max_cost_usd, 5);
+        assert.equal(budgeted.progress.effort_units, 111);
+        assert.equal(
+            budgeted.next,
+            `Finished early: it spent its search budget of $5 (max_cost_usd; cost_limit) before it delivered 50 companies, so more companies may match. You have every company it delivered. To find more, offer the user a new company-search with the same query and filters, continue_from "${TASK_ID}", and count 38 (the companies still wanted): it leaves out every company this search delivered or held for review. Set max_cost_usd on it only if the user agrees to a new budget.`
+        );
+    });
+});
+
+test("company-search-status shows the domains a restricted search checked", async () => {
+    await withServer(async (client, mock) => {
+        mock.reply("GET", TASK_PATH, 200, {
+            ...TASK,
+            status: "completed",
+            stage: null,
+            query: "Restrict this search to Acme (acme.com.au) and Beta (beta.co.uk). Return only those.",
+            count: 5,
+            result_count: 1,
+            interpreted: {
+                criteria: ["Civil contractor"],
+                queries: [],
+                interpretation: { only_domains: ["acme.com.au", "beta.co.uk"] },
+            },
+            completion_reason: "all_domains_processed",
+        });
+        mock.reply("GET", TASK_PATH, 200, {
+            ...TASK,
+            status: "completed",
+            stage: null,
+            interpreted: { criteria: ["Civil contractor"], queries: ["civil contractor"], interpretation: { only_domains: [] } },
+            completion_reason: "count_reached",
+            warnings: [{ code: "scope_not_applied", message: "The request limits the search to companies it names without their websites, so the search is not limited to them." }],
+        });
+
+        const scoped = await call(client, "company-search-status", { task_id: TASK_ID, include_companies: false });
+        assert.deepEqual(scoped.only_domains, ["acme.com.au", "beta.co.uk"]);
+        assert.equal(scoped.completion_reason, "all_domains_processed");
+        assert.equal(scoped.next, "Finished: it read every domain. You have every company it delivered.");
+
+        const unscoped = await call(client, "company-search-status", { task_id: TASK_ID, include_companies: false });
+        assert.equal(Object.hasOwn(unscoped, "only_domains"), false);
+        assert.equal(unscoped.warnings[0].code, "scope_not_applied");
+    });
+});
+
 test("company-search and company-enrich reject bad input before any request", async () => {
     await withServer(async (client, mock) => {
         const elevenKeys = Object.fromEntries(Array.from({ length: 11 }, (_, i) => [`k${i}`, "v"]));
@@ -577,6 +721,13 @@ test("company-search and company-enrich reject bad input before any request", as
             { query: "Fintech startups", metadata: { Campaign: "q4" } },
             { query: "Fintech startups", metadata: elevenKeys },
             { query: "Fintech startups", idempotency_key: "k".repeat(201) },
+            { query: "Fintech startups", max_cost_usd: 0 },
+            { query: "Fintech startups", max_cost_usd: -1 },
+            { query: "Fintech startups", max_cost_usd: 100.01 },
+            { query: "Fintech startups", max_cost_usd: "5" },
+            { query: "Fintech startups", max_cost_usd: true },
+            { query: "Fintech startups", continue_from: "last-search" },
+            { query: "Fintech startups", continue_from: 7 },
             {},
         ]) {
             const rejected = await client.callTool({ name: "company-search", arguments: args });
@@ -591,6 +742,8 @@ test("company-search and company-enrich reject bad input before any request", as
             { domains: ["acme.com"], query: "Fintech startups" },
             { domains: ["acme.com"], count: 5 },
             { domains: ["acme.com"], roles: ["cmo", "intern"] },
+            { domains: ["acme.com"], max_cost_usd: 5 },
+            { domains: ["acme.com"], continue_from: TASK_ID },
             { domains: "acme.com" },
         ]) {
             const rejected = await client.callTool({ name: "company-enrich", arguments: args });
@@ -760,7 +913,7 @@ test("company-search-status says why a task ended and whether to read again for 
         ]);
         assert.equal(
             limited.next,
-            "Finished early: a budget stopped it (time_limit) before it delivered 25 companies, so more companies may match. You have every company it delivered. 1 company on this page stayed partial: the task ended before every stage ran for it."
+            `Finished early: a limit stopped it (time_limit) before it delivered 25 companies, so more companies may match. You have every company it delivered. 1 company on this page stayed partial: the task ended before every stage ran for it. To find more, offer the user a new company-search with the same query and filters, continue_from "${TASK_ID}", and count 23 (the companies still wanted): it leaves out every company this search delivered or held for review.`
         );
     });
 });
@@ -1035,6 +1188,30 @@ test("companyNextStep covers every status", () => {
     assert.equal(
         companyNextStep("cancelled"),
         "Cancelled. You pay only for the companies it delivered; the rest of the reservation is returned."
+    );
+    assert.equal(
+        companyNextStep("cancelled", undefined, false, { max_cost_usd: 5 }),
+        "Cancelled. A search with a budget pays for the companies it delivered or, when that is more, its search effort so far, up to max_cost_usd; the rest of the reservation is returned."
+    );
+    // continue_from takes at least 5 companies, and only a Company Search.
+    assert.equal(
+        companyNextStep("completed", undefined, false, {
+            completion_reason: "candidate_budget",
+            coverage_limited: true,
+            count: 10,
+            result_count: 8,
+        }),
+        "Finished early: a limit stopped it (candidate_budget) before it delivered 10 companies, so more companies may match. You have every company it delivered. To find more, offer the user a new company-search with the same query and filters, continue_from set to its task_id, and count 5 (the least it takes; 2 still wanted): it leaves out every company this search delivered or held for review. The user may also set a budget (max_cost_usd): the search then goes on until it delivers count or spends the budget, and bills its search effort up to the budget even when it finds few companies or none, so set it only with the user's agreement to that amount."
+    );
+    assert.equal(
+        companyNextStep("completed", undefined, false, {
+            search_type: "company_enrich",
+            completion_reason: "time_limit",
+            coverage_limited: true,
+            count: 40,
+            result_count: 31,
+        }),
+        "Finished early: a limit stopped it (time_limit) before it delivered 40 companies, so more companies may match. You have every company it delivered."
     );
     assert.equal(companyNextStep("cancelling"), "Cancelling. Call company-search-status again to read the final status.");
     assert.equal(companyNextStep("failed"), "The task failed. See errors. A task that delivers no companies is not charged.");

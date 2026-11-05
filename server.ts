@@ -39,6 +39,7 @@ import {
     COMPANY_EXCLUDE_MAX,
     COMPANY_REQUIREMENTS,
     COMPANY_ROLES,
+    COMPANY_SEARCH_MAX_BUDGET_USD,
     COMPANY_TASK_STATUSES,
     COMPANY_TASK_TYPES,
     companyClientFor,
@@ -53,7 +54,7 @@ import { runSocialAction, socialActionNames, type SocialPlatform } from "./socia
 import { AI_SEARCH_TOOLS, WEB_LINK_TOOLS, toolIdSchema } from "./tool-sources.js";
 
 export const SERVER_NAME = "Desearch";
-export const SERVER_VERSION = "0.8.0";
+export const SERVER_VERSION = "0.9.0";
 export const SERVER_TITLE = "Desearch";
 export const SERVER_WEBSITE_URL = "https://www.desearch.ai";
 
@@ -686,7 +687,7 @@ export function createDesearchMcpServer(
         serverInfo,
         {
             instructions:
-                "Search the public web and X with Desearch. Use search for titles and links, then fetch with a result URL to read the page. search-api returns ranked pages with the passage that best matches the query. Other tools cover AI search, X posts, and page extraction. tiktok, facebook, instagram, youtube, reddit, and threads read public social data (posts, profiles, comments, hashtags, YouTube transcripts and channels, subreddits); list actions return next_cursor for the next page where the platform has one. People Search finds people and creators on X, YouTube, LinkedIn, and TikTok: people-search starts a paid job billed to the user's Desearch balance, people-search-status reads progress, people-search-pause, people-search-resume, and people-search-cancel pause, resume, or cancel it, and people-search-export returns the people found as CSV or JSON Lines. Company Search finds companies on the web from a description and Company Enrich reads the domains you send; both collect public emails, phones, social profiles, and leaders (CEO, founders, CTO, CFO): company-search and company-enrich start paid jobs billed to the user's Desearch balance, company-search-status reads progress and the companies, and company-search-pause, company-search-resume, and company-search-cancel pause, resume, or cancel a task. Calls need a Desearch API key.",
+                "Search the public web and X with Desearch. Use search for titles and links, then fetch with a result URL to read the page. search-api returns ranked pages with the passage that best matches the query. Other tools cover AI search, X posts, and page extraction. tiktok, facebook, instagram, youtube, reddit, and threads read public social data (posts, profiles, comments, hashtags, YouTube transcripts and channels, subreddits); list actions return next_cursor for the next page where the platform has one. People Search finds people and creators on X, YouTube, LinkedIn, and TikTok: people-search starts a paid job billed to the user's Desearch balance, people-search-status reads progress, people-search-pause, people-search-resume, and people-search-cancel pause, resume, or cancel it, and people-search-export returns the people found as CSV or JSON Lines. Company Search finds companies on the web from a description and Company Enrich reads the domains you send; both collect public emails, phones, social profiles, and leaders (CEO, founders, CTO, CFO): company-search and company-enrich start paid jobs billed to the user's Desearch balance, company-search-status reads progress and the companies, and company-search-pause, company-search-resume, and company-search-cancel pause, resume, or cancel a task. Set company-search's max_cost_usd only when the user agreed to that budget: it bills search effort even when few companies are found. Calls need a Desearch API key.",
         }
     );
 
@@ -1841,7 +1842,10 @@ export function createDesearchMcpServer(
         "company-search",
         "Company Search",
         "Start a paid job billed to the user's Desearch balance: find companies on the web that match a plain-language description, and collect each one's public contact data. Returns a task_id at once, with the task's status and reserved_cost_usd. " +
-            "Cost: the call reserves count companies at the Company Search per-company price at the time of the call (reserved_cost_usd; prices at https://desearch.ai/pricing). When the task ends you pay only for the companies it delivered (final_cost_usd; a minimum of 2 when it delivers any; a task that delivers none is free) and the rest of the reservation is returned. A company left out by min_score or require is not billed. " +
+            "Cost: without max_cost_usd, the call reserves count companies at the Company Search per-company price at the time of the call (reserved_cost_usd; prices at https://desearch.ai/pricing). When the task ends you pay only for the companies it delivered (final_cost_usd; a minimum of 1 when it delivers any; a task that delivers none is free) and the rest of the reservation is returned. A company left out by min_score or require is not billed. Such a search stops once it costs more than the companies it found pay for (completion_reason cost_limit, coverage_limited: true). " +
+            "Search budget: with max_cost_usd the whole budget is reserved, and the search goes on until it delivers count or spends the budget. Its search effort is billed where the companies delivered do not cover it, up to the budget, even when it finds few companies or none; the unused part is returned. Set max_cost_usd only when the user agreed to spend that amount, never on your own. " +
+            "Find more: when a search ended before count because a limit stopped it (coverage_limited, for example cost_limit), offer the user a new company-search with the same query and filters, continue_from set to its task_id, and count set to the companies still wanted, optionally with a budget the user agrees to. It leaves out every company the earlier search delivered or held for review, so it finds only new ones. " +
+            "To check only companies you name, give their websites in query, for example 'Restrict this search to Acme (acme.com.au) and Beta (beta.co.uk). Return only those.' Only those domains are then checked against the rest of the description, with no web search (the task shows them as only_domains and ends with completion_reason all_domains_processed). Companies named without their websites do not restrict the search (warning scope_not_applied). " +
             "Each company has a fit score (0-100) and why it matched, plus fully_verified and unverified_criteria (what its own pages do and do not confirm). " +
             COMPANY_DATA +
             COMPANY_RUNS +
@@ -1852,7 +1856,7 @@ export function createDesearchMcpServer(
                 .min(3)
                 .max(1000)
                 .describe(
-                    "The companies you are looking for, in plain language: what they do, where, how far along. Example: 'Series A fintech startups in Berlin building payment infrastructure'."
+                    "The companies you are looking for, in plain language: what they do, where, how far along. Example: 'Series A fintech startups in Berlin building payment infrastructure'. To check only companies you name, give each one's website: 'Restrict this search to Acme (acme.com.au) and Beta (beta.co.uk). Return only those.' Only those domains are checked; companies named without a website do not restrict the search (warning scope_not_applied)."
                 ),
             count: z
                 .number()
@@ -1861,7 +1865,7 @@ export function createDesearchMcpServer(
                 .max(200)
                 .optional()
                 .describe(
-                    "How many companies to deliver (5-200, API default 25). The task reserves this many and bills only the companies it delivers."
+                    "How many companies to deliver (5-200, API default 25). Without max_cost_usd the task reserves this many and bills only the companies it delivers. With continue_from, the companies still wanted."
                 ),
             min_score: z
                 .number()
@@ -1889,6 +1893,21 @@ export function createDesearchMcpServer(
                 .optional()
                 .describe(
                     "Only deliver companies that have all of these: 'email', 'phone', 'linkedin' (the company's LinkedIn page), 'leader' (one of roles), 'leader_email' (a leader with an email). A company is delivered once the stage that can show them has run (email, phone, linkedin: the contact pages; leader: the leaders; leader_email: the email checks); one that does not have them is not delivered and not billed. Sent as filters.require."
+                ),
+            max_cost_usd: z
+                .number()
+                .positive()
+                .max(COMPANY_SEARCH_MAX_BUDGET_USD)
+                .optional()
+                .describe(
+                    `Search budget in USD (more than 0, up to ${COMPANY_SEARCH_MAX_BUDGET_USD}): the most this task may charge. Set it only when the user agreed to spend this amount. It must be at least what count reserves (count times the per-company price; a smaller budget is refused with HTTP 422, which gives the minimum). The whole budget is reserved (reserved_cost_usd) and the search goes on until it delivers count or spends the budget. Its search effort is billed where the companies delivered do not cover it, up to the budget, even when it finds few companies or none; the unused part is returned when the task ends. Without it, the search stops once it costs more than the companies it found pay for (cost_limit), and only the companies delivered are billed.`
+                ),
+            continue_from: z
+                .string()
+                .uuid()
+                .optional()
+                .describe(
+                    "task_id of an earlier Company Search of yours that has ended, to find only new companies: this search leaves out every company that one delivered, held for review, or was told to exclude, as well as your own exclude. Send the same query and filters with count set to the companies still wanted. HTTP 409 while that task has not ended (queued, running, or paused); 404 when it is not your Company Search (a Company Enrich or People Search task_id is refused)."
                 ),
             ...companyTaskFields(),
         }),
@@ -1940,7 +1959,7 @@ export function createDesearchMcpServer(
         "company-search-status",
         "Get Company Search Status",
         "Status, progress, and cost of one Company Search or Company Enrich task, plus a page of the companies delivered so far: domain, name, url, location, fit score (null for Company Enrich) and why it matched, primary_email and primary_contact, public emails, phones, and social profiles with the page each came from (source_url), leaders with their roles, title, LinkedIn profile, and emails (each with its verification status; inferred ones with source: inferred and a confidence), contact_coverage, and enrichment (status partial or complete, and each stage: profile, contacts, people, email_patterns, email_check). Free: it reads a task you already started and runs no new search. Cost fields are reserved_cost_usd and, once the task ended, final_cost_usd. The data came from each company's own website, public web search, and public LinkedIn profiles. " +
-            "Companies arrive while the task runs and are filled in place by the later stages: pass the returned next_cursor as cursor to get only the companies delivered since then, and call without cursor to read every company in its latest version. stage enriching means every company is delivered and only later stages of some are left. When done is true and has_more is false you have every company. An ended task has completion_reason (why it stopped; all_domains_processed for Company Enrich), coverage_limited: true when a budget stopped it before count (more companies may match), and warnings. Company Search results have fully_verified (every criterion confirmed by the company's own pages) and unverified_criteria (criteria that are unknown or not met, or a disqualifier that applies). These are information only: the company still qualified.",
+            "Companies arrive while the task runs and are filled in place by the later stages: pass the returned next_cursor as cursor to get only the companies delivered since then, and call without cursor to read every company in its latest version. stage enriching means every company is delivered and only later stages of some are left. When done is true and has_more is false you have every company. An ended task has completion_reason (why it stopped; all_domains_processed for Company Enrich or a search restricted to the domains its query names, listed as only_domains), coverage_limited: true when a limit stopped it before count (more companies may match: the next hint says how to continue it with continue_from), and warnings. A search with a budget shows max_cost_usd, and progress.effort_units once it ended (the search effort billed where the companies delivered do not cover it); a continued search shows continue_from. Company Search results have fully_verified (every criterion confirmed by the company's own pages) and unverified_criteria (criteria that are unknown or not met, or a disqualifier that applies). These are information only: the company still qualified.",
         strictArgs({
             task_id: companyTaskId,
             cursor: z
@@ -2018,7 +2037,7 @@ export function createDesearchMcpServer(
         apiKey,
         "company-search-cancel",
         "Cancel Company Search",
-        "Cancel a Company Search or Company Enrich task. Free. The task stops for good; you pay only for the companies it already delivered (a task cancelled before it starts costs nothing) and the rest of the reservation is returned. Companies delivered so far stay readable for 30 days. This cannot be undone.",
+        "Cancel a Company Search or Company Enrich task. Free. The task stops for good; you pay only for the companies it already delivered (a task cancelled before it starts costs nothing) and the rest of the reservation is returned. A Company Search started with max_cost_usd pays for its search effort so far instead when that is more, up to its budget. Companies delivered so far stay readable for 30 days. This cannot be undone.",
         strictArgs({
             task_id: companyTaskId,
         }),
@@ -2038,7 +2057,7 @@ export function createDesearchMcpServer(
         apiKey,
         "company-search-tasks",
         "List Company Search Tasks",
-        "Your Company Search and Company Enrich tasks, newest first, with status, counts, cost, why each ended task stopped (completion_reason, coverage_limited), and the metadata labels set on company-search or company-enrich. Free; it lists your own tasks, not the companies they found (read those with company-search-status). People Search tasks are not listed here (see people-search-tasks). Use it to find a task_id (filter by type, status, or metadata to find the tasks of one campaign), or to see which tasks are still queued, running, or paused: a new task is refused while too many People Search and Company Search tasks are active.",
+        "Your Company Search and Company Enrich tasks, newest first, with status, counts, cost, why each ended task stopped (completion_reason, coverage_limited), max_cost_usd and continue_from when a search set them, and the metadata labels set on company-search or company-enrich. Free; it lists your own tasks, not the companies they found (read those with company-search-status). People Search tasks are not listed here (see people-search-tasks). Use it to find a task_id (filter by type, status, or metadata to find the tasks of one campaign), or to see which tasks are still queued, running, or paused: a new task is refused while too many People Search and Company Search tasks are active.",
         strictArgs({
             type: z
                 .enum(COMPANY_TASK_TYPES)
