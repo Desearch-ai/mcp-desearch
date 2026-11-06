@@ -316,54 +316,74 @@ test("protected resource and authorization server metadata", async () => {
 });
 
 test("dynamic client registration accepts hosted callbacks and rejects others", async () => {
-    await withServer(async (server) => {
-        const origin = `http://127.0.0.1:${server.port}`;
-        const allowed = [
-            "https://claude.ai/api/mcp/auth_callback",
-            "https://claude.com/api/mcp/auth_callback",
-            "https://chatgpt.com/connector_platform_oauth_redirect",
-            "https://chatgpt.com/connector/oauth/cb_123",
-            "https://muse.ai/api/hatch/oauth/callback",
-            "http://127.0.0.1:4312/callback",
-            "http://localhost:5999/callback/codex",
-        ];
-        for (const redirectUri of allowed) {
-            const response = await fetch(`${origin}/register`, {
+    const previous = process.env.OAUTH_REGISTER_RATE_LIMIT;
+    process.env.OAUTH_REGISTER_RATE_LIMIT = "100";
+    try {
+        await withServer(async (server) => {
+            const origin = `http://127.0.0.1:${server.port}`;
+            const allowed = [
+                "https://claude.ai/api/mcp/auth_callback",
+                "https://claude.com/api/mcp/auth_callback",
+                "https://chatgpt.com/connector_platform_oauth_redirect",
+                "https://chatgpt.com/connector/oauth/cb_123",
+                "https://muse.ai/api/hatch/oauth/callback",
+                "https://www.perplexity.ai/rest/connections/oauth_callback",
+                "https://enterprise.perplexity.ai/rest/connections/oauth_callback",
+                "http://127.0.0.1:4312/callback",
+                "http://localhost:5999/callback/codex",
+            ];
+            for (const redirectUri of allowed) {
+                const response = await fetch(`${origin}/register`, {
+                    method: "POST",
+                    headers: { "content-type": "application/json" },
+                    body: JSON.stringify({ redirect_uris: [redirectUri], client_name: "probe" }),
+                });
+                assert.equal(response.status, 201, redirectUri);
+                const body = await response.json();
+                assert.equal(typeof body.client_id, "string");
+                assert.equal(body.client_secret, undefined);
+                assert.equal(body.token_endpoint_auth_method, "none");
+            }
+
+            const rejected = await fetch(`${origin}/register`, {
                 method: "POST",
                 headers: { "content-type": "application/json" },
-                body: JSON.stringify({ redirect_uris: [redirectUri], client_name: "probe" }),
+                body: JSON.stringify({ redirect_uris: ["https://evil.example/callback"] }),
             });
-            assert.equal(response.status, 201, redirectUri);
-            const body = await response.json();
-            assert.equal(typeof body.client_id, "string");
-            assert.equal(body.client_secret, undefined);
-            assert.equal(body.token_endpoint_auth_method, "none");
-        }
+            assert.equal(rejected.status, 400);
+            const error = await rejected.json();
+            assert.equal(error.error, "invalid_redirect_uri");
+            assert.equal(JSON.stringify(error).includes("evil.example"), false);
 
-        const rejected = await fetch(`${origin}/register`, {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ redirect_uris: ["https://evil.example/callback"] }),
-        });
-        assert.equal(rejected.status, 400);
-        const error = await rejected.json();
-        assert.equal(error.error, "invalid_redirect_uri");
-        assert.equal(JSON.stringify(error).includes("evil.example"), false);
+            const lookalike = await fetch(`${origin}/register`, {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ redirect_uris: ["https://chatgpt.com.evil.example/connector/oauth/cb"] }),
+            });
+            assert.equal(lookalike.status, 400);
 
-        const lookalike = await fetch(`${origin}/register`, {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ redirect_uris: ["https://chatgpt.com.evil.example/connector/oauth/cb"] }),
-        });
-        assert.equal(lookalike.status, 400);
+            const museLookalike = await fetch(`${origin}/register`, {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ redirect_uris: ["https://muse.ai.evil.example/api/hatch/oauth/callback"] }),
+            });
+            assert.equal(museLookalike.status, 400);
 
-        const museLookalike = await fetch(`${origin}/register`, {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ redirect_uris: ["https://muse.ai.evil.example/api/hatch/oauth/callback"] }),
+            for (const redirectUri of [
+                "https://www.perplexity.ai.evil.example/rest/connections/oauth_callback",
+                "https://enterprise.perplexity.ai.evil.example/rest/connections/oauth_callback",
+            ]) {
+                const response = await fetch(`${origin}/register`, {
+                    method: "POST",
+                    headers: { "content-type": "application/json" },
+                    body: JSON.stringify({ redirect_uris: [redirectUri] }),
+                });
+                assert.equal(response.status, 400, redirectUri);
+            }
         });
-        assert.equal(museLookalike.status, 400);
-    });
+    } finally {
+        restoreEnv("OAUTH_REGISTER_RATE_LIMIT", previous);
+    }
 });
 
 test("authorization code PKCE issues an opaque token that calls the server", async () => {
