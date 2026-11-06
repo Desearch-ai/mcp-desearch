@@ -12,6 +12,8 @@ const EXACT_REDIRECTS = new Set([
     "https://muse.ai/api/hatch/oauth/callback",
     "https://platform.muse.ai/oauth/credential-test/callback",
     "https://agent.meta.ai/api/hatch/oauth/callback",
+    "https://www.perplexity.ai/rest/connections/oauth_callback",
+    "https://enterprise.perplexity.ai/rest/connections/oauth_callback",
 ]);
 
 const CHATGPT_CALLBACK_ID = /^\/connector\/oauth\/[A-Za-z0-9._~-]{1,200}$/;

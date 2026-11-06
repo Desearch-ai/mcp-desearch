@@ -329,6 +329,8 @@ test("dynamic client registration accepts hosted callbacks and rejects others", 
                 "https://muse.ai/api/hatch/oauth/callback",
                 "https://platform.muse.ai/oauth/credential-test/callback",
                 "https://agent.meta.ai/api/hatch/oauth/callback",
+                "https://www.perplexity.ai/rest/connections/oauth_callback",
+                "https://enterprise.perplexity.ai/rest/connections/oauth_callback",
                 "http://127.0.0.1:4312/callback",
                 "http://localhost:5999/callback/codex",
             ];
@@ -382,6 +384,17 @@ test("dynamic client registration accepts hosted callbacks and rejects others", 
                 body: JSON.stringify({ redirect_uris: ["https://agent.meta.ai.evil.example/api/hatch/oauth/callback"] }),
             });
             assert.equal(agentMetaLookalike.status, 400);
+            for (const redirectUri of [
+                "https://www.perplexity.ai.evil.example/rest/connections/oauth_callback",
+                "https://enterprise.perplexity.ai.evil.example/rest/connections/oauth_callback",
+            ]) {
+                const response = await fetch(`${origin}/register`, {
+                    method: "POST",
+                    headers: { "content-type": "application/json" },
+                    body: JSON.stringify({ redirect_uris: [redirectUri] }),
+                });
+                assert.equal(response.status, 400, redirectUri);
+            }
         });
     } finally {
         restoreEnv("OAUTH_REGISTER_RATE_LIMIT", previous);
