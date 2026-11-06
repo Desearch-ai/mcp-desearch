@@ -3,6 +3,7 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import { PUBLIC_ICONS } from "./icons.js";
 import { AGENT_TOOLS_ORG_TOKEN } from "./agent-tools-org.js";
 import { AGENT_TOOLS_VERIFY_TOKEN } from "./agent-tools-verify.js";
+import { MCPBUNDLES_BODY } from "./mcpbundles.js";
 import { openaiAppsChallengeToken } from "./openai-apps-challenge.js";
 import { DIRECT_CLIENT_IP_HEADER } from "./oauth/client-ip.js";
 import { OAuthConfigError } from "./oauth/errors.js";
@@ -322,6 +323,19 @@ export async function handleMcpHttpRequest(request: Request): Promise<Response> 
             status: 200,
             headers: {
                 "Content-Type": "text/plain; charset=utf-8",
+                "Cache-Control": "no-store",
+            },
+        }));
+    }
+
+    if (pathname === "/.well-known/mcpbundles.json" || pathname === "/api/mcpbundles") {
+        if (request.method !== "GET" && request.method !== "HEAD") {
+            return withCors(jsonRpcError(405, -32000, "Method not allowed.", { Allow: "GET, HEAD" }));
+        }
+        return withCors(new Response(request.method === "HEAD" ? null : MCPBUNDLES_BODY, {
+            status: 200,
+            headers: {
+                "Content-Type": "application/json",
                 "Cache-Control": "no-store",
             },
         }));
