@@ -12,6 +12,7 @@
         { "source": "/.well-known/openid-configuration", "destination": "/api/openid-configuration" },
         { "source": "/.well-known/openai-apps-challenge", "destination": "/api/openai-apps-challenge" },
         { "source": "/.well-known/agent-tools-verify.txt", "destination": "/api/agent-tools-verify" },
+        { "source": "/.well-known/mcpbundles.json", "destination": "/api/mcpbundles" },
         { "source": "/.well-known/agent-tools.txt", "destination": "/api/agent-tools" },
         { "source": "/register", "destination": "/api/oauth-register" },
         { "source": "/authorize", "destination": "/api/oauth-authorize" },
