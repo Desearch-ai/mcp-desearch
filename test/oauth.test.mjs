@@ -323,6 +323,7 @@ test("dynamic client registration accepts hosted callbacks and rejects others", 
             "https://claude.com/api/mcp/auth_callback",
             "https://chatgpt.com/connector_platform_oauth_redirect",
             "https://chatgpt.com/connector/oauth/cb_123",
+            "https://muse.ai/api/hatch/oauth/callback",
             "http://127.0.0.1:4312/callback",
             "http://localhost:5999/callback/codex",
         ];
@@ -355,6 +356,13 @@ test("dynamic client registration accepts hosted callbacks and rejects others", 
             body: JSON.stringify({ redirect_uris: ["https://chatgpt.com.evil.example/connector/oauth/cb"] }),
         });
         assert.equal(lookalike.status, 400);
+
+        const museLookalike = await fetch(`${origin}/register`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ redirect_uris: ["https://muse.ai.evil.example/api/hatch/oauth/callback"] }),
+        });
+        assert.equal(museLookalike.status, 400);
     });
 });
 
