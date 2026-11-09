@@ -331,6 +331,7 @@ test("dynamic client registration accepts hosted callbacks and rejects others", 
                 "https://agent.meta.ai/api/hatch/oauth/callback",
                 "https://www.perplexity.ai/rest/connections/oauth_callback",
                 "https://enterprise.perplexity.ai/rest/connections/oauth_callback",
+                "https://teams.microsoft.com/api/platform/v1.0/oAuthRedirect",
                 "http://127.0.0.1:4312/callback",
                 "http://localhost:5999/callback/codex",
             ];
@@ -387,6 +388,14 @@ test("dynamic client registration accepts hosted callbacks and rejects others", 
             for (const redirectUri of [
                 "https://www.perplexity.ai.evil.example/rest/connections/oauth_callback",
                 "https://enterprise.perplexity.ai.evil.example/rest/connections/oauth_callback",
+                "http://teams.microsoft.com/api/platform/v1.0/oAuthRedirect",
+                "https://teams.microsoft.com.evil.com/api/platform/v1.0/oAuthRedirect",
+                "https://evilteams.microsoft.com/api/platform/v1.0/oAuthRedirect",
+                "https://teams.microsoft.com/api/platform/v1.0/oAuthRedirect/",
+                "https://teams.microsoft.com/api/platform/v1.0/oAuthRedirect/extra",
+                "https://teams.microsoft.com/api/platform/v1.0/oAuthRedirect?x=1",
+                "https://teams.microsoft.com/api/platform/v1.0/oauthredirect",
+                "https://teams.microsoft.com/api/platform/v1.1/oAuthRedirect",
             ]) {
                 const response = await fetch(`${origin}/register`, {
                     method: "POST",
