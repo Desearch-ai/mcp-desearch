@@ -3,6 +3,7 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import { PUBLIC_ICONS } from "./icons.js";
 import { AGENT_TOOLS_ORG_TOKEN } from "./agent-tools-org.js";
 import { AGENT_TOOLS_VERIFY_TOKEN } from "./agent-tools-verify.js";
+import { MUSE_CHALLENGES } from "./muse-challenge.js";
 import { MCPBUNDLES_BODY } from "./mcpbundles.js";
 import { openaiAppsChallengeToken } from "./openai-apps-challenge.js";
 import { DIRECT_CLIENT_IP_HEADER } from "./oauth/client-ip.js";
@@ -320,6 +321,31 @@ export async function handleMcpHttpRequest(request: Request): Promise<Response> 
             return withCors(jsonRpcError(405, -32000, "Method not allowed.", { Allow: "GET, HEAD" }));
         }
         return withCors(new Response(request.method === "HEAD" ? null : AGENT_TOOLS_VERIFY_TOKEN + "\n", {
+            status: 200,
+            headers: {
+                "Content-Type": "text/plain; charset=utf-8",
+                "Cache-Control": "no-store",
+            },
+        }));
+    }
+
+    const musePathname = new URL(request.url).pathname;
+    const musePrefix = "/.well-known/muse-challenge/";
+    if (musePathname.startsWith(musePrefix) || musePathname === "/api/muse-challenge") {
+        if (request.method !== "GET" && request.method !== "HEAD") {
+            return withCors(jsonRpcError(405, -32000, "Method not allowed.", { Allow: "GET, HEAD" }));
+        }
+        const token = musePathname === "/api/muse-challenge"
+            ? "a68cf22bcf914c4484bf5adb84ba1401604f2374615d870b51ef7414a681fd7e"
+            : musePathname.slice(musePrefix.length);
+        const body = MUSE_CHALLENGES.get(token);
+        if (body === undefined) {
+            return withCors(new Response(JSON.stringify({ error: "Not found" }), {
+                status: 404,
+                headers: { "Content-Type": "application/json" },
+            }));
+        }
+        return withCors(new Response(request.method === "HEAD" ? null : body, {
             status: 200,
             headers: {
                 "Content-Type": "text/plain; charset=utf-8",
