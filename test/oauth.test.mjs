@@ -316,46 +316,98 @@ test("protected resource and authorization server metadata", async () => {
 });
 
 test("dynamic client registration accepts hosted callbacks and rejects others", async () => {
-    await withServer(async (server) => {
-        const origin = `http://127.0.0.1:${server.port}`;
-        const allowed = [
-            "https://claude.ai/api/mcp/auth_callback",
-            "https://claude.com/api/mcp/auth_callback",
-            "https://chatgpt.com/connector_platform_oauth_redirect",
-            "https://chatgpt.com/connector/oauth/cb_123",
-            "http://127.0.0.1:4312/callback",
-            "http://localhost:5999/callback/codex",
-        ];
-        for (const redirectUri of allowed) {
-            const response = await fetch(`${origin}/register`, {
+    const previous = process.env.OAUTH_REGISTER_RATE_LIMIT;
+    process.env.OAUTH_REGISTER_RATE_LIMIT = "100";
+    try {
+        await withServer(async (server) => {
+            const origin = `http://127.0.0.1:${server.port}`;
+            const allowed = [
+                "https://claude.ai/api/mcp/auth_callback",
+                "https://claude.com/api/mcp/auth_callback",
+                "https://chatgpt.com/connector_platform_oauth_redirect",
+                "https://chatgpt.com/connector/oauth/cb_123",
+                "https://muse.ai/api/hatch/oauth/callback",
+                "https://platform.muse.ai/oauth/credential-test/callback",
+                "https://agent.meta.ai/api/hatch/oauth/callback",
+                "https://www.perplexity.ai/rest/connections/oauth_callback",
+                "https://enterprise.perplexity.ai/rest/connections/oauth_callback",
+                "https://teams.microsoft.com/api/platform/v1.0/oAuthRedirect",
+                "http://127.0.0.1:4312/callback",
+                "http://localhost:5999/callback/codex",
+            ];
+            for (const redirectUri of allowed) {
+                const response = await fetch(`${origin}/register`, {
+                    method: "POST",
+                    headers: { "content-type": "application/json" },
+                    body: JSON.stringify({ redirect_uris: [redirectUri], client_name: "probe" }),
+                });
+                assert.equal(response.status, 201, redirectUri);
+                const body = await response.json();
+                assert.equal(typeof body.client_id, "string");
+                assert.equal(body.client_secret, undefined);
+                assert.equal(body.token_endpoint_auth_method, "none");
+            }
+
+            const rejected = await fetch(`${origin}/register`, {
                 method: "POST",
                 headers: { "content-type": "application/json" },
-                body: JSON.stringify({ redirect_uris: [redirectUri], client_name: "probe" }),
+                body: JSON.stringify({ redirect_uris: ["https://evil.example/callback"] }),
             });
-            assert.equal(response.status, 201, redirectUri);
-            const body = await response.json();
-            assert.equal(typeof body.client_id, "string");
-            assert.equal(body.client_secret, undefined);
-            assert.equal(body.token_endpoint_auth_method, "none");
-        }
+            assert.equal(rejected.status, 400);
+            const error = await rejected.json();
+            assert.equal(error.error, "invalid_redirect_uri");
+            assert.equal(JSON.stringify(error).includes("evil.example"), false);
 
-        const rejected = await fetch(`${origin}/register`, {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ redirect_uris: ["https://evil.example/callback"] }),
-        });
-        assert.equal(rejected.status, 400);
-        const error = await rejected.json();
-        assert.equal(error.error, "invalid_redirect_uri");
-        assert.equal(JSON.stringify(error).includes("evil.example"), false);
+            const lookalike = await fetch(`${origin}/register`, {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ redirect_uris: ["https://chatgpt.com.evil.example/connector/oauth/cb"] }),
+            });
+            assert.equal(lookalike.status, 400);
 
-        const lookalike = await fetch(`${origin}/register`, {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ redirect_uris: ["https://chatgpt.com.evil.example/connector/oauth/cb"] }),
+            const museLookalike = await fetch(`${origin}/register`, {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ redirect_uris: ["https://muse.ai.evil.example/api/hatch/oauth/callback"] }),
+            });
+            assert.equal(museLookalike.status, 400);
+
+            const platformMuseLookalike = await fetch(`${origin}/register`, {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ redirect_uris: ["https://platform.muse.ai.evil.example/oauth/credential-test/callback"] }),
+            });
+            assert.equal(platformMuseLookalike.status, 400);
+
+            const agentMetaLookalike = await fetch(`${origin}/register`, {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ redirect_uris: ["https://agent.meta.ai.evil.example/api/hatch/oauth/callback"] }),
+            });
+            assert.equal(agentMetaLookalike.status, 400);
+            for (const redirectUri of [
+                "https://www.perplexity.ai.evil.example/rest/connections/oauth_callback",
+                "https://enterprise.perplexity.ai.evil.example/rest/connections/oauth_callback",
+                "http://teams.microsoft.com/api/platform/v1.0/oAuthRedirect",
+                "https://teams.microsoft.com.evil.com/api/platform/v1.0/oAuthRedirect",
+                "https://evilteams.microsoft.com/api/platform/v1.0/oAuthRedirect",
+                "https://teams.microsoft.com/api/platform/v1.0/oAuthRedirect/",
+                "https://teams.microsoft.com/api/platform/v1.0/oAuthRedirect/extra",
+                "https://teams.microsoft.com/api/platform/v1.0/oAuthRedirect?x=1",
+                "https://teams.microsoft.com/api/platform/v1.0/oauthredirect",
+                "https://teams.microsoft.com/api/platform/v1.1/oAuthRedirect",
+            ]) {
+                const response = await fetch(`${origin}/register`, {
+                    method: "POST",
+                    headers: { "content-type": "application/json" },
+                    body: JSON.stringify({ redirect_uris: [redirectUri] }),
+                });
+                assert.equal(response.status, 400, redirectUri);
+            }
         });
-        assert.equal(lookalike.status, 400);
-    });
+    } finally {
+        restoreEnv("OAUTH_REGISTER_RATE_LIMIT", previous);
+    }
 });
 
 test("authorization code PKCE issues an opaque token that calls the server", async () => {

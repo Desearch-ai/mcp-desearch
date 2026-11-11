@@ -9,6 +9,12 @@ const EXACT_REDIRECTS = new Set([
     "https://claude.ai/api/mcp/auth_callback",
     "https://claude.com/api/mcp/auth_callback",
     "https://chatgpt.com/connector_platform_oauth_redirect",
+    "https://muse.ai/api/hatch/oauth/callback",
+    "https://platform.muse.ai/oauth/credential-test/callback",
+    "https://agent.meta.ai/api/hatch/oauth/callback",
+    "https://www.perplexity.ai/rest/connections/oauth_callback",
+    "https://enterprise.perplexity.ai/rest/connections/oauth_callback",
+    "https://teams.microsoft.com/api/platform/v1.0/oAuthRedirect",
 ]);
 
 const CHATGPT_CALLBACK_ID = /^\/connector\/oauth\/[A-Za-z0-9._~-]{1,200}$/;
