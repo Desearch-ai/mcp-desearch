@@ -100,6 +100,17 @@ Lookup tools, including `search` and `fetch`, set `readOnlyHint: true`, `destruc
 -   **Cancel Company Search** (`company-search-cancel`): Stop a task for good. You pay only for the companies it already delivered (a search with `max_cost_usd`: its search effort so far when that is more, up to the budget); the rest of the reservation is returned. Cannot be undone. Argument: `task_id` (required). Free.
 -   **List Company Search Tasks** (`company-search-tasks`): Your Company Search and Company Enrich tasks, newest first. Arguments: `type` (optional, `search` or `enrich`), `status` (optional list), `limit` (optional, 1–100), `cursor` (optional), `metadata` (optional, up to 3 labels, exact match). Free; People Search tasks are not listed here.
 
+### Cost of each call
+
+Every tool result from a billed Desearch API call carries that call's cost in the result's `_meta`: `cost_usd` (USD) and `usage_count` (billed units), from the API's `X-Desearch-Cost-Usd` and `X-Desearch-Usage-Count` response headers. This holds for every result shape, including tools whose result is a list or plain text (`x-search`, `x-posts-by-user`, `extract`). The result content and `structuredContent` are unchanged. A free call reports `cost_usd: 0`; a failed call and a call with no cost headers carry no `_meta` cost. Example `tools/call` result:
+
+```json
+{
+  "content": [{ "type": "text", "text": "[ ... posts ... ]" }],
+  "_meta": { "cost_usd": 0.0015, "usage_count": 10 }
+}
+```
+
 The full SDK method → endpoint → MCP tool map is in [docs/API_MCP_PARITY.md](docs/API_MCP_PARITY.md). Every public `desearch-js` 1.5 method is a tool. `latestTweets` was removed from the SDK (`GET /twitter/latest` in 1.0.1) and is not exposed. People Search, Company Search, the TikTok, Facebook, Instagram, YouTube, Reddit, and Threads routes, and `POST /search` are not in `desearch-js` 1.5; those tools call the routes directly (`/desearch/people/*`, `/desearch/companies/*`, and the rest), and the parity doc lists them too. The network stats routes (`/network/stats`) are not MCP tools.
 
 ### TikTok, Facebook, and Instagram

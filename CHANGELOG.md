@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Every tool result from a billed Desearch API call carries `_meta.cost_usd` and `_meta.usage_count`, read from the API's `X-Desearch-Cost-Usd` and `X-Desearch-Usage-Count` headers, for every result shape: JSON objects, bare lists (`x-search`, `x-posts-by-user`, the other X tools) and text (`extract`, `web-crawl`). Before, only tools whose API body already held cost fields showed a cost. The desearch-js tools ask the SDK for the response metadata (`includeMetadata`); the direct API tools (People Search, Company Search, the social routes, `search-api`) read the headers. Content and `structuredContent` are unchanged. A tool call that makes several billed requests reports the sum; concurrent calls on one server stay apart. A free call reports `cost_usd: 0`; failed calls carry no cost.
+
 ## 0.9.0
 
 Company Search: a search budget (`max_cost_usd`) and continuing an ended search (`continue_from`), the two optional `POST /desearch/companies/search` fields of desearch-public-api #624. Both wait for that API release; until then the API answers 422 to them.
