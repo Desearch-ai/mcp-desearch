@@ -1,8 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.10.0
+
+Cost on every tool result, as the hosted server has had since 06a3ec0.
 
 - Every tool result from a billed Desearch API call carries `_meta.cost_usd` and `_meta.usage_count`, read from the API's `X-Desearch-Cost-Usd` and `X-Desearch-Usage-Count` headers, for every result shape: JSON objects, bare lists (`x-search`, `x-posts-by-user`, the other X tools) and text (`extract`, `web-crawl`). Before, only tools whose API body already held cost fields showed a cost. The desearch-js tools ask the SDK for the response metadata (`includeMetadata`); the direct API tools (People Search, Company Search, the social routes, `search-api`) read the headers. Content and `structuredContent` are unchanged. A tool call that makes several billed requests reports the sum; concurrent calls on one server stay apart. A free call reports `cost_usd: 0`; failed calls carry no cost.
+- Every version (package, `server.json`, the Gemini extension, the plugin manifests, and `SERVER_VERSION`) is 0.10.0. The tool count is unchanged (39).
 
 ## 0.9.0
 

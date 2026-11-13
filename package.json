@@ -1,6 +1,6 @@
 {
     "name": "desearch-mcp-server",
-    "version": "0.9.0",
+    "version": "0.10.0",
     "mcpName": "io.github.Desearch-ai/mcp-desearch",
     "description": "AI search (web, Reddit, Hacker News, arXiv, Wikipedia, and Twitter), X (Twitter) search, web search, the Search API, public TikTok, Facebook, Instagram, YouTube (including transcripts), Reddit, and Threads data, People Search exports, page extraction, X data, People Search (find people and creators on X, YouTube, LinkedIn, and TikTok), and Company Search (find companies and their public contacts and leaders, or enrich domains you send) tools for AI agents. Includes 39 tools.",
     "license": "MIT",
