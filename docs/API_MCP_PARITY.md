@@ -1,6 +1,6 @@
 # Desearch API ↔ MCP parity
 
-Version 0.9.0 exposes 39 tools.
+Version 0.10.0 exposes 39 tools.
 
 The product rule is that every public Desearch API / SDK method is exposed as an MCP tool. This file is the inventory for that work. It tracks `desearch-js` **1.5.0** (current) against the MCP server. HTTP paths are the ones the SDK calls on `https://api.desearch.ai`.
 
