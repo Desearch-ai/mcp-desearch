@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Live smoke test for the Monitors tools added in 0.10.0. It starts the built server over
+ * Live smoke test for the Monitors tools added in 0.11.0. It starts the built server over
  * stdio, connects with the MCP SDK client, and drives every free monitor tool against a real
  * Desearch API: create (run_now false, so no run is queued), get, list, update (rename and
  * pause), estimate, runs, items, webhook test, rotate-secret, and delete. It never calls
@@ -462,7 +462,7 @@ async function main() {
         stderr: "pipe",
     });
     transport.stderr?.on("data", () => {});
-    const client = new Client({ name: "e2e-monitors", version: "0.10.0" });
+    const client = new Client({ name: "e2e-monitors", version: "0.11.0" });
     await client.connect(transport);
     console.log(`API: ${baseUrl} (key from ${keyEnv})`);
     let monitorId;

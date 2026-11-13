@@ -1,6 +1,6 @@
 # Desearch API ↔ MCP parity
 
-Version 0.10.0 exposes 51 tools.
+Version 0.11.0 exposes 51 tools.
 
 The product rule is that every public Desearch API / SDK method is exposed as an MCP tool. This file is the inventory for that work. It tracks `desearch-js` **1.5.0** (current) against the MCP server. HTTP paths are the ones the SDK calls on `https://api.desearch.ai`.
 
@@ -18,7 +18,7 @@ Auth is unchanged: stdio reads `DESEARCH_API_KEY`; Streamable HTTP builds one cl
 | Company Search | `company-search`, `company-enrich`, `company-search-status`, `company-search-pause`, `company-search-resume`, `company-search-cancel`, `company-search-tasks` | Done in 0.6.0. Company Search is live on `api.desearch.ai` since 2026-10-29. |
 | Full API coverage | `search-api` (`POST /search`), `tiktok`, `facebook`, `instagram` (the 19 social routes), `people-search-export` (both People Search `/export` routes) | Done in 0.7.0. These routes are not in `desearch-js` 1.5, so the tools call them directly (`desearch-api.ts`). |
 | YouTube, Reddit, Threads | `youtube`, `reddit`, `threads` (the 16 routes tagged YouTube Search, Reddit Search, and Threads Search) | Done in 0.8.0. Not in `desearch-js` 1.5; same direct calls and `action` pattern as `tiktok`. The routes are live on `api.desearch.ai`. |
-| Monitors | `monitor-create`, `monitor-estimate`, `monitor-list`, `monitor-get`, `monitor-update`, `monitor-delete`, `monitor-trigger`, `monitor-runs`, `monitor-run`, `monitor-items`, `monitor-webhook-test`, `monitor-webhook-rotate-secret` (the 12 `/desearch/monitors` routes) | Done in 0.10.0. Not in `desearch-js` 1.5; direct calls (`monitors.ts`). On `api-dev.desearch.ai` since 2026-11-03; the `tiktok` source and watched accounts come with desearch-public-api #635, and the `instagram`, `facebook`, and `meta_ads` sources, Threads accounts, and `webhook.last_delivery` with #644 (on `api-dev` since 2026-11-04), each with its console migration. Merge after Monitors is live on `api.desearch.ai`. |
+| Monitors | `monitor-create`, `monitor-estimate`, `monitor-list`, `monitor-get`, `monitor-update`, `monitor-delete`, `monitor-trigger`, `monitor-runs`, `monitor-run`, `monitor-items`, `monitor-webhook-test`, `monitor-webhook-rotate-secret` (the 12 `/desearch/monitors` routes) | Done in 0.11.0. Not in `desearch-js` 1.5; direct calls (`monitors.ts`). On `api-dev.desearch.ai` since 2026-11-03; the `tiktok` source and watched accounts come with desearch-public-api #635, and the `instagram`, `facebook`, and `meta_ads` sources, Threads accounts, and `webhook.last_delivery` with #644 (on `api-dev` since 2026-11-04), each with its console migration. Merge after Monitors is live on `api.desearch.ai`. |
 
 Phase 4 covers the remaining public `desearch-js` 1.5 methods. Every method in the table below has an MCP tool. The intentional gap is `latestTweets`: desearch-js 1.0.1 called `GET /twitter/latest`, and 1.5 removed that method, so there is no MCP tool for it. `web-crawl` stays even though the SDK deprecates `webCrawl` in favor of `extract`.
 

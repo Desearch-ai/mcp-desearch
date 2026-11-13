@@ -1,4 +1,5 @@
 import { fetch } from "undici";
+import { recordCostHeaders } from "./cost-meta.js";
 
 /**
  * Direct calls to the Desearch API for routes desearch-js 1.5 does not cover
@@ -97,6 +98,7 @@ export function createDesearchApi(apiKey: string, baseUrl: string = DESEARCH_API
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}: ${errorDetail(data, text)}`);
         }
+        recordCostHeaders(response.headers);
         return { status: response.status, data, text, headers: response.headers };
     };
 }

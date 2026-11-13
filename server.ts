@@ -9,6 +9,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import DesearchImport from "desearch-js";
 import { z } from "zod";
+import { recordCost, withCostMeter } from "./cost-meta.js";
 import { createDesearchApi, type DesearchApi } from "./desearch-api.js";
 import {
     PEOPLE_EXPORT_DEFAULT_ROWS,
@@ -84,7 +85,7 @@ import { FACEBOOK_SEARCH_SORTS, runSocialAction, socialActionNames, type SocialP
 import { AI_SEARCH_TOOLS, WEB_LINK_TOOLS, toolIdSchema } from "./tool-sources.js";
 
 export const SERVER_NAME = "Desearch";
-export const SERVER_VERSION = "0.10.0";
+export const SERVER_VERSION = "0.11.0";
 export const SERVER_TITLE = "Desearch";
 export const SERVER_WEBSITE_URL = "https://www.desearch.ai";
 
@@ -140,6 +141,61 @@ interface DesearchClient {
     webCrawl(payload: PageContentPayload): Promise<unknown>;
 }
 
+const DESEARCH_CLIENT_METHODS = [
+    "aiSearch",
+    "xSearch",
+    "webSearch",
+    "aiWebLinksSearch",
+    "aiXLinksSearch",
+    "xPostsByUrls",
+    "xPostById",
+    "xPostsByUser",
+    "xPostRetweeters",
+    "xUserPosts",
+    "xUserReplies",
+    "xPostReplies",
+    "xTrends",
+    "extract",
+    "webCrawl",
+] as const satisfies readonly (keyof DesearchClient)[];
+
+function metadataNumber(value: unknown): number | undefined {
+    return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+/**
+ * desearch-js 1.5 returns `{ data, metadata }` when called with `includeMetadata: true`;
+ * `metadata` holds the parsed `X-Desearch-Cost-Usd` / `X-Desearch-Usage-Count` headers.
+ * The cost goes to the current tool call's meter (cost-meta.ts) and the tool sees `data`,
+ * so the result content is the same as before. A client that ignores the option
+ * (test fakes) returns the body itself, which passes through with no cost.
+ */
+function sdkData(value: unknown): unknown {
+    if (
+        isPlainObject(value) &&
+        Object.keys(value).length === 2 &&
+        "data" in value &&
+        isPlainObject(value.metadata)
+    ) {
+        recordCost(metadataNumber(value.metadata.costUsd), metadataNumber(value.metadata.usageCount));
+        return value.data;
+    }
+    return value;
+}
+
+/** The same client, with every call asking desearch-js for the response's cost headers. */
+function meteredClient(client: DesearchClient): DesearchClient {
+    const metered: Record<string, (payload: unknown) => Promise<unknown>> = {};
+    const source = client as unknown as Record<string, unknown>;
+    for (const name of DESEARCH_CLIENT_METHODS) {
+        const method = source[name];
+        if (typeof method === "function") {
+            metered[name] = async (payload) => sdkData(await method.call(client, payload, { includeMetadata: true }));
+        }
+    }
+    return metered as unknown as DesearchClient;
+}
+
 // desearch-js 1.5 publishes a default class. Node16 resolution types that package
 // as a module namespace, so the constructor is applied through a cast.
 const Desearch = DesearchImport as unknown as new (apiKey: string) => DesearchClient;
@@ -148,6 +204,8 @@ type ToolResult = {
     content: { type: "text"; text: string }[];
     structuredContent?: Record<string, unknown>;
     isError?: boolean;
+    /** `cost_usd` / `usage_count` of the Desearch API calls the tool made (cost-meta.ts). */
+    _meta?: Record<string, unknown>;
 };
 
 type ToolHandler = (args: any) => Promise<ToolResult>;
@@ -479,7 +537,7 @@ const MONITOR_KEPT_NOTE =
     "the query and criteria still decide what is kept (min_score 0 keeps every new post). Names are sent as given and the API returns them cleaned; a name it cannot read is a 422.";
 const MONITOR_ACCOUNTS_NOTE = `the source reads their newest posts each run instead of searching by keyword; ${MONITOR_KEPT_NOTE}`;
 const MONITOR_HASHTAGS_NOTE =
-    "A hashtag feed lists popular as well as recent posts from any account, so it finds posts outside the watched accounts; with accounts or hashtags, the source reads those feeds each run instead of searching by keyword, and the query and criteria still decide what is kept (min_score 0 keeps every new post). Hashtags are sent as given and the API returns them without # (a tag URL becomes its tag); one it cannot read is a 422.";
+    "A hashtag feed lists popular posts before recent ones from any account, so it finds posts outside the watched accounts, and since a new post can reach it days late, a run keeps the hashtag posts from the last 7 days that the monitor has not seen; with accounts or hashtags, the source reads those feeds each run instead of searching by keyword, and the query and criteria still decide what is kept (min_score 0 keeps every new post). Hashtags are sent as given and the API returns them without # (a tag URL becomes its tag); one it cannot read is a 422.";
 
 /** A watched-accounts (or watched-hashtags) list. A new schema per field. */
 function monitorAccounts(description: string) {
@@ -923,7 +981,11 @@ function registerTool(
                 )
             );
         }
-        return handler(args);
+        const { result, cost } = await withCostMeter(() => handler(args));
+        if (Object.keys(cost).length === 0) {
+            return result;
+        }
+        return { ...result, _meta: { ...result._meta, ...cost } };
     };
     register(
         name,
@@ -957,7 +1019,7 @@ export function createDesearchMcpServer(
     companyClient?: CompanyClient,
     monitorClient?: MonitorClient
 ): McpServer {
-    const desearch = client ?? new Desearch(apiKey);
+    const desearch = meteredClient(client ?? new Desearch(apiKey));
     const api: DesearchApi = createDesearchApi(apiKey);
     const people = peopleClient ?? peopleClientFor(api);
     const companies = companyClient ?? companyClientFor(api);

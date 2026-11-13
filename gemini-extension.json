@@ -1,6 +1,6 @@
 {
   "name": "desearch",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "description": "AI search, X search and web search for AI agents, plus the Search API, public TikTok, Facebook, Instagram, YouTube, Reddit, and Threads data, People Search exports, page extraction, X data tools, People Search for X, YouTube, LinkedIn, and TikTok, Company Search and Company Enrich, and Monitors (scheduled searches that keep only new items). Bring your own Desearch API key. Includes 51 tools.",
   "mcpServers": {
     "desearch": {

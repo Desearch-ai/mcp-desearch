@@ -5,7 +5,7 @@ description: Choose which Desearch MCP tool to call. Use when the task needs AI 
 
 # Desearch
 
-Version 0.10.0 exposes 51 tools.
+Version 0.11.0 exposes 51 tools.
 
 Pick one Desearch tool from this list. Do not call a tool that is not registered.
 

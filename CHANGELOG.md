@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.10.0
+## 0.11.0
 
 Monitors: twelve new tools (51 in total) for the `/desearch/monitors` routes (desearch-public-api `docs/monitors.md`). A monitor reruns a search over `web`, `x`, `reddit`, `youtube`, and `threads` on a schedule (`1h` to `7d`), drops everything it has already seen, screens the new items (relevant, new information, and one question per criterion; kept at `min_score`), and keeps the ones that pass, readable through the API and sent to a signed webhook. Monitors are not in `desearch-js` 1.5, so `monitors.ts` calls the routes directly through `desearch-api.ts`, which now also sends `PATCH` and `DELETE`.
 
@@ -32,8 +32,16 @@ Monitors: twelve new tools (51 in total) for the `/desearch/monitors` routes (de
 - Monitors billing as documented: TikTok, Instagram, Facebook, and Meta ads reads are billed per read ($3.00 per 1,000 reads), whatever the number of posts a read returns: one per watched account, hashtag, Facebook page, TikTok keyword search, or Ad Library search; an empty or private TikTok account takes two reads. X timelines, subreddits, YouTube channels, and Threads keep their list prices. The tool descriptions, README, and parity doc say so.
 - `facebook` `search` takes `sort`: `impressions` (the API default, most seen first) or `recent` (recently started ads first). Other Facebook actions refuse it before the request.
 - `scripts/e2e-monitors.mjs` drives every free monitor tool over stdio against a live API (`--base-url`, `--key-env`) and deletes the monitors it creates. It never triggers a run. `--with-accounts` also checks the #644 sources: the estimate breakdown for Instagram, Facebook, Meta ads, and Threads accounts, the 422 for `instagram` or `facebook` without accounts on create and update, a monitor with all four (names cleaned, `meta_ads.count`, `webhook.last_delivery` null), items by source `meta_ads`, the 15-character X username limit, and one billed `facebook` search with `sort: "recent"` and `count: 2` (at most $0.00414).
-- The Monitors routes are on `api-dev.desearch.ai`; release this after they reach `api.desearch.ai`, with desearch-public-api #635 and #644 and their console migrations for TikTok, watched accounts, the Instagram, Facebook, and Meta ads sources, and the webhook delivery status.
-- Every version (package, `server.json`, the Gemini extension, the plugin manifests, and `SERVER_VERSION`) is 0.10.0, and the docs and manifest descriptions say the server exposes 51 tools.
+- The Monitors routes are live on `api.desearch.ai` (desearch-public-api #635, #644, and the hashtag 7-day window #666, with their console migrations).
+- Every version (package, `server.json`, the Gemini extension, the plugin manifests, and `SERVER_VERSION`) is 0.11.0, and the docs and manifest descriptions say the server exposes 51 tools.
+
+## 0.10.0
+
+Cost on every tool result, as the hosted server has had since 06a3ec0.
+
+- Every tool result from a billed Desearch API call carries `_meta.cost_usd` and `_meta.usage_count`, read from the API's `X-Desearch-Cost-Usd` and `X-Desearch-Usage-Count` headers, for every result shape: JSON objects, bare lists (`x-search`, `x-posts-by-user`, the other X tools) and text (`extract`, `web-crawl`). Before, only tools whose API body already held cost fields showed a cost. The desearch-js tools ask the SDK for the response metadata (`includeMetadata`); the direct API tools (People Search, Company Search, the social routes, `search-api`) read the headers. Content and `structuredContent` are unchanged. A tool call that makes several billed requests reports the sum; concurrent calls on one server stay apart. A free call reports `cost_usd: 0`; failed calls carry no cost.
+- Every version (package, `server.json`, the Gemini extension, the plugin manifests, and `SERVER_VERSION`) is 0.10.0. The tool count is unchanged (39).
+
 ## 0.9.0
 
 Company Search: a search budget (`max_cost_usd`) and continuing an ended search (`continue_from`), the two optional `POST /desearch/companies/search` fields of desearch-public-api #624. Both wait for that API release; until then the API answers 422 to them.
