@@ -4,7 +4,7 @@ import { MockAgent, getGlobalDispatcher, setGlobalDispatcher } from "undici";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createDesearchMcpServer } from "../build/server.js";
-import { NEXT_CURSOR_HEADER, SOCIAL_ACTIONS, socialRequest } from "../build/social.js";
+import { FACEBOOK_SEARCH_SORTS, NEXT_CURSOR_HEADER, SOCIAL_ACTIONS, socialRequest } from "../build/social.js";
 
 const API = "https://api.desearch.ai";
 const JSON_TYPE = { "content-type": "application/json" };
@@ -108,7 +108,7 @@ const ROUTES = [
     ["tiktok", { action: "comments", video_id: "7620891413932166433", count: 1 }, "GET", "/desearch/tiktok/comments/7620891413932166433", { count: "1" }],
     ["tiktok", { action: "hashtag", tag: "ai" }, "GET", "/desearch/tiktok/hashtag/ai", {}],
     ["tiktok", { action: "trending", region: "GB", count: 3 }, "GET", "/desearch/tiktok/trending", { region: "GB", count: "3" }],
-    ["facebook", { action: "search", query: "running shoes", count: 2 }, "POST", "/desearch/facebook/search", { query: "running shoes", count: 2 }],
+    ["facebook", { action: "search", query: "running shoes", count: 2, sort: "recent" }, "POST", "/desearch/facebook/search", { query: "running shoes", count: 2, sort: "recent" }],
     ["facebook", { action: "post", id: "1525856912919657" }, "GET", "/desearch/facebook/post/1525856912919657", {}],
     ["facebook", { action: "profile", profile_id: "facebook" }, "GET", "/desearch/facebook/profile/facebook", {}],
     ["facebook", { action: "profile_posts", profile_id: "facebook", count: 3 }, "GET", "/desearch/facebook/profile/facebook/posts", { count: "3" }],
@@ -170,6 +170,37 @@ test("each social action calls its route with only the arguments it takes", asyn
             }
         }
         assert.equal(mock.seen.length, ROUTES.length);
+    });
+});
+
+test("facebook search takes sort 'impressions' or 'recent' and sends it only when set", async () => {
+    // desearch-public-api model/facebook.py FacebookSearchRequest.sort
+    assert.deepEqual([...FACEBOOK_SEARCH_SORTS], ["impressions", "recent"]);
+    assert.deepEqual(SOCIAL_ACTIONS.facebook.search.optional, ["count", "sort", "cursor"]);
+    await withServer(async (client, mock) => {
+        const { tools } = await client.listTools();
+        const facebook = tools.find((tool) => tool.name === "facebook");
+        assert.deepEqual(facebook.inputSchema.properties.sort.enum, ["impressions", "recent"]);
+        assert.match(facebook.inputSchema.properties.sort.description, /'impressions' \(API default: most seen first\)/);
+        assert.match(facebook.inputSchema.properties.sort.description, /puts recently started ads first/);
+        assert.match(facebook.description, /search \(query; optional count, sort, cursor\)/);
+
+        for (const sort of ["impressions", "recent", undefined]) {
+            mock.reply(200, []);
+            const args = { action: "search", query: "ChatGPT", count: 2, ...(sort ? { sort } : {}) };
+            const result = await client.callTool({ name: "facebook", arguments: args });
+            assert.equal(result.isError, undefined, textOf(result));
+            assert.deepEqual(mock.seen.at(-1).body, { query: "ChatGPT", count: 2, ...(sort ? { sort } : {}) });
+        }
+        // The other Facebook actions refuse it before any request.
+        for (const action of ["post", "profile", "profile_posts", "comments", "hashtag"]) {
+            assert.throws(
+                () => socialRequest("facebook", { action, id: "1", profile_id: "NASA", post_id: "1", tag: "ai", sort: "recent" }),
+                /does not take .*sort/,
+                action
+            );
+        }
+        assert.equal(mock.seen.length, 3);
     });
 });
 
@@ -268,7 +299,12 @@ test("each action names the argument it is missing or does not take, before any 
             [
                 "facebook",
                 { action: "search" },
-                'Facebook error: facebook action "search" needs query. search takes: query (required), count, cursor. No request was sent.',
+                'Facebook error: facebook action "search" needs query. search takes: query (required), count, sort, cursor. No request was sent.',
+            ],
+            [
+                "facebook",
+                { action: "hashtag", tag: "ai", sort: "recent" },
+                'Facebook error: facebook action "hashtag" does not take sort. hashtag takes: tag (required), count, cursor. No request was sent.',
             ],
             [
                 "instagram",
@@ -300,6 +336,7 @@ test("each action names the argument it is missing or does not take, before any 
             ["tiktok", { action: "hashtag", tag: "ai", cursor: "" }],
             ["tiktok", { action: "profile", username: "" }],
             ["tiktok", { action: "trending", region: "USA" }],
+            ["facebook", { action: "search", query: "ai", sort: "newest" }],
         ]) {
             const result = await client.callTool({ name: tool, arguments: args });
             assert.equal(result.isError, true, JSON.stringify(args));

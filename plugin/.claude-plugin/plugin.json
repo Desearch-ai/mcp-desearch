@@ -1,8 +1,8 @@
 {
   "name": "desearch",
   "displayName": "Desearch",
-  "version": "0.10.0",
-  "description": "AI search, X search, web search, the Search API, public TikTok, Facebook, Instagram, YouTube, Reddit, and Threads data, People Search exports, page extraction, X trends, People Search, and Company Search. Includes 39 tools.",
+  "version": "0.11.0",
+  "description": "AI search, X search, web search, the Search API, public TikTok, Facebook, Instagram, YouTube, Reddit, and Threads data, People Search exports, page extraction, X trends, People Search, Company Search, and Monitors. Includes 51 tools.",
   "author": {
     "name": "Desearch AI",
     "url": "https://www.desearch.ai"

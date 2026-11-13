@@ -344,6 +344,18 @@ test("phase 4 extract, web-crawl, and x-trends call the matching desearch-js met
                 "facebook",
                 "fetch",
                 "instagram",
+                "monitor-create",
+                "monitor-delete",
+                "monitor-estimate",
+                "monitor-get",
+                "monitor-items",
+                "monitor-list",
+                "monitor-run",
+                "monitor-runs",
+                "monitor-trigger",
+                "monitor-update",
+                "monitor-webhook-rotate-secret",
+                "monitor-webhook-test",
                 "people-profiles",
                 "people-search",
                 "people-search-cancel",
@@ -519,10 +531,24 @@ test("every listed tool has a title and annotations", async () => {
         youtube: "YouTube",
         reddit: "Reddit",
         threads: "Threads",
+        "monitor-create": "Create Monitor",
+        "monitor-estimate": "Estimate Monitor Cost",
+        "monitor-list": "List Monitors",
+        "monitor-get": "Get Monitor",
+        "monitor-update": "Update Monitor",
+        "monitor-delete": "Delete Monitor",
+        "monitor-trigger": "Run Monitor Now",
+        "monitor-runs": "List Monitor Runs",
+        "monitor-run": "Get Monitor Run",
+        "monitor-items": "List Monitor Items",
+        "monitor-webhook-test": "Test Monitor Webhook",
+        "monitor-webhook-rotate-secret": "Rotate Monitor Webhook Secret",
     };
     // people-search, company-search, and company-enrich spend the user's balance but delete
     // nothing; pause and resume undo each other; only cancel cannot be undone. status, tasks,
-    // profiles, and export only read.
+    // profiles, and export only read. monitor-create and monitor-trigger queue billed runs;
+    // monitor-update and monitor-delete overwrite or remove a monitor; rotate replaces the
+    // signing secret; webhook-test sends one more delivery; the other monitor tools only read.
     const people = {
         "people-search": { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
         "people-search-status": { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
@@ -539,10 +565,22 @@ test("every listed tool has a title and annotations", async () => {
         "company-search-pause": { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
         "company-search-resume": { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
         "company-search-cancel": { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
+        "monitor-create": { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+        "monitor-estimate": { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+        "monitor-list": { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+        "monitor-get": { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+        "monitor-update": { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
+        "monitor-delete": { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
+        "monitor-trigger": { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+        "monitor-runs": { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+        "monitor-run": { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+        "monitor-items": { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+        "monitor-webhook-test": { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+        "monitor-webhook-rotate-secret": { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
     };
     await withFakeClient({}, async (client) => {
         const listed = await client.listTools();
-        assert.equal(listed.tools.length, 39);
+        assert.equal(listed.tools.length, 51);
         assert.equal(listed.tools.some((tool) => tool.name === "people-search-control"), false);
         for (const name of Object.keys(people)) {
             assert.ok(listed.tools.some((tool) => tool.name === name), name);
@@ -660,7 +698,7 @@ test("web-search accepts start: null as 0 and still accepts an omitted start", a
     try {
         await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
         const listed = await client.listTools();
-        assert.equal(listed.tools.length, 39);
+        assert.equal(listed.tools.length, 51);
         const webSearch = listed.tools.find((tool) => tool.name === "web-search");
         assert.equal(webSearch.inputSchema.properties.start.type, "integer");
         assert.equal(webSearch.inputSchema.properties.start.minimum, 0);
