@@ -22,11 +22,14 @@ Earlier host/SDK versions have not been validated.
    ```
 
 3. In **Workspace > Tools**, open the menu beside **Create**, choose **Import
-   Tools**, select `dist/desearch.json`, review the prompt and import. This is a
+   JSON**, select `dist/desearch.json`, review the prompt and import. This is a
    local import. Alternatively create a Tool and paste all of `desearch.py`.
 4. Enable Desearch in the chat's tool selector. In **Model controls > Controls >
    Valves**, choose Desearch and set **DESEARCH_API_KEY** to your own key from
-   <https://console.desearch.ai/api-keys>. This is a per-user `UserValves` field.
+   <https://console.desearch.ai/api-keys>. With the key field focused, press
+   **Enter** and wait for **Valves updated**. Reopen Valves and verify the saved
+   field is populated. Editing the field and moving focus away does not save it.
+   This is a per-user `UserValves` field.
    There is no shared admin key or environment fallback.
 5. Use a model with native tool calling enabled and ask it to search for a public
    topic. The callable is `search(query: str)`; credentials and internal arguments
@@ -65,8 +68,11 @@ Open WebUI's native Python Tool schema has no MCP annotations slot; the local
 tool uses the Desearch frontmatter title and the `search` method description.
 The wrapper never exposes task-creation or account-changing tools.
 
-To disconnect, clear your **DESEARCH_API_KEY** in User Valves and disable the
-Tool. To remove it, use **Workspace > Tools > Desearch > menu > Delete**.
+To disconnect, clear your **DESEARCH_API_KEY** in User Valves, press **Enter**
+while the field is focused, and wait for **Valves updated**. Reopen Valves and
+verify the saved field is empty, then disable the Tool. Clearing the field and
+moving focus away does not save it. To remove it, use
+**Workspace > Tools > Desearch > menu > Delete**.
 Removing this local Tool does not revoke the Desearch key. Revoke an unwanted
 key separately in Console. To roll back a source update, import the reviewed
 previous version after removing the current Tool; do not create duplicate IDs.
