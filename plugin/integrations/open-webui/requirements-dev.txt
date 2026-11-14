@@ -1,0 +1,7 @@
+# Runtime matches the tested Open WebUI 0.13.3 image; these are bundled there.
+mcp==2.3.0
+httpx2==2.16.0
+pydantic==2.13.4
+pytest==9.2.0
+pytest-asyncio==1.5.0
+ruff==0.17.5
