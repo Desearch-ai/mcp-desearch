@@ -1,0 +1,25 @@
+{
+  "$schema": "https://raw.githubusercontent.com/Mintplex-Labs/anything-llm/4d09fa5f730698d39f1d783e47316744b260a700/server/utils/agents/imported-manifest.schema.json",
+  "active": false,
+  "hubId": "desearch-search",
+  "name": "Desearch Search",
+  "schema": "skill-1.0.0",
+  "version": "0.1.0",
+  "description": "Search the public web with Desearch. Returns source links, titles and snippets from the hosted Desearch MCP service.",
+  "author": "Desearch",
+  "author_url": "https://github.com/Desearch-ai",
+  "license": "MIT",
+  "setup_args": {
+    "DESEARCH_API_KEY": {
+      "type": "string",
+      "required": true,
+      "input": { "type": "password", "placeholder": "Desearch API key", "hint": "Get a key at https://console.desearch.ai/api-keys. Search uses your Desearch balance." }
+    }
+  },
+  "examples": [ { "prompt": "Search the web for Desearch MCP documentation", "call": "{\"query\":\"Desearch MCP documentation\"}" } ],
+  "entrypoint": {
+    "file": "handler.js",
+    "params": { "query": { "description": "The public web search query.", "type": "string" } }
+  },
+  "imported": true
+}
