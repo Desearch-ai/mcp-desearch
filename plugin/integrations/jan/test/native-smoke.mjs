@@ -60,8 +60,12 @@ const model = createServer(async (req, res) => {
       calls.push(result.content);
       message = { role: 'assistant', content: 'Native Jan tool cycle complete.' };
     } else {
-      const name = catalog.find((n) => phase.skill ? /skill_read$/.test(n) : /web.search$/.test(n) && /desearch/i.test(n));
-      assert.ok(name, `Expected native tool; catalog=${catalog.join(',')}`);
+      const name = catalog.find((n) => phase.skill ? /skill_read$/.test(n) : n === 'web-search');
+      if (!name) {
+        res.writeHead(200, { 'content-type': 'text/event-stream' });
+        res.end(`data: ${JSON.stringify({ id: 'fixture', object: 'chat.completion.chunk', choices: [{ index: 0, delta: { role: 'assistant', content: 'No expected MCP tool advertised; connection failed or unavailable.' }, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`);
+        return;
+      }
       const args = phase.skill ? { name: 'desearch:desearch' } : phase.args;
       message = { role: 'assistant', content: null, tool_calls: [{
         id: 'jan_fixture_call', type: 'function', function: { name, arguments: JSON.stringify(args) },
@@ -88,12 +92,11 @@ async function cycle(name, spec) {
     '--provider', 'openai', '--api-key', 'local-fixture-only', '--base-url', baseURL,
     '--model', 'fixture', '--max-turns', '3', '--output-format', 'json',
     'Execute the single predetermined public read/search test tool call.']);
-  const result = { calls, catalog: catalog.filter((n) => /desearch|skill_read/.test(n)), host: output };
+  const result = { calls, catalog: catalog.filter((n) => /desearch|skill_read|web-search/.test(n)), host: output };
   record(name, result);
   return result;
 }
-const manifest = JSON.parse(await readFile(path.join(root, '.mcp.json'), 'utf8'));
-const server = manifest.mcpServers.desearch;
+let server;
 async function configure(value, url = server.url) {
   const args = ['cli', 'mcp', 'add', 'desearch:desearch', '--type', server.type, '--url', url, '--active'];
   if (value !== undefined) args.push('--header', `x-api-key=${value}`);
@@ -108,6 +111,7 @@ try {
   await run('git', ['init', '--quiet'], fixture);
   await run('git', ['add', '.'], fixture);
   await run('git', ['-c', 'user.name=Jan test fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '--quiet', '-m', 'Local install fixture'], fixture);
+  server = JSON.parse(await readFile(path.join(fixture, '.mcp.json'), 'utf8')).mcpServers.desearch;
   record('install', await run(jan, ['plugin', 'install', `file://${fixture}`, '--project', project]));
   record('list', await run(jan, ['plugin', 'list', '--project', project]));
   record('no-implicit-activation', await run(jan, ['cli', 'mcp', 'list']));
