@@ -99,8 +99,8 @@ Removal unregisters the actions; invoking them must fail. Herdr may retain sourc
 installations for active processes and preserves config/state. Remove your own
 `query.json` manually if needed. Rollback is to uninstall this plugin and reinstall
 a previously reviewed SHA. No server configuration or shared MCP service changes
-are needed. Problem reports go to Oto through the Integrations MC queue, with Iza
-coordinating; hosted-service issues go to Devs through Temo.
+are needed. Report problems at
+https://github.com/Desearch-ai/mcp-desearch/issues.
 
 ## Source contract
 
