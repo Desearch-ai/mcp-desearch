@@ -15,7 +15,15 @@ jan plugin list
 jan
 ```
 
-Until this change is merged, replace `main` with the reviewed branch or commit.
+For this draft branch, use Jan's explicit `#ref` override:
+
+```sh
+jan plugin install 'https://github.com/Desearch-ai/mcp-desearch/tree/main/plugin/integrations/jan#oto/T-596-jan'
+```
+
+This Jan version clones a branch/tag, so a raw commit SHA in the tree URL fails.
+For an immutable reviewed commit, check it out and use the local export below.
+Do not put a slash-containing branch in the tree URL's ref segment.
 In Jan's interactive console run `/plugin setup jan` (the directory identity for
 that tree URL), or `/plugin setup` and select the entry whose display name is
 `desearch`. Enter `DESEARCH_API_KEY` in the masked setup field, then choose
