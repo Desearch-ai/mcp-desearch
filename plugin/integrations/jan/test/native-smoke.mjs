@@ -98,7 +98,7 @@ try {
   record('version', await run(jan, ['--version']));
   // Export the committed subtree to a git root, exactly as documented.
   const archive = path.join(temp, 'jan.tar');
-  await run('git', ['archive', '--format=tar', '--output', archive, 'HEAD:plugin/integrations/jan']);
+  await run('git', ['archive', '--format=tar', '--output', archive, 'HEAD:plugin/integrations/jan'], path.resolve(root, '../../..'));
   await run('tar', ['-xf', archive, '-C', fixture]);
   await run('git', ['init', '--quiet'], fixture);
   await run('git', ['add', '.'], fixture);
