@@ -44,6 +44,11 @@ let calls = [];
 let catalog = [];
 const model = createServer(async (req, res) => {
   try {
+    if (req.method === 'GET' && req.url === '/v1/models') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ object: 'list', data: [{ id: 'fixture', object: 'model', owned_by: 'local-test' }] }));
+      return;
+    }
     let body = '';
     for await (const chunk of req) body += chunk;
     const request = JSON.parse(body);
