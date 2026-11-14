@@ -11,7 +11,9 @@ try {
   }
   execFileSync('npm', ['ci', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund'], { cwd: destination, stdio: 'inherit' });
   const archive = path.join(__dirname, 'desearch-search.tgz');
-  execFileSync('tar', ['-czf', archive, '-C', temp, 'desearch-search']);
+  execFileSync('tar', ['-czf', archive, '-C', temp, 'desearch-search'], {
+    env: { ...process.env, COPYFILE_DISABLE: '1' },
+  });
   console.log(archive);
 } finally {
   fs.rmSync(temp, { recursive: true, force: true });

@@ -82,7 +82,8 @@ async function main() {
     console.log('PASS malformed native input: zero requests');
 
     const invalid = await invoke({ query: 'Desearch official documentation' }, 'invalid-t594-key');
-    assert.match(invalid, /failed/);
+    assert.match(invalid, /search failed/);
+    assert.equal(toolCalls()[0]?.status, 200); // MCP isError, not a transport failure.
     assert.equal(toolCalls().length, 1);
     console.log('PASS invalid key at protected action', JSON.stringify(calls));
 
