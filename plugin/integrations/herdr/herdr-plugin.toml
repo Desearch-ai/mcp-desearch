@@ -1,0 +1,20 @@
+id = "ai.desearch"
+name = "Desearch"
+version = "0.1.0"
+min_herdr_version = "0.9.5"
+description = "Search the public web through the hosted Desearch MCP service"
+platforms = ["macos", "linux", "windows"]
+
+[[build]]
+command = ["npm", "ci", "--omit=dev", "--ignore-scripts"]
+
+[[actions]]
+id = "discover"
+title = "Discover Desearch tools"
+command = ["node", "action.mjs", "discover"]
+
+[[actions]]
+id = "search"
+title = "Search the web with Desearch"
+description = "Read query.json in the plugin config directory and call web-search"
+command = ["node", "action.mjs", "search"]

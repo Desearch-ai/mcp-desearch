@@ -1,0 +1,13 @@
+{
+  "name": "desearch-herdr-wrapper",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {"node": ">=20.18.1"},
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "lint": "node --check action.mjs && node --check test/action.test.mjs",
+    "build": "npm run lint"
+  },
+  "dependencies": {"@modelcontextprotocol/sdk": "1.30.1"}
+}
