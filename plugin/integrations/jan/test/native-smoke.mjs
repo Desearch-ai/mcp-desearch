@@ -42,6 +42,7 @@ async function run(bin, args, cwd = root, options = {}) {
 let phase;
 let calls = [];
 let catalog = [];
+let providerRequests = 0;
 const model = createServer(async (req, res) => {
   try {
     if (req.method === 'GET' && req.url === '/v1/models') {
@@ -49,6 +50,7 @@ const model = createServer(async (req, res) => {
       res.end(JSON.stringify({ object: 'list', data: [{ id: 'fixture', object: 'model', owned_by: 'local-test' }] }));
       return;
     }
+    providerRequests++;
     let body = '';
     for await (const chunk of req) body += chunk;
     const request = JSON.parse(body);
@@ -87,14 +89,21 @@ const model = createServer(async (req, res) => {
 await new Promise((resolve) => model.listen(0, '127.0.0.1', resolve));
 const baseURL = `http://127.0.0.1:${model.address().port}/v1`;
 async function cycle(name, spec) {
-  phase = spec; calls = []; catalog = [];
+  phase = spec; calls = []; catalog = []; providerRequests = 0;
   const output = await run(jan, ['cli', 'agent', 'run', '--project', project,
     '--provider', 'openai', '--api-key', 'local-fixture-only', '--base-url', baseURL,
     '--model', 'fixture', '--max-turns', '3', '--output-format', 'json',
     'Execute the single predetermined public read/search test tool call.']);
-  const result = { calls, catalog: catalog.filter((n) => /desearch|skill_read|web-search/.test(n)), host: output };
+  const result = { calls, providerRequests, catalog: catalog.filter((n) => /desearch|skill_read|web-search/.test(n)), host: output };
   record(name, result);
+  assert.equal(providerRequests, calls.length ? 2 : 1, 'No automatic model retries');
   return result;
+}
+function requireSearch(result) {
+  assert.equal(result.calls.length, 1, 'One protected call, no retries');
+  const payload = JSON.parse(result.calls[0]);
+  assert.ok(Array.isArray(payload.data) && payload.data.length > 0, 'Nonempty real search data');
+  assert.ok(payload.data.every((r) => r.title && /^https?:/.test(r.link)), 'Citable results');
 }
 let server;
 async function configure(value, url = server.url) {
@@ -122,19 +131,20 @@ try {
   assert.equal((await configMode(path.join(data, 'mcp_config.json'))).mode & 0o777, 0o600);
   const start = Date.now(); record('observation-start', new Date(start).toISOString());
   const first = await cycle('search-1', { args: { query: 'Jan Agent plugin documentation' } });
-  assert.equal(first.calls.length, 1);
-  assert.match(JSON.stringify(first.calls), /https?:/);
+  requireSearch(first);
   const second = await cycle('search-2', { args: { query: 'Desearch MCP hosted HTTP documentation' } });
-  assert.equal(second.calls.length, 1);
-  assert.match(JSON.stringify(second.calls), /https?:/);
+  requireSearch(second);
   const malformed = await cycle('malformed', { args: { query: 42 } });
+  assert.equal(malformed.calls.length, 1);
   assert.match(JSON.stringify(malformed.calls), /error|invalid|expected/i);
   await configure(undefined);
   const missing = await cycle('missing-key', { args: { query: 'Jan Agent documentation' } });
-  assert.match(JSON.stringify(missing.calls), /unauthorized|401|api.key|authentication/i);
+  assert.equal(missing.calls.length, 1);
+  assert.match(JSON.stringify(missing.calls), /unauthorized|401|api.key|authentication|auth required/i);
   await configure('invalid-jan-fixture-key');
   const invalid = await cycle('invalid-key', { args: { query: 'Jan Agent documentation' } });
-  assert.match(JSON.stringify(invalid.calls), /unauthorized|401|invalid|api.key|authentication/i);
+  assert.equal(invalid.calls.length, 1);
+  assert.match(JSON.stringify(invalid.calls), /unauthorized|401|invalid|api.key|authentication|auth required/i);
   // Closed loopback port: no credential is sent to another external service.
   await configure(undefined, 'http://127.0.0.1:1/mcp');
   phase = { args: { query: 'Jan Agent documentation' } }; calls = [];
@@ -142,21 +152,26 @@ try {
     '--provider', 'openai', '--api-key', 'local-fixture-only', '--base-url', baseURL,
     '--model', 'fixture', '--max-turns', '1', '--output-format', 'json', 'Check the test connection.'], root, { allowFailure: true });
   record('network-failure', failure);
-  assert.match(JSON.stringify(failure), /failed|connect|refused/i);
+  assert.match(failure.stderr, /failed|connect|refused/i);
+  assert.equal(calls.length, 0);
   await configure(key);
   const remaining = 300000 - (Date.now() - start);
   if (remaining > 0) await new Promise((resolve) => setTimeout(resolve, remaining));
   const final = await cycle('observation-end-search', { args: { query: 'Jan Agent skills documentation' } });
-  assert.equal(final.calls.length, 1);
-  assert.match(JSON.stringify(final.calls), /https?:/);
+  requireSearch(final);
   record('observation-complete', { start: new Date(start).toISOString(), end: new Date().toISOString(), durationMs: Date.now() - start, successfulSearchCycles: 3, automaticRetries: 0 });
   record('disable', await run(jan, ['cli', 'mcp', 'disable', 'desearch:desearch']));
+  const disconnected = await cycle('disabled-fresh-session', { args: { query: 'Jan Agent documentation' } });
+  assert.equal(disconnected.calls.length, 0);
+  assert.ok(!disconnected.catalog.includes('web-search'));
   record('remove-server', await run(jan, ['cli', 'mcp', 'remove', 'desearch:desearch']));
   const removed = await run(jan, ['cli', 'mcp', 'list']); record('servers-after-removal', removed);
   assert.ok(!removed.stdout.includes('desearch:desearch'));
   record('remove-plugin', await run(jan, ['plugin', 'remove', 'desearch', '--project', project]));
   const plugins = await run(jan, ['plugin', 'list', '--project', project]); record('plugins-after-removal', plugins);
   assert.ok(!plugins.stdout.includes('desearch'));
+  const removedSkill = await cycle('removed-skill-fresh-session', { skill: true });
+  assert.match(JSON.stringify(removedSkill.calls), /not found|unknown|no skill/i);
 } finally {
   // Never leave a test key in the Jan data folder, including on failed checks.
   await run(jan, ['cli', 'mcp', 'remove', 'desearch:desearch'], root, { allowFailure: true }).catch(() => {});
