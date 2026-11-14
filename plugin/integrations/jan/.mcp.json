@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "desearch": {
+      "type": "http",
+      "url": "https://mcp.desearch.ai/mcp",
+      "headers": {
+        "x-api-key": "${DESEARCH_API_KEY}"
+      }
+    }
+  }
+}

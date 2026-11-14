@@ -1,0 +1,7 @@
+name = "desearch"
+description = "Search the web with Desearch through its hosted MCP service."
+version = "0.1.0"
+repo = "https://github.com/Desearch-ai/mcp-desearch"
+
+[setup.env]
+DESEARCH_API_KEY = "https://console.desearch.ai/api-keys"
