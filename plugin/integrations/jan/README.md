@@ -24,16 +24,14 @@ jan plugin install 'https://github.com/Desearch-ai/mcp-desearch/tree/main/plugin
 This Jan version clones a branch/tag, so a raw commit SHA in the tree URL fails.
 For an immutable reviewed commit, check it out and use the local export below.
 Do not put a slash-containing branch in the tree URL's ref segment.
-In Jan's interactive console run `/plugin setup jan` (the directory identity for
-that tree URL), or `/plugin setup` and select the entry whose display name is
-`desearch`. Enter `DESEARCH_API_KEY` in the masked setup field, then choose
+In Jan's interactive console run `/plugin setup desearch`, or `/plugin setup`
+and select the `desearch` entry. Enter `DESEARCH_API_KEY` in the masked setup field, then choose
 **Enable and connect**. Installation alone does not activate a connection.
-The imported MCP name is `<installation-directory>:desearch`, normally
-`jan:desearch` for the tree URL and `desearch:desearch` for the exported fixture.
-Use `/mcp` to confirm the actual name and inspect discovered tools.
+The imported MCP name is `<installation-name>:desearch`; the tested Agent
+version installs this payload as `desearch`, giving `desearch:desearch`. Use
+`/mcp` to confirm the actual name and inspect discovered tools.
 
-Invoke `/skill:jan:desearch` for the tree URL, or
-`/skill:desearch:desearch` for the exported git fixture. Ask for a public web
+Invoke `/skill:desearch:desearch`. Ask for a public web
 search, for example "Search for Jan Agent plugin documentation and cite links."
 Check a real protected call; keyless discovery alone does not verify auth.
 
@@ -90,7 +88,7 @@ jan cli mcp list
 jan plugin list --project /path/to/test-project
 ```
 
-For tree installs substitute the actual `jan:desearch` server and `jan` directory.
+If your host version assigns a different installation name, substitute it.
 A session can cache discovered tools, so start a fresh session to verify they
 are absent. Restore service by
 reinstalling the same reviewed commit and explicitly enabling its connection.
