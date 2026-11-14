@@ -144,16 +144,17 @@ try {
   await configure('invalid-jan-fixture-key');
   const invalid = await cycle('invalid-key', { args: { query: 'Jan Agent documentation' } });
   assert.equal(invalid.calls.length, 1);
-  assert.match(JSON.stringify(invalid.calls), /unauthorized|401|invalid|api.key|authentication|auth required/i);
+  assert.match(JSON.stringify(invalid.calls), /unauthorized|401|403|forbidden|invalid|api.key|authentication|auth required/i);
   // Closed loopback port: no credential is sent to another external service.
   await configure(undefined, 'http://127.0.0.1:1/mcp');
-  phase = { args: { query: 'Jan Agent documentation' } }; calls = [];
+  phase = { args: { query: 'Jan Agent documentation' } }; calls = []; providerRequests = 0;
   const failure = await run(jan, ['cli', 'agent', 'run', '--project', project,
     '--provider', 'openai', '--api-key', 'local-fixture-only', '--base-url', baseURL,
     '--model', 'fixture', '--max-turns', '1', '--output-format', 'json', 'Check the test connection.'], root, { allowFailure: true });
   record('network-failure', failure);
   assert.match(failure.stderr, /failed|connect|refused/i);
   assert.equal(calls.length, 0);
+  assert.equal(providerRequests, 1, 'No automatic model retries after connection failure');
   await configure(key);
   const remaining = 300000 - (Date.now() - start);
   if (remaining > 0) await new Promise((resolve) => setTimeout(resolve, remaining));

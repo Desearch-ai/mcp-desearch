@@ -51,7 +51,7 @@ Jan accepts skills without a commands directory; this wrapper needs no command.
 ### Headless explicit MCP configuration
 
 The native smoke uses Jan's CLI configuration path, after installing/discovering
-the plugin. It reads the endpoint/type from the installed payload's declaration;
+the plugin. It reads the endpoint/type from the exported payload's declaration;
 it does not automate the interactive masked-key setup. In a dedicated test data
 folder, the equivalent explicit configuration is:
 
@@ -83,9 +83,8 @@ jan plugin list --project /path/to/test-project
 ```
 
 For tree installs substitute the actual `jan:desearch` server and `jan` directory.
-Remove the plugin's stored key through Jan's setup/key controls if you entered
-one; do not delete other plugins' credentials. A session can cache discovered
-tools, so start a fresh session to verify they are absent. Restore service by
+A session can cache discovered tools, so start a fresh session to verify they
+are absent. Restore service by
 reinstalling the same reviewed commit and explicitly enabling its connection.
 
 ## Validation
