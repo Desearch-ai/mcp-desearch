@@ -1,6 +1,7 @@
 ---
 name: desearch
 description: Choose which Desearch MCP tool to call. Use when the task needs AI search, web search, a page as text or HTML, X posts, X trends, public TikTok, Facebook, or Instagram posts and profiles, YouTube videos, transcripts, comments and channels, Reddit posts and comment trees, Threads posts and profiles, finding people and creators on X, YouTube, LinkedIn, or TikTok, or finding companies and their public contacts and leaders (or enriching domains you already have).
+license: MIT
 ---
 
 # Desearch
