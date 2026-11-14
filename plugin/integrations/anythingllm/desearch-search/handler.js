@@ -2,7 +2,7 @@ const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
 const { StreamableHTTPClientTransport } = require('@modelcontextprotocol/sdk/client/streamableHttp.js');
 
 const ENDPOINT = 'https://mcp.desearch.ai/mcp';
-const TIMEOUT_MS = 60_000;
+const TIMEOUT_MS = 60000;
 
 module.exports.runtime = {
   title: 'Desearch Search',

@@ -97,3 +97,27 @@ an unrelated LLM completion. Model selection quality and desktop UI are not test
 - https://www.desearch.ai/docs/guide/sdk/mcp
 
 No Hub upload is part of installation. Publication requires a separate review.
+
+## Hub distribution validation
+
+The handler is restricted to ES2020 syntax because the official
+`@mintplex-labs/anythingllm-hub-cli@0.0.5` validator parses that language version.
+ESLint checks this boundary; the Node runtime requirement remains unchanged.
+Upload the extracted production archive folder rather than this development
+folder, so development dependencies and test files are excluded.
+
+The CLI rewrites author fields from the connected account, assigns a registration
+ID, disables the skill, and omits `schema`, `imported` and `$schema`. It also omits
+root package/lock files and extensionless LICENSE. The build includes
+`LICENSE.txt` so the MIT notice survives CLI packaging. The native Hub importer uses
+the registration ID for the folder and tool name. The resulting manifest does
+not pass the source-manifest schema, although the host importer can load it.
+Do not add omitted fields to the distribution to disguise that behavior.
+
+To repeat native QA on the CLI-generated ZIP without publishing, use the smoke
+command above with `HUB_ARCHIVE=/absolute/path/to/local-cli.zip` and
+`HUB_ID=<local-test-registration-id>`. It serves the ZIP on loopback to the
+unmodified native Hub download/import method and repeats the same live checks.
+The ZIP must come from the official CLI with a local-only store fixture; no Hub
+prepare, upload or finalize request is needed. Final registry-generated metadata
+and a real post-publication install remain separate review gates.

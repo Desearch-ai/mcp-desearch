@@ -15,9 +15,31 @@ async function main() {
   const skills = path.join(process.env.STORAGE_DIR, 'plugins', 'agent-skills');
   fs.mkdirSync(skills, { recursive: true });
   assert.equal(fs.readdirSync(skills).length, 0, 'clean skill directory required');
-  execFileSync('tar', ['-xzf', path.join(root, 'desearch-search.tgz'), '-C', skills]);
+  const hubId = process.env.HUB_ID || 'desearch-search';
+  assert.match(hubId, /^[a-zA-Z0-9-]+$/);
+  if (!process.env.HUB_ARCHIVE) {
+    assert.equal(hubId, 'desearch-search');
+    execFileSync('tar', ['-xzf', path.join(root, 'desearch-search.tgz'), '-C', skills]);
+  }
   const ImportedPlugin = require(path.join(server, 'utils/agents/imported'));
   const AIbitat = require(path.join(server, 'utils/agents/aibitat'));
+  if (process.env.HUB_ARCHIVE) {
+    // Serve the official CLI's locally generated ZIP to the unmodified Hub importer.
+    const http = require('node:http');
+    const archive = fs.readFileSync(process.env.HUB_ARCHIVE);
+    const local = http.createServer((_request, response) => response.end(archive));
+    await new Promise(resolve => local.listen(0, '127.0.0.1', resolve));
+    try {
+      const result = await ImportedPlugin.importCommunityItemFromUrl(
+        `http://127.0.0.1:${local.address().port}/skill.zip`,
+        { id: hubId, manifest: { files: [{ name: 'plugin.json' }] } },
+      );
+      assert.equal(result.success, true, result.error);
+      console.log('PASS native Hub ZIP download/import', hubId);
+    } finally {
+      await new Promise(resolve => local.close(resolve));
+    }
+  }
   const originalFetch = global.fetch;
   const key = process.env.DESEARCH_API_KEY;
   let mode = 'live';
@@ -40,29 +62,29 @@ async function main() {
   const host = new AIbitat();
   async function invoke(input, runtimeKey = key) {
     calls = [];
-    const plugin = ImportedPlugin.loadPluginByHubId('desearch-search');
+    const plugin = ImportedPlugin.loadPluginByHubId(hubId);
     // Exercise the actual native settings parser without persisting the secret.
     plugin.config.setup_args.DESEARCH_API_KEY.value = runtimeKey;
     host.use(plugin.plugin(plugin.parseCallOptions()));
     host.providerInstance = {
       resetCumulativeUsage() {}, getCumulativeUsage() { return {}; },
       async isModelLoaded() { return true; },
-      async complete() { return { functionCall: { name: 'desearch-search', arguments: input } }; },
+      async complete() { return { functionCall: { name: hubId, arguments: input } }; },
     };
     host.skipHandleExecution = true;
     const result = await host.handleExecution([{ role: 'user', content: 'execute selected search' }]);
     assert.equal(typeof result, 'string');
     assert.ok(!result.includes(key), 'result leaked credential');
-    assert.ok(!fs.readFileSync(path.join(skills, 'desearch-search/plugin.json'), 'utf8').includes(key), 'credential persisted');
+    assert.ok(!fs.readFileSync(path.join(skills, hubId, 'plugin.json'), 'utf8').includes(key), 'credential persisted');
     return result;
   }
   const toolCalls = () => calls.filter(c => c.method === 'tools/call');
   try {
-    assert.ok(ImportedPlugin.listImportedPlugins().some(p => p.hubId === 'desearch-search'));
+    assert.ok(ImportedPlugin.listImportedPlugins().some(p => p.hubId === hubId));
     assert.equal(ImportedPlugin.activeImportedPlugins().length, 0);
-    assert.ok(ImportedPlugin.validateImportedPluginHandler('desearch-search'));
-    ImportedPlugin.updateImportedPlugin('desearch-search', { active: true });
-    assert.deepEqual(ImportedPlugin.activeImportedPlugins(), ['@@desearch-search']);
+    assert.ok(ImportedPlugin.validateImportedPluginHandler(hubId));
+    ImportedPlugin.updateImportedPlugin(hubId, { active: true });
+    assert.deepEqual(ImportedPlugin.activeImportedPlugins(), [`@@${hubId}`]);
     console.log('PASS native discovery, disabled default, enable, handler validation');
 
     const started = Date.now();
@@ -123,17 +145,17 @@ async function main() {
     console.log(JSON.stringify({ cycle: 2, query: query2, calls, result: second }));
     console.log('OBSERVATION_END', new Date().toISOString(), 'elapsed_ms', Date.now() - started, 'successful_cycles', 2);
 
-    ImportedPlugin.updateImportedPlugin('desearch-search', { active: false });
+    ImportedPlugin.updateImportedPlugin(hubId, { active: false });
     assert.equal(ImportedPlugin.activeImportedPlugins().length, 0);
-    host.removeFunction('desearch-search');
-    assert.ok(!host.functions.has('desearch-search'));
-    assert.ok(ImportedPlugin.deletePlugin('desearch-search'));
+    host.removeFunction(hubId);
+    assert.ok(!host.functions.has(hubId));
+    assert.ok(ImportedPlugin.deletePlugin(hubId));
     assert.equal(ImportedPlugin.listImportedPlugins().length, 0);
-    assert.ok(!ImportedPlugin.validateImportedPluginHandler('desearch-search'));
+    assert.ok(!ImportedPlugin.validateImportedPluginHandler(hubId));
     console.log('PASS native disable, runtime disconnect, removal, rediscovery empty');
   } finally {
     global.fetch = originalFetch;
-    if (fs.existsSync(path.join(skills, 'desearch-search'))) ImportedPlugin.deletePlugin('desearch-search');
+    if (fs.existsSync(path.join(skills, hubId))) ImportedPlugin.deletePlugin(hubId);
   }
 }
 main().catch(error => {
