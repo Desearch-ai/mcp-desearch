@@ -14,7 +14,7 @@ tessl install file:/absolute/path/to/mcp-desearch/plugin/integrations/tessl --ag
 tessl list --json
 ```
 
-Restart Claude Code after installation. Tessl installs the skill and materializes the bundled MCP configuration in the test project's `.mcp.json`. Claude Code expands `${DESEARCH_API_KEY}` from its environment. Other agent hosts may need their own environment-forwarding configuration; do not assume they expand this syntax. The launcher runs `npx -y desearch-mcp-server@0.10.0` and forwards `DESEARCH_API_KEY` from the agent's environment. The manifest contains a variable reference, never a key value.
+Restart Claude Code after installation. Tessl installs the skill and materializes the bundled MCP configuration in the test project's `.mcp.json`. Claude Code expands `${DESEARCH_API_KEY:-}` from its environment, using an empty value when the variable is unset so the server's missing-key check rejects startup. Other agent hosts may need their own environment-forwarding configuration; do not assume they expand this syntax. The launcher runs `npx -y desearch-mcp-server@0.10.0` and forwards `DESEARCH_API_KEY` from the agent's environment. The manifest contains a variable reference, never a key value.
 
 Ask the agent to use Desearch `web-search` for a current web query. Check that the result contains titles and URLs. Repeat with another query. Without a key the server should refuse to start; an invalid key should return an authentication error without exposing credentials. Use a valid key before retrying.
 
