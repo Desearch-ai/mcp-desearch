@@ -33,11 +33,11 @@ shasum -a 256 /tmp/desearch-tessl-0.1.0.tgz
 
 The package contains only the skill, metadata, launcher configuration, README, and MIT license. It has no hooks, server source, or release workflow. Tessl's registry filters some file types on publication; all content in this package uses supported text formats or the documented manifest/configuration paths.
 
-## Submission handoff
+## Registry publication
 
 This is a private local candidate, version `0.1.0`. `desearch/desearch` is a proposed workspace/package name, not proof of workspace ownership, availability, or an existing registry listing. Do not treat the local install as a registry submission.
 
-Iza owns account setup and publication through W48-15 after independent QA. The free account entry is <https://tessl.io/login>, then **Create account**, using the approved team mailbox. Before publication, confirm the actual authorized workspace and package-name availability. If the candidate name changes, update the manifest and repeat lint, pack, local install, smoke, and QA on that exact revision. Run the documented publish dry run only after authenticating to the intended workspace. Public visibility is a separate registry approval step; this candidate keeps `private: true`. No publication is performed by the packaging task.
+The free account entry is <https://tessl.io/login>, then **Create account**, using your team account. Before publication, confirm the actual authorized workspace and package-name availability. If the candidate name changes, update the manifest and repeat lint, pack, local install, smoke, and QA on that exact revision. Run the documented publish dry run only after authenticating to the intended workspace. Public visibility is a separate registry approval step; this candidate keeps `private: true`. This package is prepared for local validation; it has not been published.
 
 Format and command references, checked 2026-11-17:
 
