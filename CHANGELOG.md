@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.11.0
+
+`search-api` returns an optional summary. Tool names are unchanged (39 tools).
+
+- `search-api` takes `summary` (a short answer written from the results, with numbered citations; no extra charge), `include_domains` (at most 100), and `exclude_domains` (at most 1,200). The result lists `summary` first (`{ text, citations: [{ index, url, title }] }`, or `null` with `meta.notices` `Summary unavailable.`), then `results`, `meta`, and the billing fields.
+- `search-api` is web search on the Desearch index; the server instructions point web questions to it.
+- `ai-search` covers X posts and web (from the Desearch index) with an optional AI summary. Web results are capped at 20 per request.
+- `web-links-search` is deprecated in favor of `search-api`. It keeps calling `POST /desearch/ai/search/links/web`.
+- Every version (package, `server.json`, the Gemini extension, the plugin manifests, and `SERVER_VERSION`) is 0.11.0.
+
 ## 0.10.0
 
 Cost on every tool result, as the hosted server has had since 06a3ec0.

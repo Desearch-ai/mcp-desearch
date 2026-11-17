@@ -5,7 +5,7 @@ description: Choose which Desearch MCP tool to call. Use when the task needs AI 
 
 # Desearch
 
-Version 0.10.0 exposes 39 tools.
+Version 0.11.0 exposes 39 tools.
 
 Pick one Desearch tool from this list. Do not call a tool that is not registered.
 
@@ -13,12 +13,12 @@ Set `DESEARCH_API_KEY` before the server starts. The plugin launches `npx -y des
 
 ## Which tool
 
-- **AI Search** (`ai-search`): Calls Desearch AI search. Arguments: `prompt` (required). `tools` is optional and defaults to `web` and `twitter`. Allowed `tools` values are `web`, `twitter`, `arxiv`, `wikipedia`, `hackernews`, and `reddit`. Older labels such as `Web Search`, `ArXiv Search`, `Wikipedia Search`, `Hacker News Search`, and `Reddit Search` are accepted and rewritten to the short id. `youtube` is not accepted. Optional: `date_filter`, `start_date`, `end_date` (UTC), `result_type` (`ONLY_LINKS` or `LINKS_WITH_FINAL_SUMMARY`), `include_domains`, `exclude_domains`, `model` (`NOVA` or `ORBIT`, default `NOVA`).
+- **AI Search** (`ai-search`): X posts and web (from the Desearch index) with an optional AI summary; for web only, use `search-api`. Arguments: `prompt` (required). `tools` is optional and defaults to `web` and `twitter`. Allowed `tools` values are `web`, `twitter`, `arxiv`, `wikipedia`, `hackernews`, and `reddit`. Older labels such as `Web Search`, `ArXiv Search`, `Wikipedia Search`, `Hacker News Search`, and `Reddit Search` are accepted and rewritten to the short id. `youtube` is not accepted. Optional: `date_filter`, `start_date`, `end_date` (UTC), `result_type` (`ONLY_LINKS` or `LINKS_WITH_FINAL_SUMMARY`), `include_domains`, `exclude_domains`, `model` (`NOVA` or `ORBIT`, default `NOVA`).
 - **Search** (`search`): Web search that returns `results` with `id`, `title`, and `url`. Argument: `query` (required). Use this when a client asks for a search tool.
 - **Fetch Page** (`fetch`): Read one public page as text. Argument: `id` (required, an `http` or `https` URL, usually a `search` result URL).
 - **Web Search** (`web-search`): Web search. Returns titles, links, and snippets. Arguments: `query` (required), `start` (optional offset: 0, 10, 20, ...).
-- **Search API** (`search-api`): Ranked web pages, each with the passage that best matches the query. Arguments: `query` (required), `mode` (optional, `fast` or `balanced`), `count` (optional, 10, 15, or 20), `start_date` and `end_date` (optional, YYYY-MM-DD), `highlights` (optional), `page_text` (optional, adds each page's full text).
-- **Web Links Search** (`web-links-search`): Link search. Arguments: `prompt` (required), `tools` (optional, only `web`, default `["web"]`), `count` (optional, 10 to 200). `Web Search` is accepted and rewritten to `web`. Other sources are rejected. This tool does not accept X.
+- **Search API** (`search-api`): Web search on the Desearch index: ranked pages, each with the passage that best matches the query, and an optional short answer with numbered citations. Arguments: `query` (required), `mode` (optional, `fast` or `balanced`), `count` (optional, 10, 15, or 20), `start_date` and `end_date` (optional, YYYY-MM-DD), `highlights` (optional), `page_text` (optional, adds each page's full text), `include_domains` and `exclude_domains` (optional), `summary` (optional, `true` adds `summary: { text, citations }` first in the result, or `null` with `meta.notices` `Summary unavailable.`). Use `summary: true` when the user wants an answer.
+- **Web Links Search** (`web-links-search`): Deprecated; use `search-api`. Link search. Arguments: `prompt` (required), `tools` (optional, only `web`, default `["web"]`), `count` (optional, 10 to 200). `Web Search` is accepted and rewritten to `web`. Other sources are rejected. This tool does not accept X.
 - **Extract** (`extract`): Read one public URL as text or HTML. Arguments: `url` (required), `format` (optional, `text`, `markdown` or `html`), `js` (optional), `wait` (optional milliseconds), `full_page` (optional, `text` only: every visible section of the page instead of its main content). Errors carry an `error_code`: `js_required` (retry with `js: true`), `blocked` (the site refused or showed a bot check), `page_not_found`.
 - **Web Crawl** (`web-crawl`): Same arguments as Extract, on the legacy `/web/crawl` route. The SDK marks `webCrawl` deprecated in favor of `extract`. This tool stays so that route remains reachable.
 - **X Search** (`x-search`): Search posts on X. Arguments: `query` (required), `count` (optional, default 20). Sort stays Top. Optional filters: `user`, `start_date`, `end_date` (YYYY-MM-DD), `lang`, `verified`, `blue_verified`, `is_quote`, `is_video`, `is_image`, `min_retweets`, `min_replies`, `min_likes`.
