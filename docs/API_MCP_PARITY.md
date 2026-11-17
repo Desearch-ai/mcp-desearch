@@ -1,6 +1,6 @@
 # Desearch API ↔ MCP parity
 
-Version 0.11.0 exposes 39 tools.
+Version 0.11.1 exposes 39 tools.
 
 The product rule is that every public Desearch API / SDK method is exposed as an MCP tool. This file is the inventory for that work. It tracks `desearch-js` **1.5.0** (current) against the MCP server. HTTP paths are the ones the SDK calls on `https://api.desearch.ai`.
 
@@ -129,7 +129,7 @@ The two `sort` lists on `reddit` differ by action; a value from the other list i
 
 | HTTP endpoint | MCP tool | Notes |
 | --- | --- | --- |
-| `POST /search` | `search-api` | Body `SearchRequest`: `query` (1–2000 characters), `mode` (`fast` \| `balanced`), `count` (10, 15, or 20: integer, multiple of 5), `start_date` and `end_date` (YYYY-MM-DD), `highlights`, `page_text`, `include_domains` (at most 100), `exclude_domains` (at most 1,200), `summary`. Fields the caller leaves out are not sent, so the API defaults apply. Returns the `SearchResponse` body as pretty-printed JSON with `summary` first when the body has one (`{ text, citations: [{ index, url, title }] }` or `null`), then `results` (`url`, `title`, `published_date`, `highlights`, `page_text`), `meta` (`latency_ms`, `notices`), `cost_usd`, `usage_count`, `service`, `currency`. Not the same as `search`, which wraps `GET /web` for page lookup clients. |
+| `POST /search` | `search-api` | Body `SearchRequest`: `query` (1–2000 characters), `mode` (`fast` \| `balanced`), `count` (10, 15, or 20: integer, multiple of 5), `start_date` and `end_date` (YYYY-MM-DD), `highlights`, `page_text`, `include_domains` (at most 100), `exclude_domains` (at most 1,200), `summary`. Fields the caller leaves out are not sent, so the API defaults apply. Returns the `SearchResponse` body as pretty-printed JSON with `summary` first when the body has one (`{ text, citations: [{ index, url, title }] }` or `null`), then `results` (`url`, `title`, `published_date`, `highlights`, `page_text`), `meta` (`notices`), `cost_usd`, `usage_count`, `service`, `currency`. Not the same as `search`, which wraps `GET /web` for page lookup clients. |
 
 People tools reject unknown arguments. Without that, an argument the schema does not list (for example the API's nested `filters` object) would be dropped and the billed search would run without it.
 

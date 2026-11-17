@@ -134,7 +134,7 @@ test("search-api sends summary and domain fields and lists the summary first", a
             text: "John Hopfield and Geoffrey Hinton won it [1].",
             citations: [{ index: 1, url: SEARCH_RESPONSE.results[0].url, title: SEARCH_RESPONSE.results[0].title }],
         };
-        mock.reply(200, { ...SEARCH_RESPONSE, meta: { latency_ms: 1800, notices: [] }, summary });
+        mock.reply(200, { ...SEARCH_RESPONSE, meta: { notices: [] }, summary });
         const args = {
             query: "Who won the 2024 Nobel Prize in Physics?",
             include_domains: ["nobelprize.org"],
@@ -148,7 +148,7 @@ test("search-api sends summary and domain fields and lists the summary first", a
         assert.deepEqual(body.summary, summary);
         assert.deepEqual(mock.seen[0].body, args);
 
-        mock.reply(200, { ...SEARCH_RESPONSE, meta: { latency_ms: 900, notices: ["Summary unavailable."] }, summary: null });
+        mock.reply(200, { ...SEARCH_RESPONSE, meta: { notices: ["Summary unavailable."] }, summary: null });
         const missing = JSON.parse(textOf(await client.callTool({ name: "search-api", arguments: { query: "q", summary: true } })));
         assert.equal(Object.keys(missing)[0], "summary");
         assert.equal(missing.summary, null);
