@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.11.1
+
+`search-api` results have `meta` with only `notices`. Tool names are unchanged (39 tools).
+
+- Every version (package, `server.json`, the Gemini extension, the plugin manifests, and `SERVER_VERSION`) is 0.11.1.
+
 ## 0.11.0
 
 `search-api` returns an optional summary. Tool names are unchanged (39 tools).

@@ -2,7 +2,7 @@
 
 The `desearch` MCP server connects to the hosted Desearch endpoint `https://mcp.desearch.ai/mcp` and sends your Desearch API key in the `x-api-key` header. Get a key at https://console.desearch.ai/api-keys.
 
-Version 0.11.0 exposes 39 tools:
+Version 0.11.1 exposes 39 tools:
 
 - `search-api`: web search on the Desearch index: ranked pages, each with the passage that best matches the query, and with `summary: true` a short answer with numbered citations.
 - `ai-search`: X posts and web (also arxiv, wikipedia, hackernews, reddit) with relevant links and an optional AI summary. `youtube` is not a tool id.
