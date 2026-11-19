@@ -16,6 +16,7 @@ import {
 import { authorizePage, messagePage, type AuthorizePageFields } from "./page.js";
 import { authorizeKeyRateLimitConfig, registerRateLimitConfig, takeIpRateLimit } from "./rate-limit.js";
 import { isAllowedRedirectUri, redirectsMatch } from "./redirects.js";
+import { logRejectedRedirects } from "./register-log.js";
 import {
     accessTtlSec,
     codeTtlSec,
@@ -166,11 +167,17 @@ export async function registerClient(request: Request): Promise<Response> {
         return oauthError(400, "invalid_redirect_uri", "redirect_uris must list 1 to 10 callback URLs.");
     }
     const redirectUris: string[] = [];
+    const rejected: unknown[] = [];
     for (const entry of redirects) {
         if (typeof entry !== "string" || !isAllowedRedirectUri(entry)) {
-            return oauthError(400, "invalid_redirect_uri", "One or more redirect_uris are not allowed.");
+            rejected.push(entry);
+            continue;
         }
         redirectUris.push(entry);
+    }
+    if (rejected.length > 0) {
+        logRejectedRedirects(request, rejected, record.client_name);
+        return oauthError(400, "invalid_redirect_uri", "One or more redirect_uris are not allowed.");
     }
     if (record.token_endpoint_auth_method && record.token_endpoint_auth_method !== "none") {
         return oauthError(
