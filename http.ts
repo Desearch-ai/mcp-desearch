@@ -132,6 +132,37 @@ const LOGIN_CHALLENGE: WwwChallenge = {
     error_description: "You need to login to continue",
 };
 
+/** Public docs page that browsers and crawlers land on when they open /mcp without a key. */
+export const MCP_DOCS_URL = "https://www.desearch.ai/docs/guide/sdk/mcp";
+
+/**
+ * A plain page view of /mcp: GET or HEAD, Accept asks for HTML, and nothing
+ * marks it as an MCP client (no SSE Accept, no MCP session or protocol header).
+ * MCP clients send `Accept: text/event-stream` on GET, so they keep the 401
+ * challenge that drives their OAuth or key prompt.
+ */
+function isBrowserPageView(request: Request): boolean {
+    if (request.method !== "GET" && request.method !== "HEAD") {
+        return false;
+    }
+    const accept = (request.headers.get("accept") ?? "").toLowerCase();
+    if (!accept.includes("text/html") || accept.includes("text/event-stream")) {
+        return false;
+    }
+    return !request.headers.has("mcp-session-id") && !request.headers.has("mcp-protocol-version");
+}
+
+function docsRedirect(): Response {
+    return new Response(null, {
+        status: 301,
+        headers: {
+            Location: MCP_DOCS_URL,
+            Vary: "Accept",
+            "Cache-Control": "no-store",
+        },
+    });
+}
+
 const UNAUTHORIZED_MESSAGE =
     "Unauthorized. Send your Desearch API key in the Authorization: Bearer <key> header or the x-api-key header.";
 
@@ -292,6 +323,7 @@ function requestWithJsonBody(request: Request, body: string): Request {
  * JSON responses (not a long-lived SSE session) so the same handler runs
  * in a local Node process and in a Vercel function.
  * GET and DELETE return 405: this server does not push messages or store sessions.
+ * A keyless browser GET (Accept: text/html) is sent to the public MCP docs page instead.
  */
 export async function handleMcpHttpRequest(request: Request): Promise<Response> {
     if (request.method === "OPTIONS") {
@@ -420,6 +452,10 @@ export async function handleMcpHttpRequest(request: Request): Promise<Response> 
     const credential = await resolveRequestCredential(request);
     if (credential.kind === "unavailable") {
         return withCors(jsonRpcError(500, -32603, "Authorization storage is unavailable."));
+    }
+
+    if (credential.kind === "anonymous" && isBrowserPageView(request)) {
+        return withCors(docsRedirect());
     }
 
     if (request.method === "GET" || request.method === "DELETE") {

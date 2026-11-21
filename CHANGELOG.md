@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.11.0
+## 0.12.0
 
 Monitors: twelve new tools (51 in total) for the `/desearch/monitors` routes (desearch-public-api `docs/monitors.md`). A monitor reruns a search over `web`, `x`, `reddit`, `youtube`, and `threads` on a schedule (`1h` to `7d`), drops everything it has already seen, screens the new items (relevant, new information, and one question per criterion; kept at `min_score`), and keeps the ones that pass, readable through the API and sent to a signed webhook. Monitors are not in `desearch-js` 1.5, so `monitors.ts` calls the routes directly through `desearch-api.ts`, which now also sends `PATCH` and `DELETE`.
 
@@ -33,7 +33,23 @@ Monitors: twelve new tools (51 in total) for the `/desearch/monitors` routes (de
 - `facebook` `search` takes `sort`: `impressions` (the API default, most seen first) or `recent` (recently started ads first). Other Facebook actions refuse it before the request.
 - `scripts/e2e-monitors.mjs` drives every free monitor tool over stdio against a live API (`--base-url`, `--key-env`) and deletes the monitors it creates. It never triggers a run. `--with-accounts` also checks the #644 sources: the estimate breakdown for Instagram, Facebook, Meta ads, and Threads accounts, the 422 for `instagram` or `facebook` without accounts on create and update, a monitor with all four (names cleaned, `meta_ads.count`, `webhook.last_delivery` null), items by source `meta_ads`, the 15-character X username limit, and one billed `facebook` search with `sort: "recent"` and `count: 2` (at most $0.00414).
 - The Monitors routes are live on `api.desearch.ai` (desearch-public-api #635, #644, and the hashtag 7-day window #666, with their console migrations).
-- Every version (package, `server.json`, the Gemini extension, the plugin manifests, and `SERVER_VERSION`) is 0.11.0, and the docs and manifest descriptions say the server exposes 51 tools.
+- Every version (package, `server.json`, the Gemini extension, the plugin manifests, and `SERVER_VERSION`) is 0.12.0, and the docs and manifest descriptions say the server exposes 51 tools.
+
+## 0.11.1
+
+`search-api` results have `meta` with only `notices`. Tool names are unchanged (39 tools).
+
+- Every version (package, `server.json`, the Gemini extension, the plugin manifests, and `SERVER_VERSION`) is 0.11.1.
+
+## 0.11.0
+
+`search-api` returns an optional summary. Tool names are unchanged (39 tools).
+
+- `search-api` takes `summary` (a short answer written from the results, with numbered citations; no extra charge), `include_domains` (at most 100), and `exclude_domains` (at most 1,200). The result lists `summary` first (`{ text, citations: [{ index, url, title }] }`, or `null` with `meta.notices` `Summary unavailable.`), then `results`, `meta`, and the billing fields.
+- `search-api` is web search on the Desearch index; the server instructions point web questions to it.
+- `ai-search` covers X posts and web (from the Desearch index) with an optional AI summary. Web results are capped at 20 per request.
+- `web-links-search` is deprecated in favor of `search-api`. It keeps calling `POST /desearch/ai/search/links/web`.
+- Every version (package, `server.json`, the Gemini extension, the plugin manifests, and `SERVER_VERSION`) is 0.11.0.
 
 ## 0.10.0
 

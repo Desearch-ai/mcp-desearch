@@ -85,7 +85,7 @@ import { FACEBOOK_SEARCH_SORTS, runSocialAction, socialActionNames, type SocialP
 import { AI_SEARCH_TOOLS, WEB_LINK_TOOLS, toolIdSchema } from "./tool-sources.js";
 
 export const SERVER_NAME = "Desearch";
-export const SERVER_VERSION = "0.11.0";
+export const SERVER_VERSION = "0.12.0";
 export const SERVER_TITLE = "Desearch";
 export const SERVER_WEBSITE_URL = "https://www.desearch.ai";
 
@@ -854,6 +854,14 @@ export function presentSearchBody(value: unknown): unknown {
     };
 }
 
+function summaryFirst(value: unknown): unknown {
+    if (!isPlainObject(value) || !("summary" in value)) {
+        return value;
+    }
+    const { summary, ...rest } = value;
+    return { summary, ...rest };
+}
+
 function ok(value: unknown): ToolResult {
     return {
         content: [{ type: "text", text: JSON.stringify(value, null, 2) }],
@@ -1035,7 +1043,7 @@ export function createDesearchMcpServer(
         serverInfo,
         {
             instructions:
-                "Search the public web and X with Desearch. Use search for titles and links, then fetch with a result URL to read the page. search-api returns ranked pages with the passage that best matches the query. Other tools cover AI search, X posts, and page extraction. tiktok, facebook, instagram, youtube, reddit, and threads read public social data (posts, profiles, comments, hashtags, YouTube transcripts and channels, subreddits); list actions return next_cursor for the next page where the platform has one. People Search finds people and creators on X, YouTube, LinkedIn, and TikTok: people-search starts a paid job billed to the user's Desearch balance, people-search-status reads progress, people-search-pause, people-search-resume, and people-search-cancel pause, resume, or cancel it, and people-search-export returns the people found as CSV or JSON Lines. Company Search finds companies on the web from a description and Company Enrich reads the domains you send; both collect public emails, phones, social profiles, and leaders (CEO, founders, CTO, CFO): company-search and company-enrich start paid jobs billed to the user's Desearch balance, company-search-status reads progress and the companies, and company-search-pause, company-search-resume, and company-search-cancel pause, resume, or cancel a task. Set company-search's max_cost_usd only when the user agreed to that budget: it bills search effort even when few companies are found. Monitors rerun a search over web, X, Reddit, YouTube, Threads, TikTok, and Meta Ad Library ads (or watch chosen accounts there and on Instagram and Facebook) on a schedule and keep only new, relevant items: monitor-create sets one up (free; each run is billed to the user's Desearch balance), monitor-items and monitor-runs read what it found, monitor-update changes or pauses it, monitor-trigger runs it now, and monitor-delete removes it. Calls need a Desearch API key.",
+                "Search the public web and X with Desearch. Use search for titles and links, then fetch with a result URL to read the page. search-api is web search on the Desearch index: ranked pages with the passage that best matches the query, and with summary: true a short answer with numbered citations. ai-search covers X posts and web with an optional AI summary. Other tools cover X posts and page extraction. tiktok, facebook, instagram, youtube, reddit, and threads read public social data (posts, profiles, comments, hashtags, YouTube transcripts and channels, subreddits); list actions return next_cursor for the next page where the platform has one. People Search finds people and creators on X, YouTube, LinkedIn, and TikTok: people-search starts a paid job billed to the user's Desearch balance, people-search-status reads progress, people-search-pause, people-search-resume, and people-search-cancel pause, resume, or cancel it, and people-search-export returns the people found as CSV or JSON Lines. Company Search finds companies on the web from a description and Company Enrich reads the domains you send; both collect public emails, phones, social profiles, and leaders (CEO, founders, CTO, CFO): company-search and company-enrich start paid jobs billed to the user's Desearch balance, company-search-status reads progress and the companies, and company-search-pause, company-search-resume, and company-search-cancel pause, resume, or cancel a task. Set company-search's max_cost_usd only when the user agreed to that budget: it bills search effort even when few companies are found. Monitors rerun a search over web, X, Reddit, YouTube, Threads, TikTok, and Meta Ad Library ads (or watch chosen accounts there and on Instagram and Facebook) on a schedule and keep only new, relevant items: monitor-create sets one up (free; each run is billed to the user's Desearch balance), monitor-items and monitor-runs read what it found, monitor-update changes or pauses it, monitor-trigger runs it now, and monitor-delete removes it. Calls need a Desearch API key.",
         }
     );
 
@@ -1044,7 +1052,7 @@ export function createDesearchMcpServer(
         apiKey,
         "ai-search",
         "AI Search",
-        "AI search and analysis on web using Desearch AI",
+        "AI Search over X (Twitter) posts and web (from the Desearch index), with an optional AI summary. Web results are capped at 20 per request. For web-only search, use search-api.",
         {
             prompt: z.string().describe("Question, example: 'What is the latest news on AI?'"),
             tools: z
@@ -1228,7 +1236,7 @@ export function createDesearchMcpServer(
         apiKey,
         "web-links-search",
         "Web Links Search",
-        "Search the web for links using Desearch. Only the web source is accepted.",
+        "Deprecated: use search-api. Search the web for links using Desearch (POST /desearch/ai/search/links/web). Only the web source is accepted.",
         {
             prompt: z
                 .string()
@@ -1486,7 +1494,7 @@ export function createDesearchMcpServer(
         apiKey,
         "search-api",
         "Search API",
-        "Search the web with the Desearch Search API and return ranked pages, each with its title, URL, publication date when known, and the passage that best matches the query. Set page_text to add each page's full text. Returns { results, cost_usd, usage_count, service, currency }. Use search for titles and links only, and web-search for SERP-style snippets.",
+        "Web search on the Desearch index (POST /search). Returns ranked pages, each with its title, URL, publication date when known, and the passage that best matches the query. Set summary: true for a short answer written from the results with numbered citations; [n] in summary.text refers to summary.citations[].index. Set page_text to add each page's full text. Returns { summary, results, meta, cost_usd, usage_count, service, currency }, with summary first when requested; summary is null and meta.notices says 'Summary unavailable.' when it could not be written. Use search for titles and links only, and web-search for SERP-style snippets.",
         {
             query: z.string().min(1).max(2000).describe("Search query, example: 'Who won the 2024 Nobel Prize in Physics?'"),
             mode: z
@@ -1516,11 +1524,49 @@ export function createDesearchMcpServer(
                 .optional()
                 .describe("Include the passage that best matches the query (API default true)."),
             page_text: z.boolean().optional().describe("Include each page's full text (API default false)."),
+            include_domains: z
+                .array(z.string())
+                .max(100)
+                .optional()
+                .describe("Only pages on these domains or their subdomains (at most 100), example: ['bbc.com', 'reuters.com']"),
+            exclude_domains: z
+                .array(z.string())
+                .max(1200)
+                .optional()
+                .describe("Never pages on these domains or their subdomains (at most 1,200). Wins over include_domains and site:."),
+            summary: z
+                .boolean()
+                .optional()
+                .describe("Also return a short answer written from the results, with numbered citations (API default false). No extra charge."),
         },
-        async ({ query, mode, count, start_date, end_date, highlights, page_text }) => {
+        async ({
+            query,
+            mode,
+            count,
+            start_date,
+            end_date,
+            highlights,
+            page_text,
+            include_domains,
+            exclude_domains,
+            summary,
+        }) => {
             try {
-                const body = { query, ...definedFields({ mode, count, start_date, end_date, highlights, page_text }) };
-                return ok((await api("POST", "/search", { body })).data);
+                const body = {
+                    query,
+                    ...definedFields({
+                        mode,
+                        count,
+                        start_date,
+                        end_date,
+                        highlights,
+                        page_text,
+                        include_domains,
+                        exclude_domains,
+                        summary,
+                    }),
+                };
+                return ok(summaryFirst((await api("POST", "/search", { body })).data));
             } catch (error) {
                 return fail("Search API error", error);
             }

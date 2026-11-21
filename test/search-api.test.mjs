@@ -128,6 +128,34 @@ test("search-api posts to /search with only the fields the caller set and return
     });
 });
 
+test("search-api sends summary and domain fields and lists the summary first", async () => {
+    await withServer(async (client, mock) => {
+        const summary = {
+            text: "John Hopfield and Geoffrey Hinton won it [1].",
+            citations: [{ index: 1, url: SEARCH_RESPONSE.results[0].url, title: SEARCH_RESPONSE.results[0].title }],
+        };
+        mock.reply(200, { ...SEARCH_RESPONSE, meta: { notices: [] }, summary });
+        const args = {
+            query: "Who won the 2024 Nobel Prize in Physics?",
+            include_domains: ["nobelprize.org"],
+            exclude_domains: ["pinterest.com"],
+            summary: true,
+        };
+        const result = await client.callTool({ name: "search-api", arguments: args });
+        assert.equal(result.isError, undefined, textOf(result));
+        const body = JSON.parse(textOf(result));
+        assert.deepEqual(Object.keys(body).slice(0, 2), ["summary", "results"]);
+        assert.deepEqual(body.summary, summary);
+        assert.deepEqual(mock.seen[0].body, args);
+
+        mock.reply(200, { ...SEARCH_RESPONSE, meta: { notices: ["Summary unavailable."] }, summary: null });
+        const missing = JSON.parse(textOf(await client.callTool({ name: "search-api", arguments: { query: "q", summary: true } })));
+        assert.equal(Object.keys(missing)[0], "summary");
+        assert.equal(missing.summary, null);
+        assert.deepEqual(missing.meta.notices, ["Summary unavailable."]);
+    });
+});
+
 test("search-api rejects out-of-range input before the request", async () => {
     await withServer(async (client, mock) => {
         for (const args of [
