@@ -22,6 +22,9 @@ export type SocialPlatform = (typeof SOCIAL_PLATFORMS)[number];
 
 export const NEXT_CURSOR_HEADER = "x-desearch-next-cursor";
 
+/** `sort` on Facebook search (desearch-public-api model/facebook.py FacebookSearchRequest). */
+export const FACEBOOK_SEARCH_SORTS = ["impressions", "recent"] as const;
+
 export interface SocialActionSpec {
     method: "GET" | "POST";
     /** Route, with `{name}` for each path argument. */
@@ -81,7 +84,7 @@ export const SOCIAL_ACTIONS = {
             method: "POST",
             path: "/desearch/facebook/search",
             required: ["query"],
-            optional: ["count", "cursor"],
+            optional: ["count", "sort", "cursor"],
             list: true,
         },
         post: { method: "GET", path: "/desearch/facebook/post/{id}", required: ["id"], optional: [] },
