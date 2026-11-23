@@ -1083,6 +1083,73 @@ test("authorize POST rejects a cross-site Origin or Referer", async () => {
     });
 });
 
+const APPS_SCRIPT_CALLBACK =
+    "https://script.google.com/macros/d/1q3nQZY0VanjPTREexH3qUWIKQd4Ghd7_yFb5ElZ8YXiWolagOSlk2j-1/usercallback";
+
+test("Workspace add-on Apps Script callback is allowed for its exact script ID only", async () => {
+    const previous = process.env.OAUTH_REGISTER_RATE_LIMIT;
+    process.env.OAUTH_REGISTER_RATE_LIMIT = "100";
+    try {
+        await withServer(async (server) => {
+            const origin = `http://127.0.0.1:${server.port}`;
+            const client = await register(server.port, APPS_SCRIPT_CALLBACK);
+            assert.equal(client.token_endpoint_auth_method, "none");
+            assert.deepEqual(client.redirect_uris, [APPS_SCRIPT_CALLBACK]);
+
+            const { challenge } = pkce();
+            const authorizeUrl = (redirectUri) => {
+                const url = new URL(`${origin}/authorize`);
+                url.search = new URLSearchParams({
+                    response_type: "code",
+                    client_id: client.client_id,
+                    redirect_uri: redirectUri,
+                    code_challenge: challenge,
+                    code_challenge_method: "S256",
+                    state: "apps-script",
+                    resource: `${origin}/mcp`,
+                }).toString();
+                return url;
+            };
+            const page = await fetch(authorizeUrl(APPS_SCRIPT_CALLBACK));
+            assert.equal(page.status, 200);
+            assert.match(
+                page.headers.get("content-security-policy") ?? "",
+                /form-action 'self' https:\/\/script\.google\.com(?:;|$)/
+            );
+            await page.text();
+
+            const scriptPath = "/macros/d/1q3nQZY0VanjPTREexH3qUWIKQd4Ghd7_yFb5ElZ8YXiWolagOSlk2j-1/usercallback";
+            const rejected = [
+                "https://script.google.com/macros/d/1AnotherScriptIdAnotherScriptIdAnotherScriptId0/usercallback",
+                "https://script.google.com/macros/d/1q3nQZY0VanjPTREexH3qUWIKQd4Ghd7_yFb5ElZ8YXiWolagOSlk2j-2/usercallback",
+                "https://script.google.com/macros/d/1Q3NQZY0VANJPTREEXH3QUWIKQD4GHD7_YFB5ELZ8YXIWOLAGOSLK2J-1/usercallback",
+                `${APPS_SCRIPT_CALLBACK}?x=1`,
+                `${APPS_SCRIPT_CALLBACK}#frag`,
+                `${APPS_SCRIPT_CALLBACK}/`,
+                `http://script.google.com${scriptPath}`,
+                `https://script.google.com.evil.example${scriptPath}`,
+                `https://evil.example${scriptPath}`,
+                `https://script.googleusercontent.com${scriptPath}`,
+            ];
+            for (const redirectUri of rejected) {
+                const response = await fetch(`${origin}/register`, {
+                    method: "POST",
+                    headers: { "content-type": "application/json" },
+                    body: JSON.stringify({ redirect_uris: [redirectUri], client_name: "probe" }),
+                });
+                assert.equal(response.status, 400, redirectUri);
+                assert.equal((await response.json()).error, "invalid_redirect_uri", redirectUri);
+
+                const authorize = await fetch(authorizeUrl(redirectUri));
+                assert.equal(authorize.status, 400, redirectUri);
+                await authorize.text();
+            }
+        });
+    } finally {
+        restoreEnv("OAUTH_REGISTER_RATE_LIMIT", previous);
+    }
+});
+
 test("authorize CSP allows the platform hop only for ChatGPT callbacks", async () => {
     await withServer(async (server) => {
         const origin = `http://127.0.0.1:${server.port}`;
@@ -1093,6 +1160,7 @@ test("authorize CSP allows the platform hop only for ChatGPT callbacks", async (
             ["https://claude.ai/api/mcp/auth_callback", "https://claude.ai"],
             ["https://claude.com/api/mcp/auth_callback", "https://claude.com"],
             ["http://127.0.0.1:4312/callback", "http://127.0.0.1:4312"],
+            [APPS_SCRIPT_CALLBACK, "https://script.google.com"],
         ];
         for (const [redirectUri, targets] of cases) {
             const client = await register(server.port, redirectUri);
