@@ -32,6 +32,26 @@ export interface CodeRecord {
     expiresAt: number;
 }
 
+/**
+ * A sign-in that continues in the Desearch console ("Continue with Desearch").
+ * It holds the authorization request while the person signs in there, and the
+ * API key the console minted once they allowed it.
+ */
+export interface ConnectRecord {
+    clientId: string;
+    clientName: string;
+    redirectUri: string;
+    state: string;
+    codeChallenge: string;
+    resource: string;
+    scope: string;
+    /** SHA-256 of the cookie value set in the browser that started the sign-in. */
+    browserHash: string;
+    status: "pending" | "approved" | "denied";
+    apiKeyCiphertext?: string;
+    expiresAt: number;
+}
+
 export interface AccessRecord {
     clientId: string;
     resource: string;
@@ -113,6 +133,10 @@ export function codeTtlSec(): number {
     return positiveInt(process.env.OAUTH_CODE_TTL_SEC, 300, 30, 600);
 }
 
+export function connectTtlSec(): number {
+    return positiveInt(process.env.OAUTH_CONNECT_TTL_SEC, 600, 60, 1800);
+}
+
 export class KvOAuthStore {
     constructor(private readonly kv: Kv) {}
 
@@ -141,6 +165,39 @@ export class KvOAuthStore {
         const key = `${PREFIX}rl:${bucket}:${sha256(subject)}:${windowId}`;
         const count = await this.kv.increment(key, windowSec);
         return { allowed: count <= limit, retryAfterSec };
+    }
+
+    private connectKey(requestId: string): string {
+        return PREFIX + "connect:" + sha256(requestId);
+    }
+
+    /** Stores the record for the time it has left, so an update never extends it. */
+    async saveConnect(requestId: string, record: ConnectRecord): Promise<void> {
+        const ttlSec = Math.max(1, Math.ceil((record.expiresAt - Date.now()) / 1000));
+        await this.kv.set(this.connectKey(requestId), JSON.stringify(record), ttlSec);
+    }
+
+    async getConnect(requestId: string): Promise<ConnectRecord | null> {
+        const record = readJson<ConnectRecord>(await this.kv.get(this.connectKey(requestId)));
+        if (!record || record.expiresAt <= Date.now()) {
+            return null;
+        }
+        return record;
+    }
+
+    /** Reads and removes in one step, so a finished sign-in yields one code at most. */
+    async takeConnect(requestId: string): Promise<ConnectRecord | null> {
+        const record = readJson<ConnectRecord>(await this.kv.getDel(this.connectKey(requestId)));
+        if (!record || record.expiresAt <= Date.now()) {
+            return null;
+        }
+        return record;
+    }
+
+    /** True for the first caller only, so one sign-in gets one decision. */
+    async claimConnectDecision(requestId: string): Promise<boolean> {
+        const count = await this.kv.increment(PREFIX + "connect-decided:" + sha256(requestId), connectTtlSec());
+        return count === 1;
     }
 
     async saveCode(code: string, record: CodeRecord): Promise<void> {

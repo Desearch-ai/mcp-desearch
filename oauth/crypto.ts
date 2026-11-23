@@ -10,6 +10,7 @@ export const ACCESS_TOKEN_PREFIX = "dsoat_";
 export const REFRESH_TOKEN_PREFIX = "dsort_";
 export const AUTH_CODE_PREFIX = "dsoc_";
 export const CLIENT_ID_PREFIX = "dsocid_";
+export const CONNECT_REQUEST_PREFIX = "dscr_";
 
 const KEY_BYTES = 32;
 const IV_BYTES = 12;

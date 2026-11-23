@@ -772,6 +772,8 @@ Allowed callback URLs:
 
 The connector URL is `https://mcp.desearch.ai/mcp`. On the sign-in page, paste a key from [console.desearch.ai/api-keys](https://console.desearch.ai/api-keys). Leave a client id blank when the client can register itself.
 
+Sign-in through the Desearch console (when `DESEARCH_CONNECT_SECRET` is set): the sign-in page leads with "Continue with Desearch" and keeps the API key form as the second choice. The browser goes to the console, where the person signs in or signs up and allows the connection. The console makes an API key on its server and sends it to `POST /connect/complete` with the shared secret; the key never appears in a URL. The browser then returns to `GET /connect/return`, and only the browser that started the sign-in receives the authorization code. `GET /connect/info` tells the console which client is asking. A sign-in is single use.
+
 Environment variables for the host:
 
 | Variable | Required | Purpose |
@@ -789,6 +791,9 @@ Environment variables for the host:
 | `OAUTH_REGISTER_RATE_WINDOW_SEC` | No | Registration rate-limit window in seconds. Default 3600 (1 hour). Range 1 to 86400. |
 | `OAUTH_AUTHORIZE_RATE_LIMIT` | No | Sign-in key checks per IP per window. Default 20. Range 1 to 10000. |
 | `OAUTH_AUTHORIZE_RATE_WINDOW_SEC` | No | Sign-in key-check window in seconds. Default 600 (10 minutes). Range 1 to 86400. |
+| `DESEARCH_CONNECT_SECRET` | No | Turns on sign-in through the Desearch console. A random string of at least 32 characters, shared with the console. Unset: the sign-in page offers only the API key form. |
+| `DESEARCH_CONSOLE_URL` | No | Console origin the sign-in page sends the browser to. Default `https://console.desearch.ai`. Must be `https`. |
+| `OAUTH_CONNECT_TTL_SEC` | No | How long a console sign-in may take. Default 600. Range 60 to 1800. |
 | `DESEARCH_API_BASE` | No | Desearch API host. Default `https://api.desearch.ai`. Used by the key check and by the routes the server calls directly (People Search, Company Search, `search-api`, `people-search-export`, and the social tools), for example to test against a staging API. Tools built on `desearch-js` always call `https://api.desearch.ai`. |
 | `OAUTH_REQUIRE_AUTH_ON_INITIALIZE` | No | Set to `true` to require a key or access token on `initialize`. Default is off, so keyless `initialize` stays public. `tools/list` stays public either way. |
 

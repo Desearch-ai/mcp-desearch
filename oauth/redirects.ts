@@ -90,6 +90,14 @@ export function redirectsMatch(registered: string, requested: string): boolean {
     );
 }
 
+export function isLoopbackRedirect(value: string): boolean {
+    try {
+        return isLoopbackHost(new URL(value).hostname);
+    } catch {
+        return false;
+    }
+}
+
 export function redirectHostname(value: string): string {
     try {
         return new URL(value).hostname;

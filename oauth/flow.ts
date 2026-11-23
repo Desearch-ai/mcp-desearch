@@ -42,8 +42,8 @@ const EXTRA_FORM_ACTION_ORIGINS: Readonly<Record<string, readonly string[]>> = {
  * Chrome checks form-action on every redirect after a form POST, so allow the
  * validated callback origin and ChatGPT's extra hop to the OpenAI platform portal.
  */
-function contentSecurityPolicy(redirectUri?: string): string {
-    const targets = ["'self'"];
+function contentSecurityPolicy(redirectUri?: string, extraFormActions: readonly string[] = []): string {
+    const targets = ["'self'", ...extraFormActions];
     if (redirectUri && isAllowedRedirectUri(redirectUri)) {
         try {
             const origin = new URL(redirectUri).origin;
@@ -58,14 +58,29 @@ function contentSecurityPolicy(redirectUri?: string): string {
     return `default-src 'none'; style-src 'unsafe-inline'; form-action ${targets.join(" ")}; base-uri 'none'; frame-ancestors 'none'`;
 }
 
-export function htmlResponse(status: number, html: string, redirectUri?: string): Response {
+export function htmlResponse(
+    status: number,
+    html: string,
+    redirectUri?: string,
+    extraFormActions: readonly string[] = []
+): Response {
     return new Response(html, {
         status,
         headers: {
             ...HTML_HEADERS,
-            "Content-Security-Policy": contentSecurityPolicy(redirectUri),
+            "Content-Security-Policy": contentSecurityPolicy(redirectUri, extraFormActions),
         },
     });
+}
+
+/**
+ * Sign-in on the Desearch console instead of a pasted API key (see connect.ts).
+ * Passed in by the router so this module does not depend on it.
+ */
+export interface DesearchSignIn {
+    /** The console's origin. The authorize form may redirect there after its POST. */
+    consoleOrigin: string;
+    start(request: Request, fields: AuthorizePageFields): Promise<Response>;
 }
 
 export function oauthError(status: number, error: string, description: string): Response {
@@ -91,7 +106,7 @@ function tooManyJson(retryAfterSec: number, description: string): Response {
     );
 }
 
-function redirectBack(redirectUri: string, issuer: string, params: Record<string, string>): Response {
+export function redirectBack(redirectUri: string, issuer: string, params: Record<string, string>): Response {
     const url = new URL(redirectUri);
     for (const [key, value] of Object.entries(params)) {
         if (value) {
@@ -309,13 +324,22 @@ function failAuthorize(
     return htmlResponse(400, messagePage("Connect Desearch", description));
 }
 
-export async function showAuthorize(request: Request): Promise<Response> {
+function signInFormActions(signIn?: DesearchSignIn): readonly string[] {
+    return signIn ? [signIn.consoleOrigin] : [];
+}
+
+export async function showAuthorize(request: Request, signIn?: DesearchSignIn): Promise<Response> {
     const query = readAuthorizeQuery(new URL(request.url).searchParams);
     const context = await authorizeContext(request, query);
     if (context instanceof Response) {
         return context;
     }
-    return htmlResponse(200, authorizePage(context.fields), context.fields.redirectUri);
+    return htmlResponse(
+        200,
+        authorizePage({ ...context.fields, desearchSignIn: Boolean(signIn) }),
+        context.fields.redirectUri,
+        signInFormActions(signIn)
+    );
 }
 
 function authorizePostForbidden(request: Request): Response | null {
@@ -351,7 +375,7 @@ function authorizePostForbidden(request: Request): Response | null {
     return htmlResponse(403, messagePage("Connect Desearch", "This sign-in form did not come from this site."));
 }
 
-export async function submitAuthorize(request: Request): Promise<Response> {
+export async function submitAuthorize(request: Request, signIn?: DesearchSignIn): Promise<Response> {
     const forbidden = authorizePostForbidden(request);
     if (forbidden) {
         return forbidden;
@@ -390,9 +414,18 @@ export async function submitAuthorize(request: Request): Promise<Response> {
         );
     }
     const apiKey = (form.get("api_key") ?? "").trim();
+    // Enter in the key field submits the form's first button, so a typed key wins over that button's value.
+    if (signIn && form.get("decision") === "desearch" && !apiKey) {
+        return signIn.start(request, fields);
+    }
     const checked = await checkDesearchApiKey(apiKey);
     if (!checked.ok) {
-        return htmlResponse(400, authorizePage({ ...fields, error: checked.message }), fields.redirectUri);
+        return htmlResponse(
+            400,
+            authorizePage({ ...fields, error: checked.message, desearchSignIn: Boolean(signIn) }),
+            fields.redirectUri,
+            signInFormActions(signIn)
+        );
     }
     const code = randomToken(AUTH_CODE_PREFIX, 32);
     const store = await getOAuthStore();
