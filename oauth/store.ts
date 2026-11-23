@@ -48,6 +48,11 @@ export interface ConnectRecord {
     /** SHA-256 of the cookie value set in the browser that started the sign-in. */
     browserHash: string;
     status: "pending" | "approved" | "denied";
+    /**
+     * SHA-256 of the one-time token handed to the browser that allowed or
+     * cancelled the sign-in. Set when the console's decision arrives.
+     */
+    returnTokenHash?: string;
     apiKeyCiphertext?: string;
     expiresAt: number;
 }
@@ -185,9 +190,20 @@ export class KvOAuthStore {
         return record;
     }
 
-    /** Reads and removes in one step, so a finished sign-in yields one code at most. */
+    /**
+     * Removes the sign-in and returns it to the first caller only, so a
+     * finished sign-in yields one code at most. The claim uses the same atomic
+     * counter as the rate limits, which every supported Redis has.
+     */
     async takeConnect(requestId: string): Promise<ConnectRecord | null> {
-        const record = readJson<ConnectRecord>(await this.kv.getDel(this.connectKey(requestId)));
+        const key = this.connectKey(requestId);
+        const first =
+            (await this.kv.increment(PREFIX + "connect-taken:" + sha256(requestId), connectTtlSec())) === 1;
+        if (!first) {
+            return null;
+        }
+        const record = readJson<ConnectRecord>(await this.kv.get(key));
+        await this.kv.del(key);
         if (!record || record.expiresAt <= Date.now()) {
             return null;
         }

@@ -108,7 +108,9 @@ async function startSignIn(origin) {
     const location = new URL(started.headers.get("location"));
     assert.equal(location.origin, CONSOLE);
     assert.equal(location.pathname, "/connect");
-    const requestId = location.searchParams.get("request");
+    // The id rides in the fragment, which browsers keep out of requests and logs.
+    assert.equal(location.search, "");
+    const requestId = new URLSearchParams(location.hash.slice(1)).get("request");
     assert.match(requestId, /^dscr_[A-Za-z0-9_-]{43}$/);
     const setCookie = started.headers.get("set-cookie");
     assert.match(setCookie, /^__Host-dsc_[0-9a-f]{16}=/);
@@ -128,11 +130,38 @@ function complete(origin, body, secret = SECRET) {
     });
 }
 
-function comeBack(origin, requestId, cookie) {
-    return fetch(`${origin}/connect/return?request=${encodeURIComponent(requestId)}`, {
-        redirect: "manual",
-        headers: cookie ? { cookie } : {},
+function describe(origin, requestId, secret = SECRET) {
+    return fetch(`${origin}/connect/info`, {
+        method: "POST",
+        headers: { "content-type": "application/json", ...(secret ? { authorization: `Bearer ${secret}` } : {}) },
+        body: JSON.stringify({ request_id: requestId }),
     });
+}
+
+/** Allows (or cancels) the sign-in as the console would and returns the URL it hands the browser. */
+async function decide(origin, requestId, decision = "allow") {
+    const done = await complete(origin, {
+        request_id: requestId,
+        decision,
+        ...(decision === "allow" ? { api_key: MINTED_KEY } : {}),
+    });
+    assert.equal(done.status, 200);
+    const body = await done.json();
+    const returnUrl = new URL(body.return_url);
+    assert.equal(returnUrl.origin + returnUrl.pathname, `${origin}/connect/return`);
+    assert.equal(returnUrl.searchParams.get("request"), requestId);
+    const token = returnUrl.searchParams.get("token");
+    assert.match(token, /^[A-Za-z0-9_-]{43}$/);
+    return { body, token };
+}
+
+function comeBack(origin, requestId, cookie, token) {
+    const url = new URL(`${origin}/connect/return`);
+    url.searchParams.set("request", requestId);
+    if (token) {
+        url.searchParams.set("token", token);
+    }
+    return fetch(url, { redirect: "manual", headers: cookie ? { cookie } : {} });
 }
 
 test("without the shared secret the authorize page offers only the API key form", async () => {
@@ -148,24 +177,29 @@ test("without the shared secret the authorize page offers only the API key form"
         assert.equal(html.includes("Continue with Desearch"), false);
         assert.equal(page.headers.get("content-security-policy").includes("console"), false);
 
-        const info = await fetch(`${origin}/connect/info?request=x`, {
-            headers: { authorization: `Bearer ${SECRET}` },
-        });
-        assert.equal(info.status, 503);
+        assert.equal((await describe(origin, "x")).status, 503);
         const done = await complete(origin, { request_id: "x", decision: "deny" });
         assert.equal(done.status, 503);
     });
 });
 
-test("a shared secret under 32 characters leaves the sign-in off", async () => {
-    await withServer({ DESEARCH_CONNECT_SECRET: "too-short", DESEARCH_CONSOLE_URL: CONSOLE }, async (origin) => {
-        const client = await register(origin);
-        const { challenge } = pkce();
-        const url = new URL(`${origin}/authorize`);
-        url.search = new URLSearchParams(authorizeFields(origin, client, challenge));
-        const html = await (await fetch(url)).text();
-        assert.equal(html.includes("Continue with Desearch"), false);
-    });
+test("a weak secret, a missing console URL or a plain-http console leaves the sign-in off", async () => {
+    for (const env of [
+        { DESEARCH_CONNECT_SECRET: "too-short", DESEARCH_CONSOLE_URL: CONSOLE },
+        { DESEARCH_CONNECT_SECRET: SECRET },
+        { DESEARCH_CONNECT_SECRET: SECRET, DESEARCH_CONSOLE_URL: "http://console.example.test" },
+        { DESEARCH_CONNECT_SECRET: SECRET, DESEARCH_CONSOLE_URL: "not a url" },
+    ]) {
+        await withServer(env, async (origin) => {
+            const client = await register(origin);
+            const { challenge } = pkce();
+            const url = new URL(`${origin}/authorize`);
+            url.search = new URLSearchParams(authorizeFields(origin, client, challenge));
+            const html = await (await fetch(url)).text();
+            assert.equal(html.includes("Continue with Desearch"), false);
+            assert.equal((await describe(origin, "x")).status, 503);
+        });
+    }
 });
 
 test("the authorize page leads with Continue with Desearch and keeps the key form", async () => {
@@ -190,9 +224,7 @@ test("sign-in on the console ends in a token that carries the key the console ma
     await withServer(ON, async (origin) => {
         const { client, verifier, requestId, cookie } = await startSignIn(origin);
 
-        const info = await fetch(`${origin}/connect/info?request=${requestId}`, {
-            headers: { authorization: `Bearer ${SECRET}` },
-        });
+        const info = await describe(origin, requestId);
         assert.equal(info.status, 200);
         const described = await info.json();
         assert.equal(described.status, "pending");
@@ -201,14 +233,11 @@ test("sign-in on the console ends in a token that carries the key the console ma
         assert.equal(described.loopback, false);
         assert.ok(Date.parse(described.expires_at) > Date.now());
 
-        const done = await complete(origin, { request_id: requestId, decision: "allow", api_key: MINTED_KEY });
-        assert.equal(done.status, 200);
-        const decided = await done.json();
+        const { body: decided, token: returnToken } = await decide(origin, requestId);
         assert.equal(decided.status, "approved");
-        assert.equal(decided.return_url, `${origin}/connect/return?request=${requestId}`);
         assert.equal(JSON.stringify(decided).includes(MINTED_KEY), false);
 
-        const back = await comeBack(origin, requestId, cookie);
+        const back = await comeBack(origin, requestId, cookie, returnToken);
         assert.equal(back.status, 302);
         const location = new URL(back.headers.get("location"));
         assert.equal(location.origin + location.pathname, REDIRECT);
@@ -241,26 +270,53 @@ test("sign-in on the console ends in a token that carries the key the console ma
         assert.equal(store.readApiKey(access.apiKeyCiphertext), MINTED_KEY);
 
         // The sign-in is used up: a second return gets no second code.
-        const again = await comeBack(origin, requestId, cookie);
+        const again = await comeBack(origin, requestId, cookie, returnToken);
         assert.equal(again.status, 400);
         assert.match(await again.text(), /expired/);
     });
 });
 
-test("only the browser that started the sign-in receives the code", async () => {
+test("someone who starts a sign-in and gets another person to allow it receives nothing", async () => {
+    await withServer(ON, async (origin) => {
+        // The attacker starts the sign-in and holds its cookie. The victim, signed
+        // in to the console, opens the link the attacker sent and presses Allow.
+        const { requestId, cookie: attackerCookie } = await startSignIn(origin);
+        const { token: victimToken } = await decide(origin, requestId);
+
+        // The attacker has no token, however often they try.
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+            const attacker = await comeBack(origin, requestId, attackerCookie);
+            assert.equal(attacker.status, 403);
+            assert.equal(attacker.headers.get("location"), null);
+        }
+        const guessed = await comeBack(origin, requestId, attackerCookie, "A".repeat(43));
+        assert.equal(guessed.status, 403);
+
+        // The victim's browser returns with the token but without the cookie: no code, and the sign-in ends.
+        const victim = await comeBack(origin, requestId, "", victimToken);
+        assert.equal(victim.status, 403);
+        assert.equal(victim.headers.get("location"), null);
+        assert.match(await victim.text(), /another browser/);
+
+        // Even with the token in hand afterwards, the attacker's browser gets no code.
+        const late = await comeBack(origin, requestId, attackerCookie, victimToken);
+        assert.equal(late.status, 400);
+        assert.equal(late.headers.get("location"), null);
+        const store = await getOAuthStore();
+        assert.equal(await store.getConnect(requestId), null);
+    });
+});
+
+test("a stranger with neither cookie nor token cannot end someone's sign-in", async () => {
     await withServer(ON, async (origin) => {
         const { requestId, cookie } = await startSignIn(origin);
-        await complete(origin, { request_id: requestId, decision: "allow", api_key: MINTED_KEY });
+        const { token } = await decide(origin, requestId);
 
-        const stranger = await comeBack(origin, requestId, "");
-        assert.equal(stranger.status, 403);
-        assert.equal(stranger.headers.get("location"), null);
+        assert.equal((await comeBack(origin, requestId, "")).status, 403);
+        assert.equal((await comeBack(origin, requestId, cookie.replace(/=.*/, "=not-the-secret"))).status, 403);
+        assert.equal((await comeBack(origin, requestId, "", "B".repeat(43))).status, 403);
 
-        const wrongCookie = await comeBack(origin, requestId, cookie.replace(/=.*/, "=not-the-secret"));
-        assert.equal(wrongCookie.status, 403);
-
-        // The refusals did not use the sign-in up.
-        const owner = await comeBack(origin, requestId, cookie);
+        const owner = await comeBack(origin, requestId, cookie, token);
         assert.equal(owner.status, 302);
         assert.ok(new URL(owner.headers.get("location")).searchParams.get("code"));
     });
@@ -271,8 +327,9 @@ test("coming back before the console decided keeps the sign-in open", async () =
         const { requestId, cookie } = await startSignIn(origin);
         const early = await comeBack(origin, requestId, cookie);
         assert.equal(early.status, 409);
-        await complete(origin, { request_id: requestId, decision: "allow", api_key: MINTED_KEY });
-        const later = await comeBack(origin, requestId, cookie);
+        assert.equal((await comeBack(origin, requestId, "")).status, 403);
+        const { token } = await decide(origin, requestId);
+        const later = await comeBack(origin, requestId, cookie, token);
         assert.equal(later.status, 302);
     });
 });
@@ -280,10 +337,9 @@ test("coming back before the console decided keeps the sign-in open", async () =
 test("a cancelled sign-in sends the client access_denied", async () => {
     await withServer(ON, async (origin) => {
         const { requestId, cookie } = await startSignIn(origin);
-        const done = await complete(origin, { request_id: requestId, decision: "deny" });
-        assert.equal(done.status, 200);
-        assert.equal((await done.json()).status, "denied");
-        const back = await comeBack(origin, requestId, cookie);
+        const { body, token } = await decide(origin, requestId, "deny");
+        assert.equal(body.status, "denied");
+        const back = await comeBack(origin, requestId, cookie, token);
         assert.equal(back.status, 302);
         const location = new URL(back.headers.get("location"));
         assert.equal(location.searchParams.get("error"), "access_denied");
@@ -299,7 +355,15 @@ test("the server-to-server calls need the shared secret and take one decision", 
 
         assert.equal((await complete(origin, allow, "wrong-secret-0123456789abcdef0123456789")).status, 401);
         assert.equal((await fetch(`${origin}/connect/complete`, { method: "POST", body: JSON.stringify(allow) })).status, 401);
-        assert.equal((await fetch(`${origin}/connect/info?request=${requestId}`)).status, 401);
+        assert.equal((await describe(origin, requestId, null)).status, 401);
+        assert.equal((await describe(origin, requestId, "wrong-secret-0123456789abcdef0123456789")).status, 401);
+        assert.equal((await describe(origin, "not-an-id")).status, 400);
+        assert.equal((await describe(origin, "dscr_" + "x".repeat(43))).status, 404);
+        // The id never travels in a URL: the old query form is gone.
+        const viaQuery = await fetch(`${origin}/connect/info?request=${requestId}`, {
+            headers: { authorization: `Bearer ${SECRET}` },
+        });
+        assert.equal(viaQuery.status, 405);
 
         assert.equal((await complete(origin, { ...allow, api_key: "has spaces in it, not a key" })).status, 400);
         assert.equal((await complete(origin, { request_id: requestId, decision: "allow" })).status, 400);
@@ -362,4 +426,16 @@ test("an expired sign-in is gone from the store", async () => {
     assert.equal(await store.claimConnectDecision("dscr_new"), false);
     assert.equal((await store.takeConnect("dscr_new")).clientName, "Claude");
     assert.equal(await store.takeConnect("dscr_new"), null);
+    assert.equal(await store.getConnect("dscr_new"), null);
+
+    // An update keeps the time that is left; it never extends it.
+    const soon = Date.now() + 2_000;
+    await store.saveConnect("dscr_brief", { ...record, expiresAt: soon });
+    await store.saveConnect("dscr_brief", { ...record, status: "approved", expiresAt: soon });
+    assert.equal((await store.getConnect("dscr_brief")).expiresAt, soon);
+
+    // Many callers at once: one gets the record.
+    await store.saveConnect("dscr_race", { ...record, expiresAt: Date.now() + 60_000 });
+    const takes = await Promise.all(Array.from({ length: 20 }, () => store.takeConnect("dscr_race")));
+    assert.equal(takes.filter(Boolean).length, 1);
 });

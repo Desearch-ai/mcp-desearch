@@ -7,4 +7,4 @@ async function fetch(request) {
 }
 
 export default { fetch };
-export const GET = fetch;
+export const POST = fetch;

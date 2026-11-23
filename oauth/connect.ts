@@ -6,13 +6,20 @@
  *      sets a cookie in this browser and sends the browser to the console.
  *   2. The console signs the person in, asks them to allow the connection,
  *      makes an API key on its server and posts it to /connect/complete. The
- *      key travels server to server and never appears in a URL.
- *   3. The browser comes back to /connect/return. Only the browser that holds
- *      the cookie from step 1 gets the authorization code, so a link to the
- *      console's page cannot hand one person's approval to another client.
+ *      key travels server to server and never appears in a URL. The answer
+ *      carries a one-time return token, which the console gives only to the
+ *      browser that pressed Allow.
+ *   3. That browser comes back to /connect/return with the token.
  *
- * The feature is off until DESEARCH_CONNECT_SECRET is set: the authorize page
- * then shows only the API key form, as before.
+ * The authorization code is issued only to a browser that holds both the
+ * cookie from step 1 and the token from step 2: the browser that started the
+ * sign-in must be the browser that allowed it. Someone who starts a sign-in
+ * and sends the console link to another person has the cookie but never sees
+ * the token; that other person's browser has the token but not the cookie, and
+ * its return ends the sign-in for good.
+ *
+ * The feature is off until DESEARCH_CONNECT_SECRET and DESEARCH_CONSOLE_URL are
+ * both set: the authorize page then shows only the API key form, as before.
  */
 import {
     AUTH_CODE_PREFIX,
@@ -54,7 +61,13 @@ export function connectConfig(): ConnectConfig | null {
         );
         return null;
     }
-    const raw = process.env.DESEARCH_CONSOLE_URL?.trim() || "https://console.desearch.ai";
+    // No default: a deployment that forgot this must not send people, or the
+    // keys made for them, to another environment's console.
+    const raw = process.env.DESEARCH_CONSOLE_URL?.trim();
+    if (!raw) {
+        console.error("DESEARCH_CONSOLE_URL is not set. Continue with Desearch is off.");
+        return null;
+    }
     try {
         const url = new URL(raw);
         if (url.protocol !== "https:" && !(url.protocol === "http:" && isLocalHost(url.hostname))) {
@@ -138,8 +151,9 @@ async function startConnect(fields: AuthorizePageFields, config: ConnectConfig):
         status: "pending",
         expiresAt: Date.now() + ttlSec * 1000,
     });
+    // In the fragment, which browsers do not send: the id stays out of the console host's request logs.
     const target = new URL("/connect", config.consoleOrigin);
-    target.searchParams.set("request", requestId);
+    target.hash = `request=${requestId}`;
     return new Response(null, {
         status: 303,
         headers: {
@@ -151,7 +165,27 @@ async function startConnect(fields: AuthorizePageFields, config: ConnectConfig):
     });
 }
 
-/** GET /connect/info?request=…: what the console shows on its "Allow" screen. Server to server. */
+async function readBody(request: Request): Promise<Record<string, unknown> | null> {
+    try {
+        const text = await request.text();
+        if (text.length > MAX_BODY_CHARS) {
+            return null;
+        }
+        const parsed: unknown = JSON.parse(text);
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+            return null;
+        }
+        return parsed as Record<string, unknown>;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * POST /connect/info with {"request_id":"…"}: what the console shows on its
+ * "Allow" screen. Server to server. The id is in the body, not the URL, so it
+ * does not reach request logs.
+ */
 export async function connectInfo(request: Request): Promise<Response> {
     const config = connectConfig();
     if (!config) {
@@ -160,7 +194,8 @@ export async function connectInfo(request: Request): Promise<Response> {
     if (!serverAuthorized(request, config)) {
         return json(401, { error: "unauthorized" });
     }
-    const requestId = new URL(request.url).searchParams.get("request") ?? "";
+    const info = await readBody(request);
+    const requestId = typeof info?.request_id === "string" ? info.request_id : "";
     if (!REQUEST_ID_PATTERN.test(requestId)) {
         return json(400, { error: "invalid_request" });
     }
@@ -192,18 +227,8 @@ export async function completeConnect(request: Request): Promise<Response> {
     if (!serverAuthorized(request, config)) {
         return json(401, { error: "unauthorized" });
     }
-    let body: Record<string, unknown>;
-    try {
-        const text = await request.text();
-        if (text.length > MAX_BODY_CHARS) {
-            throw new Error("body too large");
-        }
-        const parsed: unknown = JSON.parse(text);
-        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-            throw new Error("not an object");
-        }
-        body = parsed as Record<string, unknown>;
-    } catch {
+    const body = await readBody(request);
+    if (!body) {
         return json(400, { error: "invalid_request" });
     }
     const requestId = typeof body.request_id === "string" ? body.request_id : "";
@@ -223,31 +248,50 @@ export async function completeConnect(request: Request): Promise<Response> {
     if (record.status !== "pending" || !(await store.claimConnectDecision(requestId))) {
         return json(409, { error: "already_decided" });
     }
+    // Only the browser the console answers, the one that pressed Allow or Cancel, learns this token.
+    const returnToken = randomToken("", 32);
+    const returnTokenHash = sha256(returnToken);
     if (decision === "allow") {
         await store.saveConnect(requestId, {
             ...record,
             status: "approved",
+            returnTokenHash,
             apiKeyCiphertext: store.sealApiKey(apiKey),
         });
     } else {
-        await store.saveConnect(requestId, { ...record, status: "denied" });
+        await store.saveConnect(requestId, { ...record, status: "denied", returnTokenHash });
     }
     const returnUrl = new URL("/connect/return", publicOrigin(request));
     returnUrl.searchParams.set("request", requestId);
+    returnUrl.searchParams.set("token", returnToken);
     return json(200, {
         status: decision === "allow" ? "approved" : "denied",
         return_url: returnUrl.toString(),
     });
 }
 
-/** GET /connect/return?request=…: the browser comes back from the console and gets its code. */
+/**
+ * GET /connect/return?request=…&token=…: the browser comes back from the
+ * console and gets its code, if it is both the browser that started the
+ * sign-in (cookie) and the browser that allowed it (token).
+ */
 export async function returnConnect(request: Request): Promise<Response> {
     const expired = () =>
         htmlResponse(
             400,
             messagePage(TITLE, "This sign-in has expired. Go back to your app and connect Desearch again.")
         );
-    const requestId = new URL(request.url).searchParams.get("request") ?? "";
+    const otherBrowser = () =>
+        htmlResponse(
+            403,
+            messagePage(
+                TITLE,
+                "This sign-in was started in another browser. Go back to your app and connect Desearch again."
+            )
+        );
+    const params = new URL(request.url).searchParams;
+    const requestId = params.get("request") ?? "";
+    const returnToken = params.get("token") ?? "";
     if (!REQUEST_ID_PATTERN.test(requestId)) {
         return expired();
     }
@@ -257,20 +301,26 @@ export async function returnConnect(request: Request): Promise<Response> {
         return expired();
     }
     const presented = readCookie(request, cookieName(requestId));
-    if (!presented || !challengesMatch(sha256(presented), record.browserHash)) {
-        return htmlResponse(
-            403,
-            messagePage(
-                TITLE,
-                "This sign-in was started in another browser. Go back to your app and connect Desearch again."
-            )
-        );
-    }
-    if (record.status === "pending") {
+    const startedHere = Boolean(presented) && challengesMatch(sha256(presented), record.browserHash);
+    if (record.status === "pending" || !record.returnTokenHash) {
+        if (!startedHere) {
+            return otherBrowser();
+        }
         return htmlResponse(
             409,
             messagePage(TITLE, "This sign-in is not finished yet. Go back to the Desearch tab and choose Allow.")
         );
+    }
+    const decidedHere = Boolean(returnToken) && challengesMatch(sha256(returnToken), record.returnTokenHash);
+    if (!decidedHere) {
+        // The starter without the token, or a stranger: no code, and the sign-in stays as it is.
+        return otherBrowser();
+    }
+    if (!startedHere) {
+        // The person who allowed it is not the one who started it. End the
+        // sign-in so the starter's browser can never collect this approval.
+        await store.takeConnect(requestId);
+        return otherBrowser();
     }
     const taken = await store.takeConnect(requestId);
     if (!taken) {

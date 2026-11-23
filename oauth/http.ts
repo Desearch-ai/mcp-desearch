@@ -157,8 +157,8 @@ export async function handleOAuthHttp(request: Request): Promise<Response | null
             return methodNotAllowed("GET, POST");
         }
         if (pathname === "/connect/info") {
-            if (request.method !== "GET") {
-                return methodNotAllowed("GET");
+            if (request.method !== "POST") {
+                return methodNotAllowed("POST");
             }
             return await connectInfo(request);
         }
@@ -198,6 +198,13 @@ export async function handleOAuthHttp(request: Request): Promise<Response | null
             );
         }
         console.error(`OAuth error: ${error instanceof Error ? error.message : "unknown error"}`);
+        if (pathname === "/connect/return") {
+            // A person is looking at this response, not a client.
+            return htmlResponse(
+                500,
+                messagePage("Connect Desearch", "Something went wrong. Go back to your app and connect Desearch again.")
+            );
+        }
         return new Response(JSON.stringify({ error: "server_error", error_description: "OAuth request failed." }), {
             status: 500,
             headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
