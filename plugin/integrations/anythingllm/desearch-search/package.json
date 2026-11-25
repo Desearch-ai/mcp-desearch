@@ -1,0 +1,15 @@
+{
+  "name": "desearch-anythingllm-skill",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "engines": { "node": ">=20.18.1" },
+  "scripts": {
+    "test": "node --test test/*.test.cjs",
+    "lint": "eslint handler.js test/*.cjs *.cjs",
+    "build": "node package.cjs",
+    "validate": "node validate.cjs"
+  },
+  "dependencies": { "@modelcontextprotocol/sdk": "1.30.1" },
+  "devDependencies": { "ajv": "8.17.1", "ajv-formats": "3.0.1", "eslint": "9.39.1" }
+}

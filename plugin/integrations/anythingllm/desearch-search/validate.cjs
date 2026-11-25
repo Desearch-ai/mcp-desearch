@@ -1,0 +1,13 @@
+const fs = require('node:fs');
+const path = require('node:path');
+const Ajv = require('ajv');
+const addFormats = require('ajv-formats');
+const schemaPath = process.argv[2];
+if (!schemaPath) throw new Error('Pass the official imported-manifest.schema.json path.');
+const ajv = new Ajv({ strict: false });
+addFormats(ajv);
+const validate = ajv.compile(JSON.parse(fs.readFileSync(schemaPath, 'utf8')));
+const manifest = require('./plugin.json');
+if (!validate(manifest)) throw new Error(JSON.stringify(validate.errors));
+if (path.basename(__dirname) !== manifest.hubId) throw new Error('hubId must match directory');
+console.log('Official skill-1.0.0 manifest schema: PASS');
