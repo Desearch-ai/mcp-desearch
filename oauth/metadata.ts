@@ -8,11 +8,38 @@ export interface WwwChallenge {
 }
 
 /**
+ * Vercel Preview only, opt-in with `OAUTH_PREVIEW_ISSUER_FROM_HOST=1`: the issuer
+ * follows the preview's own host so a client can run the real OAuth flow against
+ * the preview. The host must be one Vercel assigned to this deployment
+ * (`VERCEL_URL` or `VERCEL_BRANCH_URL`), so a caller cannot pick it. Production
+ * (`VERCEL_ENV=production`) never takes this path.
+ */
+function previewDeploymentOrigin(request: Request): string | null {
+    if (process.env.VERCEL_ENV !== "preview" || process.env.OAUTH_PREVIEW_ISSUER_FROM_HOST !== "1") {
+        return null;
+    }
+    let host: string;
+    try {
+        host = new URL(request.url).host.toLowerCase();
+    } catch {
+        return null;
+    }
+    const assigned = [process.env.VERCEL_URL, process.env.VERCEL_BRANCH_URL]
+        .map((value) => value?.trim().toLowerCase())
+        .filter((value): value is string => Boolean(value));
+    return assigned.includes(host) ? `https://${host}` : null;
+}
+
+/**
  * Public origin of this authorization server.
  * Production refuses to run without `OAUTH_ISSUER`. Forwarded host headers are
  * never consulted, so a client cannot choose the issuer or the resource.
  */
 export function publicOrigin(request: Request): string {
+    const previewOrigin = previewDeploymentOrigin(request);
+    if (previewOrigin) {
+        return previewOrigin;
+    }
     const configured = process.env.OAUTH_ISSUER?.trim().replace(/\/+$/, "");
     if (configured) {
         return configured;
