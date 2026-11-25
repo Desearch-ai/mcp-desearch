@@ -1,0 +1,11 @@
+{
+  "name": "desearch/desearch",
+  "version": "0.1.0",
+  "description": "Choose and use Desearch MCP tools for web search, AI search, public social data, page extraction, people search, and company search.",
+  "private": true,
+  "skills": "./skills",
+  "mcpServers": ".mcp.json",
+  "homepage": "https://desearch.ai",
+  "repository": "https://github.com/Desearch-ai/mcp-desearch",
+  "license": "MIT"
+}
