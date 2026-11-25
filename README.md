@@ -767,6 +767,7 @@ Allowed callback URLs:
 - `https://claude.com/api/mcp/auth_callback`
 - `https://chatgpt.com/connector_platform_oauth_redirect`
 - `https://chatgpt.com/connector/oauth/{callback_id}`
+- `https://script.google.com/macros/d/1q3nQZY0VanjPTREexH3qUWIKQd4Ghd7_yFb5ElZ8YXiWolagOSlk2j-1/usercallback` (Desearch Google Workspace add-on; this script ID only)
 - Loopback `http://localhost`, `http://127.0.0.1`, and `http://[::1]` on any port (host and path must match the registered callback)
 
 The connector URL is `https://mcp.desearch.ai/mcp`. On the sign-in page, paste a key from [console.desearch.ai/api-keys](https://console.desearch.ai/api-keys). Leave a client id blank when the client can register itself.

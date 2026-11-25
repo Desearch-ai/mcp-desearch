@@ -15,6 +15,10 @@ const EXACT_REDIRECTS = new Set([
     "https://www.perplexity.ai/rest/connections/oauth_callback",
     "https://enterprise.perplexity.ai/rest/connections/oauth_callback",
     "https://teams.microsoft.com/api/platform/v1.0/oAuthRedirect",
+    // Desearch Google Workspace add-on (OAuth2 for Apps Script). Exact script ID
+    // only: a pattern over script.google.com would let any Apps Script project
+    // register as a Desearch client.
+    "https://script.google.com/macros/d/1q3nQZY0VanjPTREexH3qUWIKQd4Ghd7_yFb5ElZ8YXiWolagOSlk2j-1/usercallback",
 ]);
 
 const CHATGPT_CALLBACK_ID = /^\/connector\/oauth\/[A-Za-z0-9._~-]{1,200}$/;
