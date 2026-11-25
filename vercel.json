@@ -17,7 +17,10 @@
         { "source": "/.well-known/agent-tools.txt", "destination": "/api/agent-tools" },
         { "source": "/register", "destination": "/api/oauth-register" },
         { "source": "/authorize", "destination": "/api/oauth-authorize" },
-        { "source": "/token", "destination": "/api/oauth-token" }
+        { "source": "/token", "destination": "/api/oauth-token" },
+        { "source": "/connect/info", "destination": "/api/oauth-connect-info" },
+        { "source": "/connect/complete", "destination": "/api/oauth-connect-complete" },
+        { "source": "/connect/return", "destination": "/api/oauth-connect-return" }
     ],
     "headers": [
         {

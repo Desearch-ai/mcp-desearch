@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+Sign-in without an API key, off by default. Tool names are unchanged (51 tools).
+
+- With `DESEARCH_CONNECT_SECRET` and `DESEARCH_CONSOLE_URL` set, the hosted sign-in page leads with "Continue with Desearch": the person signs in or signs up on the Desearch console and allows the connection, and the console makes the API key on its server. Pasting a key stays as the second choice. Without them the page is unchanged.
+- New routes for that sign-in: `POST /connect/info` and `POST /connect/complete` (console to server, shared secret) and `GET /connect/return` (the browser coming back). The authorization code goes only to a browser that both started the sign-in and allowed it, and a sign-in is single use.
+
 ## 0.12.0
 
 Monitors: twelve new tools (51 in total) for the `/desearch/monitors` routes (desearch-public-api `docs/monitors.md`). A monitor reruns a search over `web`, `x`, `reddit`, `youtube`, and `threads` on a schedule (`1h` to `7d`), drops everything it has already seen, screens the new items (relevant, new information, and one question per criterion; kept at `min_score`), and keeps the ones that pass, readable through the API and sent to a signed webhook. Monitors are not in `desearch-js` 1.5, so `monitors.ts` calls the routes directly through `desearch-api.ts`, which now also sends `PATCH` and `DELETE`.

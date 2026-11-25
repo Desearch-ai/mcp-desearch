@@ -1,4 +1,5 @@
 import { ACCESS_TOKEN_PREFIX, REFRESH_TOKEN_PREFIX, AUTH_CODE_PREFIX } from "./crypto.js";
+import { completeConnect, connectInfo, desearchSignIn, returnConnect } from "./connect.js";
 import { exchangeToken, htmlResponse, registerClient, showAuthorize, submitAuthorize, lookupAccessApiKey } from "./flow.js";
 import { authorizationServerMetadata, protectedResourceMetadata, wwwAuthenticate } from "./metadata.js";
 import { messagePage } from "./page.js";
@@ -17,6 +18,9 @@ const OAUTH_PATHS = new Set([
     "/register",
     "/authorize",
     "/token",
+    "/connect/info",
+    "/connect/complete",
+    "/connect/return",
 ]);
 
 /**
@@ -34,6 +38,9 @@ const OAUTH_REWRITTEN_PATHS: Record<string, string> = {
     "/api/oauth-register": "/register",
     "/api/oauth-authorize": "/authorize",
     "/api/oauth-token": "/token",
+    "/api/oauth-connect-info": "/connect/info",
+    "/api/oauth-connect-complete": "/connect/complete",
+    "/api/oauth-connect-return": "/connect/return",
 };
 
 export function canonicalOAuthPath(pathname: string): string | null {
@@ -142,12 +149,30 @@ export async function handleOAuthHttp(request: Request): Promise<Response | null
         }
         if (pathname === "/authorize") {
             if (request.method === "GET" || request.method === "HEAD") {
-                return await showAuthorize(request);
+                return await showAuthorize(request, desearchSignIn());
             }
             if (request.method === "POST") {
-                return await submitAuthorize(request);
+                return await submitAuthorize(request, desearchSignIn());
             }
             return methodNotAllowed("GET, POST");
+        }
+        if (pathname === "/connect/info") {
+            if (request.method !== "POST") {
+                return methodNotAllowed("POST");
+            }
+            return await connectInfo(request);
+        }
+        if (pathname === "/connect/complete") {
+            if (request.method !== "POST") {
+                return methodNotAllowed("POST");
+            }
+            return await completeConnect(request);
+        }
+        if (pathname === "/connect/return") {
+            if (request.method !== "GET") {
+                return methodNotAllowed("GET");
+            }
+            return await returnConnect(request);
         }
         if (pathname === "/token") {
             if (request.method !== "POST") {
@@ -158,7 +183,7 @@ export async function handleOAuthHttp(request: Request): Promise<Response | null
         return null;
     } catch (error) {
         if (error instanceof OAuthConfigError) {
-            if (pathname === "/authorize") {
+            if (pathname === "/authorize" || pathname === "/connect/return") {
                 return htmlResponse(500, messagePage("Connect Desearch", "OAuth storage is not configured on this server."));
             }
             return new Response(
@@ -173,6 +198,13 @@ export async function handleOAuthHttp(request: Request): Promise<Response | null
             );
         }
         console.error(`OAuth error: ${error instanceof Error ? error.message : "unknown error"}`);
+        if (pathname === "/connect/return") {
+            // A person is looking at this response, not a client.
+            return htmlResponse(
+                500,
+                messagePage("Connect Desearch", "Something went wrong. Go back to your app and connect Desearch again.")
+            );
+        }
         return new Response(JSON.stringify({ error: "server_error", error_description: "OAuth request failed." }), {
             status: 500,
             headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },

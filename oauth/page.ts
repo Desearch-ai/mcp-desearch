@@ -19,6 +19,8 @@ export interface AuthorizePageFields {
     scope: string;
     clientName: string;
     error?: string;
+    /** Offer sign-in on the Desearch console, with the API key form as the second choice. */
+    desearchSignIn?: boolean;
 }
 
 export function authorizePage(fields: AuthorizePageFields): string {
@@ -68,12 +70,21 @@ export function authorizePage(fields: AuthorizePageFields): string {
   a { color: #1c1915; }
   .error { color: #8d2a2a; font-family: ui-sans-serif, system-ui, sans-serif; }
   .host { font-weight: 650; }
+  details { margin-top: 1.6rem; border-top: 1px solid #e3d9c6; padding-top: 1rem; }
+  summary { cursor: pointer; font-family: ui-sans-serif, system-ui, sans-serif; font-size: 0.9rem; }
 </style>
 </head>
 <body>
 <main>
   <h1>Desearch</h1>
-  <p>Paste a Desearch API key to connect. <a href="https://console.desearch.ai/api-keys">Create a key</a> in the Desearch console if you need one.</p>
+  ${fields.desearchSignIn ? signInBody(host, hidden, error) : keyOnlyBody(host, hidden, error)}
+</main>
+</body>
+</html>`;
+}
+
+function keyOnlyBody(host: string, hidden: string, error: string): string {
+    return `<p>Paste a Desearch API key to connect. <a href="https://console.desearch.ai/api-keys">Create a key</a> in the Desearch console if you need one.</p>
   <p>The key is checked before this page continues. It stays on this server and is not sent to <span class="host">${escapeHtml(host)}</span>.</p>
   ${error}
   <form method="post" action="/authorize" accept-charset="UTF-8">
@@ -84,10 +95,33 @@ export function authorizePage(fields: AuthorizePageFields): string {
       <button class="primary" type="submit" name="decision" value="allow">Continue</button>
       <button class="secondary" type="submit" name="decision" value="deny" formnovalidate>Cancel</button>
     </div>
-  </form>
-</main>
-</body>
-</html>`;
+  </form>`;
+}
+
+/**
+ * Sign-in on the console comes first. The key form stays one click away and
+ * opens by itself when a pasted key was refused.
+ */
+function signInBody(host: string, hidden: string, error: string): string {
+    return `<p>Sign in to Desearch to connect <span class="host">${escapeHtml(host)}</span>. New here? Signing in creates your account.</p>
+  <p>There is no API key to copy.</p>
+  <form method="post" action="/authorize" accept-charset="UTF-8">
+    ${hidden}
+    <div class="actions">
+      <button class="primary" type="submit" name="decision" value="desearch">Continue with Desearch</button>
+      <button class="secondary" type="submit" name="decision" value="deny">Cancel</button>
+    </div>
+    <details${error ? " open" : ""}>
+      <summary>Use an API key instead</summary>
+      <p>The key is checked before this page continues. It stays on this server and is not sent to <span class="host">${escapeHtml(host)}</span>.</p>
+      ${error}
+      <label for="api_key">Desearch API key</label>
+      <input id="api_key" name="api_key" type="password" autocomplete="off" spellcheck="false">
+      <div class="actions">
+        <button class="secondary" type="submit" name="decision" value="allow">Continue with this key</button>
+      </div>
+    </details>
+  </form>`;
 }
 
 export function messagePage(title: string, message: string): string {
