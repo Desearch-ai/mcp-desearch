@@ -79,6 +79,31 @@ test("keyless POST with no or wildcard Accept is never redirected", async () => 
     }
 });
 
+test("GET/HEAD carrying any Authorization or x-api-key header is never redirected", async () => {
+    const creds = [
+        { authorization: "Basic cWE6cWE=" },
+        { authorization: "Bearer" },
+        { authorization: "Bearer " },
+        { authorization: "" },
+        { authorization: "Token abc" },
+        { "x-api-key": "" },
+    ];
+    for (const method of ["GET", "HEAD"]) {
+        for (const accept of ["*/*", null, BROWSER_ACCEPT]) {
+            for (const cred of creds) {
+                const headers = { ...cred, ...(accept === null ? {} : { accept }) };
+                const response = await call({ method, headers });
+                const label = `${method} ${JSON.stringify(headers)}`;
+                assert.notEqual(response.status, 301, label);
+                assert.equal(response.headers.get("location"), null, label);
+            }
+        }
+    }
+    const basic = await call({ headers: { accept: "*/*", authorization: "Basic cWE6cWE=" } });
+    assert.equal(basic.status, 401);
+    assert.match(basic.headers.get("www-authenticate") ?? "", /^Bearer /);
+});
+
 test("HEAD with an MCP signal is not redirected (unchanged 405)", async () => {
     for (const headers of [
         { accept: "*/*", "mcp-protocol-version": "2025-06-18" },

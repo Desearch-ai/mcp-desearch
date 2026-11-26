@@ -147,6 +147,10 @@ function isBrowserPageView(request: Request): boolean {
     if (request.method !== "GET" && request.method !== "HEAD") {
         return false;
     }
+    // Any credential header, even an empty, unsupported or malformed one, keeps the 401 challenge.
+    if (request.headers.has("authorization") || request.headers.has("x-api-key")) {
+        return false;
+    }
     if (request.headers.has("mcp-session-id") || request.headers.has("mcp-protocol-version")) {
         return false;
     }
