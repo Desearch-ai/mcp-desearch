@@ -9,8 +9,18 @@ const call = (init) => mcpHandler.fetch(new Request(url, init));
 
 test("keyless browser GET and HEAD of /mcp redirect to the MCP docs page", async () => {
     assert.equal(MCP_DOCS_URL, "https://www.desearch.ai/docs/guide/sdk/mcp");
-    for (const [method, accept] of [["GET", BROWSER_ACCEPT], ["GET", "text/html"], ["HEAD", BROWSER_ACCEPT]]) {
-        const response = await call({ method, headers: { accept } });
+    const pageViews = [
+        ["GET", BROWSER_ACCEPT],
+        ["GET", "text/html"],
+        ["HEAD", BROWSER_ACCEPT],
+        ["GET", "*/*"],
+        ["HEAD", "*/*"],
+        ["GET", "*/*;q=0.8"],
+        ["GET", null],
+        ["HEAD", null],
+    ];
+    for (const [method, accept] of pageViews) {
+        const response = await call({ method, headers: accept === null ? {} : { accept } });
         assert.equal(response.status, 301, `${method} ${accept}`);
         assert.equal(response.headers.get("location"), MCP_DOCS_URL);
         assert.equal(response.headers.get("vary"), "Accept");
@@ -26,8 +36,14 @@ test("MCP clients without a key keep the 401 challenge", async () => {
         { method: "GET", headers: { accept: "text/event-stream" } },
         { method: "GET", headers: { accept: "text/html, text/event-stream" } },
         { method: "GET", headers: { accept: "application/json, text/event-stream" } },
-        { method: "GET", headers: { accept: "*/*" } },
-        { method: "GET", headers: {} },
+        { method: "GET", headers: { accept: "application/json" } },
+        { method: "GET", headers: { accept: "application/json, */*" } },
+        { method: "GET", headers: { accept: "text/event-stream, */*" } },
+        { method: "GET", headers: { "mcp-protocol-version": "2025-06-18" } },
+        { method: "GET", headers: { accept: "*/*", "mcp-protocol-version": "2025-06-18" } },
+        { method: "GET", headers: { accept: "*/*", "mcp-session-id": "abc" } },
+        { method: "DELETE", headers: {} },
+        { method: "DELETE", headers: { accept: "*/*" } },
         { method: "GET", headers: { accept: "text/html", "mcp-protocol-version": "2025-06-18" } },
         { method: "GET", headers: { accept: "text/html", "mcp-session-id": "abc" } },
         { method: "DELETE", headers: { accept: "text/html" } },
@@ -51,11 +67,41 @@ test("MCP clients without a key keep the 401 challenge", async () => {
     }
 });
 
+test("keyless POST with no or wildcard Accept is never redirected", async () => {
+    for (const headers of [{ "content-type": "application/json" }, { accept: "*/*", "content-type": "application/json" }]) {
+        const response = await call({
+            method: "POST",
+            headers,
+            body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+        });
+        assert.notEqual(response.status, 301, JSON.stringify(headers));
+        assert.equal(response.headers.get("location"), null);
+    }
+});
+
+test("HEAD with an MCP signal is not redirected (unchanged 405)", async () => {
+    for (const headers of [
+        { accept: "*/*", "mcp-protocol-version": "2025-06-18" },
+        { accept: "text/event-stream" },
+        { accept: "application/json" },
+    ]) {
+        const response = await call({ method: "HEAD", headers });
+        assert.equal(response.status, 405, JSON.stringify(headers));
+        assert.equal(response.headers.get("location"), null);
+    }
+});
+
 test("browser GET with a key or a bad token is not redirected", async () => {
     const keyed = await call({ headers: { accept: BROWSER_ACCEPT, authorization: "Bearer test-key" } });
     assert.equal(keyed.status, 405);
     const bad = await call({ headers: { accept: BROWSER_ACCEPT, authorization: "Bearer dsoat_not-a-real-token" } });
     assert.notEqual(bad.status, 301);
+    for (const headers of [{ "x-api-key": "test-key" }, { accept: "*/*", authorization: "Bearer test-key" }]) {
+        const response = await call({ headers });
+        assert.equal(response.status, 405, JSON.stringify(headers));
+    }
+    const badWildcard = await call({ headers: { accept: "*/*", authorization: "Bearer dsoat_not-a-real-token" } });
+    assert.notEqual(badWildcard.status, 301);
 });
 
 test("POST with a key is not affected", async () => {
