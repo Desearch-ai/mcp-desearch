@@ -136,20 +136,36 @@ const LOGIN_CHALLENGE: WwwChallenge = {
 export const MCP_DOCS_URL = "https://www.desearch.ai/docs/guide/sdk/mcp";
 
 /**
- * A plain page view of /mcp: GET or HEAD, Accept asks for HTML, and nothing
- * marks it as an MCP client (no SSE Accept, no MCP session or protocol header).
- * MCP clients send `Accept: text/event-stream` on GET, so they keep the 401
+ * A plain page view of /mcp: GET or HEAD from a browser or a crawler, with
+ * nothing that marks it as an MCP client. Accept either asks for HTML, or is
+ * missing, or is only the wildcard `*\/*` (link checkers and SEO crawlers).
+ * MCP clients send `Accept: text/event-stream` on GET (and `application/json`
+ * on POST), plus MCP session or protocol headers, so they keep the 401
  * challenge that drives their OAuth or key prompt.
  */
 function isBrowserPageView(request: Request): boolean {
     if (request.method !== "GET" && request.method !== "HEAD") {
         return false;
     }
-    const accept = (request.headers.get("accept") ?? "").toLowerCase();
-    if (!accept.includes("text/html") || accept.includes("text/event-stream")) {
+    // Any credential header, even an empty, unsupported or malformed one, keeps the 401 challenge.
+    if (request.headers.has("authorization") || request.headers.has("x-api-key")) {
         return false;
     }
-    return !request.headers.has("mcp-session-id") && !request.headers.has("mcp-protocol-version");
+    if (request.headers.has("mcp-session-id") || request.headers.has("mcp-protocol-version")) {
+        return false;
+    }
+    const accept = (request.headers.get("accept") ?? "").toLowerCase();
+    if (accept.includes("text/event-stream") || accept.includes("application/json")) {
+        return false;
+    }
+    if (accept.includes("text/html")) {
+        return true;
+    }
+    const types = accept
+        .split(",")
+        .map((part) => part.split(";")[0].trim())
+        .filter(Boolean);
+    return types.every((type) => type === "*/*");
 }
 
 function docsRedirect(): Response {
